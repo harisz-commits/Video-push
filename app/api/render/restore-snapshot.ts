@@ -13,7 +13,10 @@ export async function restoreSnapshot() {
   });
   if (!blob) {
     throw new Error(
-      "No sandbox snapshot found. Run `bun run create-snapshot` as part of the build process.",
+      "Für dieses Deployment existiert kein Sandbox-Snapshot. Das ist der Fall, "
+      + "wenn beim Build noch kein Blob-Store verbunden war. Blob-Store auf "
+      + "vercel.com anlegen, dem Projekt zuweisen und einmal neu deployen — "
+      + "dann wird der Snapshot beim Build erzeugt.",
     );
   }
 
@@ -23,7 +26,10 @@ export async function restoreSnapshot() {
 
   if (!snapshotId) {
     throw new Error(
-      "No sandbox snapshot found. Run `bun run create-snapshot` as part of the build process.",
+      "Für dieses Deployment existiert kein Sandbox-Snapshot. Das ist der Fall, "
+      + "wenn beim Build noch kein Blob-Store verbunden war. Blob-Store auf "
+      + "vercel.com anlegen, dem Projekt zuweisen und einmal neu deployen — "
+      + "dann wird der Snapshot beim Build erzeugt.",
     );
   }
 
