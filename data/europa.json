@@ -1,0 +1,239 @@
+{
+  "id": "seed-europa",
+  "topic": "Europa geht das Essen aus",
+  "title": "Europa geht das Essen aus",
+  "captions": true,
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "voiceover": "Das vollste Supermarktregal der Welt steht in Europa. Und es ist eine Illusion.\n\nNicht weil das Essen fehlt. Es ist da. Aber die Sicherheit, mit der es dort liegt, ist keine Eigenschaft des Regals. Sie ist eine Kette. Und jedes einzelne Glied dieser Kette ist in den letzten zwanzig Jahren dünner geworden.\n\nFangen wir vorne an. Bei denen, die das Essen anbauen.\n\nIm Jahr zweitausendfünf gab es in der Europäischen Union etwa vierzehneinhalb Millionen landwirtschaftliche Betriebe. Heute sind es weniger als neun Millionen. Das ist kein Rückgang. Das ist ein Verschwinden. Über fünf Millionen Höfe haben in weniger als einer Generation aufgehört zu existieren. Nicht durch eine einzelne Katastrophe. Durch Rechnungen, die am Jahresende nicht mehr aufgingen, und durch Höfe, für die sich kein Nachfolger fand.\n\nUnd die, die bleiben, werden älter. Das Durchschnittsalter europäischer Landwirte liegt bei etwa siebenundfünfzig Jahren. Nur jeder zwölfte ist jünger als vierzig. Stell dir einen Beruf vor, in dem die Hälfte der Belegschaft in fünfzehn Jahren in Rente geht und kaum jemand nachrückt. Das ist kein Arbeitsmarktproblem. Das ist die Frage, wer im Jahr zweitausendvierzig die Felder bestellt.\n\nAber gut, sagst du. Maschinen. Technik. Größere Betriebe. Stimmt, genau das ist passiert. Nur löst es das nächste Problem nicht.\n\nBoden wächst nicht nach. Jedes Jahr verschwinden in Europa hunderte Quadratkilometer landwirtschaftliche Fläche unter Beton, Asphalt und Gewerbegebieten. Einmal versiegelt, ist ein Acker für Jahrhunderte kein Acker mehr. Gleichzeitig verliert der Boden, der bleibt, an Substanz. Erosion, Verdichtung, sinkender Humusgehalt. Ein Zentimeter fruchtbarer Boden braucht Jahrhunderte, um zu entstehen. Er verschwindet in einem einzigen Starkregen. Und anders als eine Fabrik lässt sich ein Acker nicht an einen günstigeren Standort verlegen.\n\nUnd jetzt kommt der Teil, den kaum jemand auf dem Schirm hat. Europa ernährt sich nicht selbst. Es ernährt sich mit Hilfe von Flächen, die ganz woanders liegen.\n\nDas Schnitzel auf deinem Teller ist deutsch. Das Futter, mit dem das Tier großgezogen wurde, wächst in Südamerika. Millionen Tonnen Soja überqueren jedes Jahr den Atlantik, damit europäische Ställe funktionieren. Rechnet man diese Flächen dazu, braucht Europa deutlich mehr Ackerland, als auf dem Kontinent überhaupt vorhanden ist. Wir haben den Hunger nicht abgeschafft. Wir haben ihn exportiert. Und damit auch das Risiko: Eine Missernte in Brasilien ist längst ein europäisches Problem.\n\nUnd dann ist da noch der Dünger.\n\nKein Gas, kein Dünger. So einfach ist die Gleichung. Stickstoffdünger wird aus Erdgas hergestellt. Als die Gaspreise zweitausendzweiundzwanzig explodierten, stellten europäische Werke die Produktion ein. Dünger wurde zeitweise dreimal so teuer. Und wer weniger düngt, erntet weniger. Ein Gasmarkt in Norwegen, in Katar, in Texas entscheidet mit darüber, wie viel Weizen im nächsten Sommer auf einem Feld in Frankreich steht.\n\nUnd über all dem liegt etwas, das sich nicht verhandeln lässt.\n\nZweitausendzweiundzwanzig erlebte Europa die schlimmste Dürre seit fünfhundert Jahren. Zwei Drittel des Kontinents standen unter Trockenwarnung. Der Rhein wurde so flach, dass Frachtschiffe nur noch halb beladen fahren konnten. Ein Fluss, der seit Jahrhunderten Getreide und Dünger durch den Kontinent trägt, wurde für Monate zum Nadelöhr. In Spanien und Italien verdorrten Oliven- und Reisernten. Der Preis für Olivenöl hat sich innerhalb von zwei Jahren mehr als verdoppelt.\n\nUnd genau hier wird die Sache konkret. Denn eine Klimakrise sieht im Alltag nicht aus wie ein schmelzender Gletscher. Sie sieht aus wie ein Preisschild. Der Preisindex für Nahrungsmittel in Europa ist seit zweitausendzwanzig um rund dreißig Prozent gestiegen. Nicht wegen einer einzigen Ursache. Wegen aller gleichzeitig.\n\nAlso ist alles verloren? Nein. Und das ist der interessante Teil.\n\nEuropa ist nicht wehrlos. Es hat drei Dinge, die kaum eine andere Region gleichzeitig besitzt. Satellitengestützte Präzisionslandwirtschaft, die Dünger und Wasser genau dorthin bringt, wo sie gebraucht werden, statt aufs ganze Feld. Eine Saatgutforschung, die Sorten entwickelt, die mit Hitze und Trockenheit umgehen können. Und Kreislaufverfahren, die Stickstoff aus Klärschlamm und Gärresten zurückholen, statt ihn immer wieder neu aus Erdgas zu erzeugen.\n\nKeine dieser Technologien ist Science-Fiction. Alle drei laufen bereits. Die Frage ist nicht, ob sie funktionieren. Die Frage ist, wie schnell sie skalieren. Und ob sie schneller wachsen als die Probleme, gegen die sie antreten.\n\nDenn am Ende steht die europäische Ernährung auf vier Säulen: Boden, Wissen, Energie und Handel. Drei davon lassen sich reparieren. Man kann Wissen aufbauen, auch wenn es eine Generation dauert. Man kann Energie umstellen und Handelswege ändern, auch wenn es teuer wird. Beim Boden ist das anders. Boden ist die einzige Säule, die man nicht nachbestellen kann.\n\nUnd das ist der eigentliche Punkt dieser ganzen Geschichte. Europa hat kein Nahrungsmittelproblem. Europa hat ein Zeitproblem. Die Kette hält noch. Sie hält, weil diese vier Krisen bisher nie im selben Jahr zusammengefallen sind.\n\nDas Regal, vor dem du morgen stehst, wird voll sein. Das übernächste wird eine Entscheidung gewesen sein.",
+  "scenes": [
+    {
+      "id": "s01",
+      "type": "hook",
+      "anchorPhrase": "Das vollste Supermarktregal der Welt",
+      "kicker": "Ernährungssicherheit",
+      "headline": "EUROPA GEHT DAS ESSEN AUS",
+      "sub": "Warum das vollste Regal der Welt die dünnste Sicherheit hat.",
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s02",
+      "type": "chain",
+      "anchorPhrase": "Sie ist eine Kette",
+      "headline": "KEIN REGAL. EINE KETTE.",
+      "nodes": [
+        {
+          "icon": "soil",
+          "label": "Boden"
+        },
+        {
+          "icon": "tractor",
+          "label": "Betriebe"
+        },
+        {
+          "icon": "fertilizer",
+          "label": "Dünger"
+        },
+        {
+          "icon": "shelf",
+          "label": "Regal"
+        }
+      ],
+      "breakAt": 3,
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s03",
+      "type": "counter",
+      "anchorPhrase": "Im Jahr zweitausendfünf",
+      "headline": "BETRIEBE IN DER EU",
+      "values": [
+        {
+          "label": "2005",
+          "value": 14.5,
+          "suffix": "Mio."
+        },
+        {
+          "label": "heute",
+          "value": 9,
+          "suffix": "Mio."
+        }
+      ],
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s04",
+      "type": "iconGrid",
+      "anchorPhrase": "Über fünf Millionen Höfe",
+      "headline": "FÜNF MILLIONEN HÖFE — WEG",
+      "sub": "Betriebe",
+      "icon": "barn",
+      "total": 40,
+      "remaining": 25,
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s05",
+      "type": "counter",
+      "anchorPhrase": "Das Durchschnittsalter europäischer Landwirte",
+      "headline": "WER BESTELLT DIE FELDER?",
+      "values": [
+        {
+          "label": "Jahre",
+          "value": 57
+        }
+      ],
+      "sub": "Nur jeder zwölfte Landwirt ist jünger als vierzig.",
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s06",
+      "type": "split",
+      "anchorPhrase": "Boden wächst nicht nach",
+      "headline": "EINMAL VERSIEGELT, IMMER VERSIEGELT",
+      "left": {
+        "icon": "soil",
+        "label": "ACKER",
+        "caption": "Jahrhunderte für einen Zentimeter"
+      },
+      "right": {
+        "icon": "factory",
+        "label": "BETON",
+        "caption": "Ein Bauantrag"
+      },
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s07",
+      "type": "split",
+      "anchorPhrase": "wächst in Südamerika",
+      "headline": "DEUTSCHES SCHNITZEL, FREMDER ACKER",
+      "left": {
+        "icon": "barn",
+        "label": "STALL IN EUROPA"
+      },
+      "right": {
+        "icon": "wheat",
+        "label": "FUTTER IN SÜDAMERIKA"
+      },
+      "connector": "ship",
+      "sub": "Wir haben den Hunger nicht abgeschafft. Wir haben ihn exportiert.",
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s08",
+      "type": "chain",
+      "anchorPhrase": "Kein Gas, kein Dünger",
+      "headline": "KEIN GAS, KEIN DÜNGER",
+      "nodes": [
+        {
+          "icon": "flame",
+          "label": "Erdgas"
+        },
+        {
+          "icon": "factory",
+          "label": "Werk"
+        },
+        {
+          "icon": "fertilizer",
+          "label": "Dünger"
+        },
+        {
+          "icon": "wheat",
+          "label": "Ernte"
+        }
+      ],
+      "breakAt": 0,
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s09",
+      "type": "chart",
+      "anchorPhrase": "schlimmste Dürre seit fünfhundert Jahren",
+      "headline": "OLIVENÖL, PREIS JE LITER",
+      "variant": "line",
+      "series": [
+        3.9,
+        4.2,
+        5.6,
+        8.1,
+        9.4
+      ],
+      "labels": [
+        "2020",
+        "2021",
+        "2022",
+        "2023",
+        "2024"
+      ],
+      "unit": "EUR",
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s10",
+      "type": "counter",
+      "anchorPhrase": "Sie sieht aus wie ein Preisschild",
+      "headline": "LEBENSMITTEL-PREISINDEX",
+      "values": [
+        {
+          "label": "2020",
+          "value": 100
+        },
+        {
+          "label": "heute",
+          "value": 130
+        }
+      ],
+      "sub": "Nicht wegen einer einzigen Ursache. Wegen aller gleichzeitig.",
+      "phase": "crisis",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s11",
+      "type": "iconGrid",
+      "anchorPhrase": "Europa ist nicht wehrlos",
+      "headline": "DREI HEBEL, DIE SCHON LAUFEN",
+      "sub": "Satellit, Saatgut, Kreislauf",
+      "icon": "satellite",
+      "total": 9,
+      "remaining": 9,
+      "phase": "solution",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s12",
+      "type": "pillars",
+      "anchorPhrase": "Boden, Wissen, Energie und Handel",
+      "headline": "VIER SÄULEN. EINE OHNE ERSATZ.",
+      "pillars": [
+        "Boden",
+        "Wissen",
+        "Energie",
+        "Handel"
+      ],
+      "unstableIndex": 0,
+      "carries": "EUROPAS ERNÄHRUNG",
+      "phase": "solution",
+      "durationInFrames": 90
+    },
+    {
+      "id": "s13",
+      "type": "closer",
+      "anchorPhrase": "Das Regal, vor dem du morgen stehst",
+      "headline": "Kein Nahrungsmittelproblem. Ein Zeitproblem.",
+      "statement": "Das übernächste Regal wird eine Entscheidung gewesen sein.",
+      "phase": "solution",
+      "durationInFrames": 90
+    }
+  ]
+}

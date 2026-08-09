@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "ArchivoExpanded";
+  src: url("/fonts/ArchivoExpanded-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-display: block;
+}
+@font-face {
+  font-family: "ArchivoExpanded";
+  src: url("/fonts/ArchivoExpanded-700-latin-ext.woff2") format("woff2");
+  font-weight: 700;
+  font-display: block;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "InterTight";
+  src: url("/fonts/InterTight-500-latin.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "InterTight";
+  src: url("/fonts/InterTight-500-latin-ext.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrainsMono";
+  src: url("/fonts/JetBrainsMono-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+/* The studio is a measuring table: cool paper, dark ink, exactly one warm accent. */
+:root {
+  --field: #edeff2;
+  --ink: #0f1620;
+  --grid: #c9d0d9;
+  --wheat: #c89b3c;
+  --live: #1f6f5c;
+  --alert: #c4452f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--field);
+  color: var(--ink);
+  font-family: "InterTight", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Everything is 2px — the tool should read as technical, not soft. */
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  border-radius: 2px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--wheat);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: "JetBrainsMono", ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.display {
+  font-family: "ArchivoExpanded", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+/* Three columns from 1280px, stacked below; the timeline always spans full width. */
+.studio {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.studio-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr) 330px;
+  min-height: 0;
+}
+
+.studio-rail {
+  border-right: 1px solid var(--grid);
+  padding: 0 20px 24px;
+  overflow-y: auto;
+}
+
+.studio-stage {
+  background: var(--field);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  min-width: 0;
+}
+
+.studio-scenes {
+  border-left: 1px solid var(--grid);
+  padding: 0 16px 24px;
+  overflow-y: auto;
+}
+
+@media (max-width: 1279px) {
+  .studio-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio-rail,
+  .studio-scenes {
+    border: none;
+    border-bottom: 1px solid var(--grid);
+  }
+  .studio-stage {
+    order: -1;
+  }
+}

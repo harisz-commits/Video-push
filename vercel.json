@@ -1,0 +1,9 @@
+{
+  "buildCommand": "next build && npm run create-snapshot",
+  "crons": [
+    {
+      "path": "/api/cron/cleanup",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

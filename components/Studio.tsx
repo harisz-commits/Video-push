@@ -1,0 +1,520 @@
+"use client";
+
+import { Player, type PlayerRef } from "@remotion/player";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolveSceneTimings } from "../lib/align";
+import type { Scene, VideoProject } from "../lib/schema";
+import { Video } from "../remotion/Video";
+import { SceneInspector } from "./SceneInspector";
+import { Timeline } from "./Timeline";
+import { Button, Field, formatTimecode, Note, Panel } from "./ui";
+
+type RenderState = {
+  renderId: string;
+  status: "queued" | "rendering" | "done" | "error";
+  progress: number;
+  phase: string;
+  outputUrl?: string;
+  error?: string;
+};
+
+export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
+  const [project, setProject] = useState<VideoProject>(seed);
+  const [topic, setTopic] = useState("");
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(
+    seed.scenes[0]?.id ?? null,
+  );
+  const [currentFrame, setCurrentFrame] = useState(0);
+
+  const [scriptBusy, setScriptBusy] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [scriptError, setScriptError] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [scriptDone, setScriptDone] = useState(false);
+
+  const [voices, setVoices] = useState<{ voiceId: string; name: string }[]>([]);
+  const [voiceId, setVoiceId] = useState<string>("");
+
+  const [render, setRender] = useState<RenderState | null>(null);
+  const playerRef = useRef<PlayerRef>(null);
+
+  const timing = useMemo(() => resolveSceneTimings(project), [project]);
+  const wordCount = useMemo(
+    () => project.voiceover.trim().split(/\s+/).filter(Boolean).length,
+    [project.voiceover],
+  );
+  const hasAudio = Boolean(project.audioUrl && project.alignment);
+
+  // ---- Player <-> timeline sync ------------------------------------------
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    const onFrame = (e: { detail: { frame: number } }) =>
+      setCurrentFrame(e.detail.frame);
+    player.addEventListener("frameupdate", onFrame);
+    return () => player.removeEventListener("frameupdate", onFrame);
+  }, []);
+
+  const seek = useCallback((frame: number) => {
+    playerRef.current?.seekTo(frame);
+    setCurrentFrame(frame);
+  }, []);
+
+  // ---- Voice list ---------------------------------------------------------
+  useEffect(() => {
+    fetch("/api/voice")
+      .then((r) => (r.ok ? r.json() : { voices: [] }))
+      .then((data: { voices?: { voiceId: string; name: string }[]; defaultVoiceId?: string }) => {
+        setVoices(data.voices ?? []);
+        setVoiceId(data.defaultVoiceId ?? data.voices?.[0]?.voiceId ?? "");
+      })
+      .catch(() => setVoices([]));
+  }, []);
+
+  // ---- 01 Thema -----------------------------------------------------------
+  async function generateScript() {
+    setScriptBusy(true);
+    setScriptError(null);
+    setScriptDone(false);
+    try {
+      const response = await fetch("/api/script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic }),
+      });
+      const data = (await response.json()) as {
+        project?: VideoProject;
+        error?: string;
+      };
+      if (!response.ok || !data.project) {
+        setScriptError(data.error ?? "Die Skripterzeugung ist fehlgeschlagen.");
+        return;
+      }
+      setProject(data.project);
+      setSelectedSceneId(data.project.scenes[0]?.id ?? null);
+      setRender(null);
+      setScriptDone(true);
+      seek(0);
+    } catch {
+      setScriptError(
+        "Der Server war nicht erreichbar. Prüfe die Verbindung und versuch es erneut.",
+      );
+    } finally {
+      setScriptBusy(false);
+    }
+  }
+
+  // ---- 03 Stimme ----------------------------------------------------------
+  async function generateVoice() {
+    setVoiceBusy(true);
+    setVoiceError(null);
+    try {
+      const response = await fetch("/api/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          voiceover: project.voiceover,
+          voiceId: voiceId || undefined,
+        }),
+      });
+      const data = (await response.json()) as {
+        audioUrl?: string;
+        alignment?: VideoProject["alignment"];
+        error?: string;
+      };
+      if (!response.ok || !data.audioUrl || !data.alignment) {
+        setVoiceError(data.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
+        return;
+      }
+      setProject((p) => ({
+        ...p,
+        audioUrl: data.audioUrl,
+        alignment: data.alignment,
+      }));
+      setRender(null);
+      seek(0);
+    } catch {
+      setVoiceError(
+        "Der Server war nicht erreichbar. Prüfe die Verbindung und versuch es erneut.",
+      );
+    } finally {
+      setVoiceBusy(false);
+    }
+  }
+
+  // ---- 04 Rendern ---------------------------------------------------------
+  async function startRender() {
+    setRender({
+      renderId: "",
+      status: "queued",
+      progress: 0,
+      phase: "Wird gestartet",
+    });
+    try {
+      const response = await fetch("/api/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project }),
+      });
+      const data = (await response.json()) as {
+        renderId?: string;
+        error?: string;
+      };
+      if (!response.ok || !data.renderId) {
+        setRender({
+          renderId: "",
+          status: "error",
+          progress: 0,
+          phase: "Abgebrochen",
+          error: data.error ?? "Der Render konnte nicht gestartet werden.",
+        });
+        return;
+      }
+      setRender({
+        renderId: data.renderId,
+        status: "rendering",
+        progress: 0,
+        phase: "Sandbox wird gestartet",
+      });
+    } catch {
+      setRender({
+        renderId: "",
+        status: "error",
+        progress: 0,
+        phase: "Abgebrochen",
+        error: "Der Server war nicht erreichbar.",
+      });
+    }
+  }
+
+  // Poll progress while a render is in flight.
+  useEffect(() => {
+    if (!render?.renderId) return;
+    if (render.status === "done" || render.status === "error") return;
+
+    const id = window.setInterval(async () => {
+      try {
+        const response = await fetch(
+          `/api/progress?renderId=${encodeURIComponent(render.renderId)}`,
+        );
+        if (!response.ok) return;
+        const data = (await response.json()) as RenderState;
+        setRender((current) =>
+          current && current.renderId === data.renderId
+            ? { ...current, ...data }
+            : current,
+        );
+      } catch {
+        // A dropped poll is not fatal — the next tick tries again.
+      }
+    }, 2000);
+
+    return () => window.clearInterval(id);
+  }, [render?.renderId, render?.status]);
+
+  // ---- Scene editing ------------------------------------------------------
+  const updateScene = useCallback((id: string, patch: Partial<Scene>) => {
+    setProject((p) => ({
+      ...p,
+      scenes: p.scenes.map((s) =>
+        s.id === id ? ({ ...s, ...patch } as Scene) : s,
+      ),
+    }));
+  }, []);
+
+  const moveScene = useCallback((fromIndex: number, toIndex: number) => {
+    setProject((p) => {
+      const next = [...p.scenes];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return { ...p, scenes: next };
+    });
+  }, []);
+
+  const selectedScene =
+    timing.scenes.find((s) => s.id === selectedSceneId) ?? null;
+
+  const renderDisabledReason = !hasAudio
+    ? "Der Render braucht die Tonspur: die Szenenzeiten kommen aus den ElevenLabs-Timestamps."
+    : render?.status === "rendering" || render?.status === "queued"
+      ? "Es läuft bereits ein Render."
+      : null;
+
+  return (
+    <div className="studio">
+      <header
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 14,
+          padding: "14px 20px",
+          borderBottom: "1px solid var(--grid)",
+        }}
+      >
+        <span className="display" style={{ fontSize: 15 }}>
+          Infographics Studio
+        </span>
+        <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+          {project.width}×{project.height} · {project.fps} fps ·{" "}
+          {formatTimecode(timing.totalFrames / project.fps)}
+        </span>
+      </header>
+
+      <div className="studio-grid">
+        {/* ---------------- Left rail ---------------- */}
+        <div className="studio-rail">
+          <Panel step="01" title="Thema">
+            <Field
+              value={topic}
+              placeholder="z. B. Europa geht das Essen aus"
+              onChange={(e) => setTopic(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && topic.trim().length >= 3 && !scriptBusy) {
+                  void generateScript();
+                }
+              }}
+              aria-label="Stichwort"
+            />
+            <div style={{ height: 8 }} />
+            <Button
+              onClick={() => void generateScript()}
+              disabled={scriptBusy || topic.trim().length < 3}
+            >
+              {scriptBusy
+                ? "Skript wird erzeugt…"
+                : scriptDone
+                  ? "Skript erzeugt"
+                  : "Skript erzeugen"}
+            </Button>
+            {scriptError ? <Note tone="alert">{scriptError}</Note> : null}
+            {!topic && !scriptDone ? (
+              <Note tone="info">
+                Gib ein Thema ein. Aus einem Satz wird ein Fünf-Minuten-Video.
+              </Note>
+            ) : null}
+          </Panel>
+
+          <Panel
+            step="02"
+            title="Skript"
+            right={
+              <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                {wordCount} Wörter
+              </span>
+            }
+          >
+            <textarea
+              value={project.voiceover}
+              onChange={(e) => {
+                const voiceover = e.target.value;
+                // Editing the script invalidates the take it was spoken from.
+                setProject((p) => ({
+                  ...p,
+                  voiceover,
+                  audioUrl: undefined,
+                  alignment: undefined,
+                }));
+              }}
+              aria-label="Voiceover"
+              style={{
+                width: "100%",
+                height: 220,
+                padding: 12,
+                border: "1px solid var(--grid)",
+                background: "#fff",
+                fontSize: 13,
+                lineHeight: 1.5,
+                resize: "vertical",
+              }}
+            />
+            {hasAudio ? null : (
+              <Note tone="info">
+                Ohne Tonspur ist die Zeitleiste geschätzt. Die echten Zeiten
+                kommen aus den Timestamps.
+              </Note>
+            )}
+          </Panel>
+
+          <Panel step="03" title="Stimme">
+            <select
+              value={voiceId}
+              onChange={(e) => setVoiceId(e.target.value)}
+              aria-label="Stimme"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid var(--grid)",
+                background: "#fff",
+                fontSize: 14,
+              }}
+            >
+              {voices.length === 0 ? (
+                <option value="">Standardstimme aus der Konfiguration</option>
+              ) : (
+                voices.map((v) => (
+                  <option key={v.voiceId} value={v.voiceId}>
+                    {v.name}
+                  </option>
+                ))
+              )}
+            </select>
+            <div style={{ height: 8 }} />
+            <Button
+              onClick={() => void generateVoice()}
+              disabled={voiceBusy || project.voiceover.trim().length < 50}
+            >
+              {voiceBusy
+                ? "Stimme wird erzeugt…"
+                : hasAudio
+                  ? "Stimme neu erzeugen"
+                  : "Generieren"}
+            </Button>
+            {voiceError ? <Note tone="alert">{voiceError}</Note> : null}
+            {hasAudio && !voiceError ? (
+              <Note tone="live">
+                Tonspur liegt vor — alle Szenenzeiten stammen jetzt aus den
+                Timestamps.
+              </Note>
+            ) : null}
+          </Panel>
+
+          <Panel step="04" title="Rendern">
+            <div title={renderDisabledReason ?? undefined}>
+              <Button
+                onClick={() => void startRender()}
+                disabled={Boolean(renderDisabledReason)}
+              >
+                {render?.status === "rendering" || render?.status === "queued"
+                  ? "Rendert…"
+                  : "Rendern"}
+              </Button>
+            </div>
+
+            {renderDisabledReason ? (
+              <Note tone="info">{renderDisabledReason}</Note>
+            ) : null}
+
+            {render && render.status !== "error" ? (
+              <>
+                <div
+                  style={{
+                    marginTop: 12,
+                    height: 6,
+                    background: "var(--grid)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.round(render.progress * 100)}%`,
+                      height: "100%",
+                      background: "var(--live)",
+                      transition: "width 300ms linear",
+                    }}
+                  />
+                </div>
+                <Note tone={render.status === "done" ? "live" : "info"}>
+                  <span className="mono">
+                    {Math.round(render.progress * 100)}%
+                  </span>{" "}
+                  {render.status === "done" ? "Gerendert" : render.phase}
+                </Note>
+              </>
+            ) : null}
+
+            {render?.error ? <Note tone="alert">{render.error}</Note> : null}
+
+            {render?.outputUrl ? (
+              <a
+                href={render.outputUrl}
+                download
+                style={{
+                  display: "block",
+                  marginTop: 10,
+                  padding: "11px 14px",
+                  border: "1px solid var(--live)",
+                  color: "var(--live)",
+                  textAlign: "center",
+                  textDecoration: "none",
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                MP4 herunterladen
+              </a>
+            ) : null}
+          </Panel>
+        </div>
+
+        {/* ---------------- Stage ---------------- */}
+        <div className="studio-stage">
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 1000,
+              border: "1px solid var(--ink)",
+              background: "var(--ink)",
+              padding: 8,
+            }}
+          >
+            <Player
+              ref={playerRef}
+              component={Video as React.FC<Record<string, unknown>>}
+              inputProps={{ project } as unknown as Record<string, unknown>}
+              durationInFrames={Math.max(1, timing.totalFrames)}
+              fps={project.fps}
+              compositionWidth={project.width}
+              compositionHeight={project.height}
+              style={{ width: "100%" }}
+              controls
+              acknowledgeRemotionLicense
+            />
+          </div>
+        </div>
+
+        {/* ---------------- Scene list ---------------- */}
+        <div className="studio-scenes">
+          <Panel
+            step="Szenen"
+            title=""
+            right={
+              timing.warnings.length > 0 ? (
+                <span
+                  className="mono"
+                  style={{ fontSize: 11, color: "var(--alert)" }}
+                >
+                  {timing.warnings.length} ⚠
+                </span>
+              ) : null
+            }
+          >
+            <SceneInspector
+              timing={timing}
+              selectedSceneId={selectedSceneId}
+              onSelect={(id) => {
+                setSelectedSceneId(id);
+                const scene = timing.scenes.find((s) => s.id === id);
+                if (scene) seek(scene.from);
+              }}
+              onMove={moveScene}
+              onUpdate={updateScene}
+              selectedScene={selectedScene}
+              fps={project.fps}
+            />
+          </Panel>
+        </div>
+      </div>
+
+      <Timeline
+        audioUrl={project.audioUrl}
+        timing={timing}
+        fps={project.fps}
+        currentFrame={currentFrame}
+        selectedSceneId={selectedSceneId}
+        onSeek={seek}
+        onSelectScene={setSelectedSceneId}
+      />
+    </div>
+  );
+};
