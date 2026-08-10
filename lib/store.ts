@@ -47,6 +47,18 @@ export function hasBlobToken(): boolean {
   return resolveBlobToken() !== null;
 }
 
+/**
+ * Access mode of the connected store, which every call has to match — the API
+ * rejects a public write to a private store outright.
+ *
+ * Defaults to public because the media has to be readable by URL: the browser
+ * plays the voiceover, the sandbox fetches it while rendering, and the finished
+ * MP4 is downloaded directly. A private store keeps those objects behind
+ * authentication and breaks all three.
+ */
+export const BLOB_ACCESS: "public" | "private" =
+  process.env.BLOB_ACCESS === "private" ? "private" : "public";
+
 function token(): string {
   const found = resolveBlobToken();
   if (!found) throw new BlobNotConfiguredError();
@@ -58,7 +70,7 @@ export async function writeJson(
   data: unknown,
 ): Promise<string> {
   const { url } = await put(pathname, JSON.stringify(data), {
-    access: "public",
+    access: BLOB_ACCESS,
     contentType: "application/json",
     addRandomSuffix: false,
     allowOverwrite: true,
@@ -102,7 +114,7 @@ export async function writeBinary(
   contentType: string,
 ): Promise<string> {
   const { url } = await put(pathname, data, {
-    access: "public",
+    access: BLOB_ACCESS,
     contentType,
     addRandomSuffix: false,
     allowOverwrite: true,

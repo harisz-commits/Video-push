@@ -1,6 +1,6 @@
 import { get } from "@vercel/blob";
 import { Sandbox } from "@vercel/sandbox";
-import { resolveBlobToken } from "../../../lib/store";
+import { BLOB_ACCESS, resolveBlobToken } from "../../../lib/store";
 
 const SANDBOX_CREATING_TIMEOUT = 5 * 60 * 1000;
 
@@ -9,7 +9,7 @@ const getSnapshotBlobKey = () =>
 
 export async function restoreSnapshot() {
   const blob = await get(getSnapshotBlobKey(), {
-    access: "public",
+    access: BLOB_ACCESS,
     token: resolveBlobToken()?.value,
   });
   if (!blob) {

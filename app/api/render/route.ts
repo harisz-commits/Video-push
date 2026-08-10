@@ -9,6 +9,7 @@ import { errorResponse, guard } from "../../../lib/guardrails";
 import { resolveSceneTimings } from "../../../lib/align";
 import { RenderRequest, type VideoProject } from "../../../lib/schema";
 import {
+  BLOB_ACCESS,
   progressPath,
   resolveBlobToken,
   writeJson,
@@ -158,7 +159,7 @@ async function runRender(
       sandboxFilePath,
       contentType,
       blobToken,
-      access: "public",
+      access: BLOB_ACCESS,
     });
 
     await report(

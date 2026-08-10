@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   const { snapshotId } = await sandbox.snapshot({ expiration: 0 });
 
   await put(snapshotBlobKey(), JSON.stringify({ snapshotId }), {
-    access: "public",
+    access: process.env.BLOB_ACCESS === "private" ? "private" : "public",
     contentType: "application/json",
     addRandomSuffix: false,
     allowOverwrite: true,
