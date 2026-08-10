@@ -48,17 +48,7 @@ Schreibe das vollständige Voiceover für ein fünfminütiges Erklärvideo.
 Antworte nur mit dem Text.`;
 }
 
-export const SCENES_SYSTEM_PROMPT = `Du bist Video-Regisseur für Erklärvideos
-im Infografik-Stil. Du bekommst ein fertiges Voiceover und legst fest, welche
-Szene wann einsetzt.
-
-Antworte ausschließlich mit einem JSON-Objekt. Kein Markdown, keine Backticks,
-kein Vor- oder Nachtext.
-
-FORM:
-{"title": "...", "scenes": [ { ... }, ... ]}
-
-Jede Szene hat immer:
+const SCENE_FIELDS = `Jede Szene hat immer:
 - "type": einer von hook, counter, iconGrid, mapFlow, chain, split, chart,
   pillars, closer, narrator
 - "anchorPhrase": eine Phrase von drei bis sechs Wörtern, die ZEICHENGENAU so
@@ -89,18 +79,9 @@ Dazu je nach "type" genau diese Felder, vollständig ausgefüllt:
 - narrator: keine zusätzlichen Felder. Eine Erzählerfigur spricht die Stelle
             lippensynchron mit; "headline" ist die Aussage neben ihr.
 
-Lass alle Felder weg, die nicht zum Typ gehören.
+Lass alle Felder weg, die nicht zum Typ gehören.`;
 
-REGELN:
-- DICHTE: alle vier bis acht Sekunden gesprochener Text eine neue Szene. Bei
-  einem fünfminütigen Voiceover sind das vierzig bis siebzig Szenen. Ein Bild,
-  das zwanzig Sekunden steht, ist ein Fehler — lieber denselben Gedanken auf
-  zwei oder drei Szenen aufteilen, die aufeinander aufbauen.
-- Die anchorPhrases stehen in der Reihenfolge, in der sie im Voiceover
-  vorkommen, und verteilen sich gleichmäßig über den ganzen Text. Nimm die
-  Phrasen aus allen Abschnitten, nicht nur aus den ersten.
-- Die erste Szene ist "hook", die letzte "closer".
-- Wiederhole denselben Typ nicht zweimal hintereinander.
+const SCENE_RULES = `- Wiederhole denselben Typ nicht zweimal hintereinander.
 - Wähle den Typ nach Inhalt, nicht nach Abwechslung. Zahlenvergleich → counter.
   Ursachenkette → chain. Zeitverlauf → chart. Gegenüberstellung → split.
   Warenströme zwischen Orten → mapFlow. Etwas verschwindet Stück für Stück
@@ -111,16 +92,71 @@ REGELN:
   gleichmäßig verteilt, und niemals zwei hintereinander.
 - Erlaubte Icon-Namen, nichts anderes: ${ICON_NAMES.join(", ")}.`;
 
-export function buildScenesPrompt(voiceover: string): string {
-  return `Hier ist das fertige Voiceover:
+/**
+ * The scene pass runs on one slice of the voiceover at a time.
+ *
+ * Asking for forty to seventy scenes in a single reply took longer than the
+ * function is allowed to live, and the anchor phrases came back bunched in the
+ * opening paragraphs — the model front-loads when it has to cover a whole
+ * script at once. A slice cannot be front-loaded: there is nothing in it but
+ * the passage that needs covering, so the anchors land where they belong. The
+ * slices are independent, so they run at the same time and the step costs about
+ * as long as its slowest one.
+ */
+export const SEGMENT_SCENES_SYSTEM_PROMPT = `Du bist Video-Regisseur für
+Erklärvideos im Infografik-Stil. Du bekommst einen ABSCHNITT eines fertigen
+Voiceovers und legst fest, welche Szene wann einsetzt.
 
+Antworte ausschließlich mit einem JSON-Objekt. Kein Markdown, keine Backticks,
+kein Vor- oder Nachtext.
+
+FORM:
+{"scenes": [ { ... }, ... ]}
+
+${SCENE_FIELDS}
+
+REGELN:
+- Jede anchorPhrase steht ZEICHENGENAU im ABSCHNITT — nicht im übrigen Video.
+  Kopiere sie aus dem Abschnitt heraus.
+- Die anchorPhrases stehen in der Reihenfolge, in der sie im Abschnitt
+  vorkommen, und verteilen sich über den GANZEN Abschnitt. Die letzte Szene
+  gehört in die letzten Sätze, nicht in die Mitte.
+- DICHTE: alle vier bis acht Sekunden gesprochener Text eine neue Szene. Ein
+  Bild, das zwanzig Sekunden steht, ist ein Fehler — lieber denselben Gedanken
+  auf zwei oder drei Szenen aufteilen, die aufeinander aufbauen.
+${SCENE_RULES}`;
+
+export function buildSegmentScenesPrompt(args: {
+  segment: string;
+  index: number;
+  total: number;
+  wantScenes: number;
+  isFirst: boolean;
+  isLast: boolean;
+  topic: string;
+}): string {
+  const role = args.isFirst
+    ? `Das ist der ANFANG des Videos. Die allererste Szene ist "hook".`
+    : args.isLast
+      ? `Das ist das ENDE des Videos. Die allerletzte Szene ist "closer".`
+      : `Das ist ein MITTELTEIL. Weder "hook" noch "closer" gehören hier hin.`;
+
+  return `Thema des Videos: ${args.topic}
+Abschnitt ${args.index + 1} von ${args.total}. ${role}
+
+Abschnitt:
 ---
-${voiceover}
+${args.segment}
 ---
 
-Erzeuge daraus Titel und Szenenliste. Kopiere jede anchorPhrase wörtlich aus
-diesem Text heraus.`;
+Erzeuge ungefähr ${args.wantScenes} Szenen für genau diesen Abschnitt. Kopiere
+jede anchorPhrase wörtlich aus dem Abschnitt oben heraus.`;
 }
+
+/** Short second call: a title for the finished video. */
+export const TITLE_SYSTEM_PROMPT = `Du benennst YouTube-Erklärvideos. Antworte
+mit dem Titel und sonst nichts — keine Anführungszeichen, kein Markdown.
+Höchstens siebzig Zeichen, deutsch, zuspitzend.`;
 
 /**
  * Feedback for the one automatic retry. We hand back the concrete failures
