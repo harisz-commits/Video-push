@@ -9,14 +9,12 @@ import { BLOB_ACCESS, resolveBlobToken } from "../../../lib/store";
  * render keeps working after the response is sent, and a sandbox that expired
  * meanwhile would take the render with it.
  */
-const SANDBOX_LIFETIME = 45 * 60 * 1000;
+const SANDBOX_LIFETIME = 30 * 60 * 1000;
 
-/**
- * Cores to give it. Rendering is parallel across frames, and the default
- * allotment managed about nine frames a second — twenty minutes for a
- * six-minute video.
- */
-const SANDBOX_RESOURCES = { vcpus: 8 } as const;
+// No resources override here on purpose: a snapshot restored with a different
+// allotment than it was created with is rejected outright ("Status code 400 is
+// not ok"), which fails the render before it starts. Speed comes from the
+// render being detached, not from cores this call is not allowed to change.
 
 const getSnapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
@@ -51,6 +49,5 @@ export async function restoreSnapshot() {
   return Sandbox.create({
     source: { type: "snapshot", snapshotId },
     timeout: SANDBOX_LIFETIME,
-    resources: SANDBOX_RESOURCES,
   });
 }

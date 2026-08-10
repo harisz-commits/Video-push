@@ -66,8 +66,6 @@ export async function POST(req: Request) {
       detached: true,
       compositionId: COMP_NAME,
       inputProps: { project },
-      // Match the cores the sandbox was given; frames render in parallel.
-      concurrency: 8,
       vercelBlob: {
         blobToken: blob.value,
         access: BLOB_ACCESS,
