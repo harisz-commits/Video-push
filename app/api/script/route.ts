@@ -246,7 +246,10 @@ function validateDraft(draft: ScriptDraftType): string[] {
         }
         break;
       case "split":
-        need(Boolean(scene.left && scene.right), '"left" und "right"');
+        need(
+          Boolean(scene.panels && scene.panels.length >= 2),
+          '"panels" mit genau zwei Einträgen',
+        );
         break;
       case "chart":
         need(

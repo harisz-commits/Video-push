@@ -36,7 +36,7 @@ SZENEN:
   → counter. Ursachenkette → chain. Zeitverlauf → chart. Gegenüberstellung
   → split. Warenströme zwischen Orten → mapFlow. Etwas verschwindet Stück für
   Stück → iconGrid. Tragende Faktoren → pillars.
-- headline und sub sind On-Screen-Text: maximal sechs Wörter, Versalien erlaubt.
+- "headline" und "phase" sind bei JEDER Szene Pflicht. headline und sub sind\n  On-Screen-Text: maximal sechs Wörter, Versalien erlaubt.
 - "phase": "crisis" für den Problemteil, "solution" ab der Stelle, an der das
   Video in den Lösungsteil dreht. Der Wechsel darf im ganzen Video nur einmal
   passieren; er färbt das Video von Weizengelb auf Mint um.
@@ -55,7 +55,7 @@ setze sie vollständig:
 - iconGrid: "icon", "total", "remaining"
 - mapFlow:  "region" und "flows" (from, to, optional label)
 - chain:    "nodes" (mindestens zwei, je icon und label) und "breakAt"
-- split:    "left" und "right" (je icon und label), optional "connector"
+- split:    "panels" mit genau zwei Einträgen (je icon und label),\n            optional "connector"
 - chart:    "variant", "series" und "labels" (gleich viele Einträge)
 - pillars:  "pillars" (zwei bis sechs), "unstableIndex" und "carries"
 - closer:   "statement"

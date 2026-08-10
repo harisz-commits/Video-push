@@ -191,9 +191,12 @@ export const DraftScene = z.object({
     "closer",
   ]),
   anchorPhrase: z.string(),
-  headline: z.string().optional(),
+  // Required on purpose: nearly every scene carries an on-screen headline, and
+  // making phase mandatory forces the model to decide where the film turns
+  // from crisis to solution instead of leaving the colour change to a default.
+  headline: z.string(),
+  phase: z.enum(["crisis", "solution"]),
   sub: z.string().optional(),
-  phase: z.enum(["crisis", "solution"]).optional(),
 
   // hook
   kicker: z.string().optional(),
@@ -225,15 +228,14 @@ export const DraftScene = z.object({
   // chain
   nodes: z.array(z.object({ icon: IconName, label: z.string() })).optional(),
   breakAt: z.number().int().optional(),
-  // split
-  left: Panel.optional(),
-  right: Panel.optional(),
+  // split — one field rather than left plus right, because every optional
+  // property counts against the schema's compilation budget.
+  panels: z.array(Panel).optional(),
   connector: z.string().optional(),
   // chart
   variant: z.enum(["line", "bar"]).optional(),
   series: z.array(z.number()).optional(),
   labels: z.array(z.string()).optional(),
-  unit: z.string().optional(),
   // pillars
   pillars: z.array(z.string()).optional(),
   unstableIndex: z.number().int().optional(),
@@ -267,7 +269,7 @@ export function draftSceneToScene(
     anchorPhrase: draft.anchorPhrase,
     headline: draft.headline,
     sub: draft.sub,
-    phase: draft.phase ?? "crisis",
+    phase: draft.phase,
   };
 
   const candidate = (() => {
@@ -307,12 +309,12 @@ export function draftSceneToScene(
             }
           : null;
       case "split":
-        return draft.left && draft.right
+        return draft.panels && draft.panels.length >= 2
           ? {
               ...base,
               type: "split" as const,
-              left: draft.left,
-              right: draft.right,
+              left: draft.panels[0],
+              right: draft.panels[1],
               connector: draft.connector,
             }
           : null;
@@ -324,7 +326,6 @@ export function draftSceneToScene(
               variant: draft.variant ?? "line",
               series: draft.series,
               labels: draft.labels,
-              unit: draft.unit,
             }
           : null;
       case "pillars":
