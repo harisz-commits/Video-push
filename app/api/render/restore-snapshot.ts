@@ -3,13 +3,21 @@ import { Sandbox } from "@vercel/sandbox";
 import { BLOB_ACCESS, resolveBlobToken } from "../../../lib/store";
 
 /**
- * How long the sandbox may live.
+ * How long the sandbox may live, longest first.
  *
  * It has to outlast the render, not the request that started it: a detached
  * render keeps working after the response is sent, and a sandbox that expired
- * meanwhile would take the render with it.
+ * meanwhile would take the render with it. So we ask for as much as we can get.
+ *
+ * The ceiling depends on the account, and asking for more than it allows fails
+ * the whole call with sandbox_timeout_invalid rather than clamping. Rather than
+ * hardcode a guess that is wrong on some other plan, we walk down until one is
+ * accepted, and report which.
  */
-const SANDBOX_LIFETIME = 30 * 60 * 1000;
+const SANDBOX_LIFETIMES = [30, 20, 15, 10, 5].map((m) => m * 60 * 1000);
+
+/** The longest lifetime this account accepted, remembered between calls. */
+let acceptedLifetime: number | null = null;
 
 // No resources override here on purpose: a snapshot restored with a different
 // allotment than it was created with is rejected outright ("Status code 400 is
@@ -46,8 +54,36 @@ export async function restoreSnapshot() {
     );
   }
 
-  return Sandbox.create({
-    source: { type: "snapshot", snapshotId },
-    timeout: SANDBOX_LIFETIME,
-  });
+  const candidates = acceptedLifetime
+    ? [acceptedLifetime]
+    : SANDBOX_LIFETIMES;
+
+  let lastError: unknown;
+  for (const timeout of candidates) {
+    try {
+      const sandbox = await Sandbox.create({
+        source: { type: "snapshot", snapshotId },
+        timeout,
+      });
+      acceptedLifetime = timeout;
+      // eslint-disable-next-line no-console
+      console.log(`[render] Sandbox-Laufzeit: ${timeout / 60000} Minuten`);
+      return { sandbox, lifetimeMs: timeout };
+    } catch (err) {
+      if (!isTimeoutRejection(err)) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+/** Distinguishes "that lifetime is too long" from every other failure. */
+function isTimeoutRejection(err: unknown): boolean {
+  const text = JSON.stringify(
+    (err as { text?: unknown; json?: unknown })?.text ??
+      (err as { json?: unknown })?.json ??
+      (err as Error)?.message ??
+      "",
+  );
+  return text.includes("sandbox_timeout_invalid");
 }

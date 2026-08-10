@@ -142,6 +142,8 @@ export type RenderJob = {
   cmdId: string;
   totalFrames: number;
   startedAt: number;
+  /** How long the sandbox was granted, so progress can say when it ran out. */
+  lifetimeMs: number;
 };
 
 /** What /api/progress reports to the studio. */

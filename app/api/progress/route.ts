@@ -118,10 +118,16 @@ export async function GET(req: Request) {
       status: "error",
       progress: 0,
       phase: "Abgebrochen",
-      error:
-        "Der Render ist nicht mehr erreichbar. Die Sandbox wurde beendet, bevor das Video fertig war. Starte den Render erneut.",
+      error: expired(job)
+        ? `Die Sandbox lief nach ${Math.round(job.lifetimeMs / 60000)} Minuten ab, bevor das Video fertig war. Das ist die Obergrenze, die dieser Vercel-Account für eine Sandbox erlaubt — ein Video dieser Länge passt nicht hinein. Kürzeres Skript oder ein Render-Host ohne dieses Limit.`
+        : "Der Render ist nicht mehr erreichbar. Die Sandbox wurde beendet, bevor das Video fertig war. Starte den Render erneut.",
     } satisfies RenderProgress);
   }
+}
+
+/** True once the sandbox has certainly outlived its granted lifetime. */
+function expired(job: RenderJob): boolean {
+  return Date.now() - job.startedAt > job.lifetimeMs;
 }
 
 function describeRenderError(stage: { stage: "error" } & Record<string, unknown>): string {

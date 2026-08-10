@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   const timing = resolveSceneTimings(project);
 
   try {
-    const sandbox = await restoreSnapshot();
+    const { sandbox, lifetimeMs } = await restoreSnapshot();
 
     // Detached: the sandbox renders and uploads on its own, so nothing here
     // has to stay alive for the twenty minutes a long video can take. The
@@ -79,6 +79,7 @@ export async function POST(req: Request) {
       cmdId,
       totalFrames: timing.totalFrames,
       startedAt: Date.now(),
+      lifetimeMs,
     };
     await writeJson(progressPath(renderId), job);
 
