@@ -100,13 +100,32 @@ export async function GET(req: Request) {
           phase: "Abgebrochen",
           error: describeRenderError(p),
         } satisfies RenderProgress);
-      default:
+      default: {
+        // An unrecognised stage used to be reported as "running, 0%", which is
+        // indistinguishable from a render that has silently died — and that is
+        // exactly what it usually is. Name the stage, and once the job has
+        // outlived the sandbox there is nothing left to wait for.
+        const stage = (p as { stage?: string }).stage ?? "unbekannt";
+        if (expired(job)) {
+          return Response.json({
+            ...base,
+            status: "error",
+            progress: 0,
+            phase: "Abgebrochen",
+            error: `Die Sandbox meldet seit ${Math.round(
+              (Date.now() - job.startedAt) / 60000,
+            )} Minuten den Zustand "${stage}" und hat ihre Laufzeit von ${Math.round(
+              job.lifetimeMs / 60000,
+            )} Minuten überschritten. Der Render läuft nicht mehr — starte ihn neu.`,
+          } satisfies RenderProgress);
+        }
         return Response.json({
           ...base,
           status: "rendering",
           progress: 0,
-          phase: "Läuft",
+          phase: `Läuft (${stage})`,
         } satisfies RenderProgress);
+      }
     }
   } catch (err) {
     // A sandbox that has expired or been reclaimed cannot be asked any more.
