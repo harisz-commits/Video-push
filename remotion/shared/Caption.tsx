@@ -9,8 +9,9 @@ const WINDOW = 4;
  * Word-synchronous subtitle. The active word is wheat, its neighbours ink.
  * Driven entirely by the ElevenLabs timestamps — no manual cue sheet.
  */
-export const Caption: React.FC<{ absoluteFrame: number }> = ({
+export const Caption: React.FC<{ absoluteFrame: number; accent: string }> = ({
   absoluteFrame,
+  accent,
 }) => {
   const { words, activeIndex } = useWordTiming(absoluteFrame);
 
@@ -40,7 +41,7 @@ export const Caption: React.FC<{ absoluteFrame: number }> = ({
           <span
             key={`${start + i}-${w.word}`}
             style={{
-              color: isActive ? C.wheat : C.ink,
+              color: isActive ? accent : C.ink,
               opacity: isActive ? 1 : 0.55,
             }}
           >

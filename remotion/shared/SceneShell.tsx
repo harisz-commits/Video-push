@@ -70,7 +70,9 @@ export const SceneShell: React.FC<{
 
       <AbsoluteFill style={{ padding: SAFE }}>{children}</AbsoluteFill>
 
-      {project.captions ? <Caption absoluteFrame={from + frame} /> : null}
+      {project.captions ? (
+        <Caption absoluteFrame={from + frame} accent={ACCENT[phase]} />
+      ) : null}
     </AbsoluteFill>
   );
 };
