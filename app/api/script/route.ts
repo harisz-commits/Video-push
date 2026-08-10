@@ -234,11 +234,15 @@ function textOf(message: Anthropic.Message): string {
  * work of its siblings — the step costs as much as its slowest slice. A text
  * with too few paragraphs to divide is re-cut at sentence boundaries instead.
  */
-const WORDS_PER_SEGMENT = 180;
+const WORDS_PER_SEGMENT = 110;
+const MAX_SEGMENTS = 10;
 
 function segmentVoiceover(voiceover: string): string[] {
   const words = voiceover.trim().split(/\s+/).filter(Boolean).length;
-  const target = Math.min(6, Math.max(3, Math.round(words / WORDS_PER_SEGMENT)));
+  const target = Math.min(
+    MAX_SEGMENTS,
+    Math.max(3, Math.round(words / WORDS_PER_SEGMENT)),
+  );
 
   let units = voiceover.split(/\n\s*\n+/).map((p) => p.trim()).filter(Boolean);
   if (units.length < target) {
@@ -306,7 +310,10 @@ async function scenesForSegment(
   for (let attempt = 0; attempt < 2; attempt++) {
     const message = await client.messages.create({
       model: MODEL,
-      max_tokens: 8000,
+      // Generous next to the six or seven scenes a slice asks for. The reply
+      // is not the only thing counted against this ceiling, and a truncated
+      // reply costs the whole script.
+      max_tokens: 16000,
       system: SEGMENT_SCENES_SYSTEM_PROMPT,
       messages,
     });
