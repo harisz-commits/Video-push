@@ -44,7 +44,23 @@ SZENEN:
 - Bei chain liegt "breakAt" zwischen null und der Anzahl der Knoten minus eins.
 - Bei chart haben "series" und "labels" gleich viele Einträge.
 - Bei pillars ist "unstableIndex" ein gültiger Index in "pillars".
-- Verwende für "icon" ausschließlich Werte aus der im Schema erlaubten Liste.`;
+- Verwende für "icon" ausschließlich Werte aus der im Schema erlaubten Liste.
+
+PFLICHTFELDER JE SZENENTYP:
+Das Schema erlaubt technisch alle Felder bei jeder Szene, weil es flach ist.
+Setze trotzdem ausschließlich die Felder, die zum jeweiligen Typ gehören, und
+setze sie vollständig:
+- hook:     optional "kicker"
+- counter:  "values" (ein bis drei Einträge mit label und value)
+- iconGrid: "icon", "total", "remaining"
+- mapFlow:  "region" und "flows" (from, to, optional label)
+- chain:    "nodes" (mindestens zwei, je icon und label) und "breakAt"
+- split:    "left" und "right" (je icon und label), optional "connector"
+- chart:    "variant", "series" und "labels" (gleich viele Einträge)
+- pillars:  "pillars" (zwei bis sechs), "unstableIndex" und "carries"
+- closer:   "statement"
+Lass alle übrigen Felder weg. Eine Szene, der ein Pflichtfeld ihres Typs
+fehlt, wird verworfen.`;
 
 export function buildScriptUserPrompt(topic: string): string {
   return `Stichwort: ${topic}

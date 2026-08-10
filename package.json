@@ -11,7 +11,8 @@
     "remotion": "remotion studio",
     "create-snapshot": "node --experimental-strip-types create-snapshot.ts",
     "render": "remotion render",
-    "verify:timing": "tsx scripts/verify-timing.ts"
+    "verify:timing": "tsx scripts/verify-timing.ts",
+    "verify:grammar": "tsx scripts/grammar-check.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

@@ -169,6 +169,12 @@ function validateDraft(draft: ScriptDraftType): string[] {
     );
   }
 
+  if (draft.scenes.length < 6 || draft.scenes.length > 16) {
+    problems.push(
+      `Die Szenenliste hat ${draft.scenes.length} Einträge, gefordert sind 10 bis 14.`,
+    );
+  }
+
   let cursor = 0;
   draft.scenes.forEach((scene, i) => {
     const position = draft.voiceover.indexOf(scene.anchorPhrase, cursor);
@@ -183,42 +189,98 @@ function validateDraft(draft: ScriptDraftType): string[] {
       cursor = position + 1;
     }
 
+    // The draft schema is flat — one object shape for all nine types, because
+    // a nine-branch union compiles to a grammar the API rejects as too large.
+    // The per-type requirements therefore live here, and a miss is reported by
+    // name so the repair round has something concrete to fix.
+    const need = (ok: boolean, what: string) => {
+      if (!ok) {
+        problems.push(
+          `Szene ${i + 1} (${scene.type}): ${what} fehlt oder ist unvollständig.`,
+        );
+      }
+    };
+
     switch (scene.type) {
+      case "counter":
+        need(Boolean(scene.values?.length), '"values" mit ein bis drei Zahlen');
+        break;
       case "iconGrid":
-        if (scene.remaining > scene.total) {
+        need(
+          Boolean(scene.icon) &&
+            scene.total != null &&
+            scene.remaining != null,
+          '"icon", "total" und "remaining"',
+        );
+        if (
+          scene.total != null &&
+          scene.remaining != null &&
+          scene.remaining > scene.total
+        ) {
           problems.push(
             `Szene ${i + 1} (iconGrid): remaining (${scene.remaining}) ist größer als total (${scene.total}).`,
           );
         }
-        if (scene.total < 1 || scene.total > 64) {
+        if (scene.total != null && (scene.total < 1 || scene.total > 64)) {
           problems.push(
             `Szene ${i + 1} (iconGrid): total muss zwischen 1 und 64 liegen, ist aber ${scene.total}.`,
           );
         }
         break;
+      case "mapFlow":
+        need(Boolean(scene.flows?.length), '"flows" mit mindestens einem Strom');
+        break;
       case "chain":
-        if (scene.breakAt < 0 || scene.breakAt >= scene.nodes.length) {
+        need(
+          Boolean(scene.nodes && scene.nodes.length >= 2),
+          '"nodes" mit mindestens zwei Knoten',
+        );
+        if (
+          scene.nodes &&
+          scene.breakAt != null &&
+          (scene.breakAt < 0 || scene.breakAt >= scene.nodes.length)
+        ) {
           problems.push(
             `Szene ${i + 1} (chain): breakAt (${scene.breakAt}) liegt außerhalb der ${scene.nodes.length} Knoten.`,
           );
         }
         break;
+      case "split":
+        need(Boolean(scene.left && scene.right), '"left" und "right"');
+        break;
       case "chart":
-        if (scene.series.length !== scene.labels.length) {
+        need(
+          Boolean(scene.series && scene.series.length >= 2 && scene.labels),
+          '"series" und "labels" mit mindestens zwei Werten',
+        );
+        if (
+          scene.series &&
+          scene.labels &&
+          scene.series.length !== scene.labels.length
+        ) {
           problems.push(
             `Szene ${i + 1} (chart): ${scene.series.length} Werte, aber ${scene.labels.length} Beschriftungen.`,
           );
         }
         break;
       case "pillars":
+        need(
+          Boolean(scene.pillars && scene.pillars.length >= 2 && scene.carries),
+          '"pillars" mit mindestens zwei Säulen und "carries"',
+        );
         if (
-          scene.unstableIndex < 0 ||
-          scene.unstableIndex >= scene.pillars.length
+          scene.pillars &&
+          scene.unstableIndex != null &&
+          (scene.unstableIndex < 0 ||
+            scene.unstableIndex >= scene.pillars.length)
         ) {
           problems.push(
             `Szene ${i + 1} (pillars): unstableIndex (${scene.unstableIndex}) liegt außerhalb der ${scene.pillars.length} Säulen.`,
           );
         }
+        break;
+      case "closer":
+        need(Boolean(scene.statement), '"statement"');
         break;
       default:
         break;

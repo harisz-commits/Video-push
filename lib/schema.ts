@@ -161,105 +161,196 @@ export const VideoProject = z.object({
 export type VideoProject = z.infer<typeof VideoProject>;
 
 /**
- * What Claude is asked to produce. The runtime fields (id, audio, alignment,
- * frame counts) are filled in by us, not by the model — asking a model to
- * invent an id or a frame count only creates something to throw away.
+ * What Claude is asked to produce.
+ *
+ * Deliberately ONE flat scene object rather than the nine-variant union the
+ * renderer uses. Structured outputs compile the schema into a grammar, and a
+ * discriminated union of nine branches — each with its own nested objects and
+ * arrays — exceeds the size the API accepts ("The compiled grammar is too
+ * large"). Flattening collapses that to a single object shape.
+ *
+ * The strictness does not disappear, it moves: every field below is optional
+ * here, and `validateDraft` in /api/script checks which ones a given `type`
+ * actually requires, naming the missing ones so the repair round can fix them.
+ * The strict `Scene` union still guards what reaches the renderer — nothing
+ * gets there without passing it.
+ *
+ * The runtime fields (id, audio, alignment, frame counts) are filled in by us.
+ * Asking a model to invent an id or a frame count only creates work to undo.
  */
-/** Fields every drafted scene carries, kept in one place so they cannot drift. */
-const draftBase = {
+export const DraftScene = z.object({
+  type: z.enum([
+    "hook",
+    "counter",
+    "iconGrid",
+    "mapFlow",
+    "chain",
+    "split",
+    "chart",
+    "pillars",
+    "closer",
+  ]),
   anchorPhrase: z.string(),
   headline: z.string().optional(),
   sub: z.string().optional(),
   phase: z.enum(["crisis", "solution"]).optional(),
-};
+
+  // hook
+  kicker: z.string().optional(),
+  // counter
+  values: z
+    .array(
+      z.object({
+        label: z.string(),
+        value: z.number(),
+        suffix: z.string().optional(),
+      }),
+    )
+    .optional(),
+  // iconGrid
+  icon: IconName.optional(),
+  total: z.number().int().optional(),
+  remaining: z.number().int().optional(),
+  // mapFlow
+  region: z.enum(["europe", "world"]).optional(),
+  flows: z
+    .array(
+      z.object({
+        from: z.string(),
+        to: z.string(),
+        label: z.string().optional(),
+      }),
+    )
+    .optional(),
+  // chain
+  nodes: z.array(z.object({ icon: IconName, label: z.string() })).optional(),
+  breakAt: z.number().int().optional(),
+  // split
+  left: Panel.optional(),
+  right: Panel.optional(),
+  connector: z.string().optional(),
+  // chart
+  variant: z.enum(["line", "bar"]).optional(),
+  series: z.array(z.number()).optional(),
+  labels: z.array(z.string()).optional(),
+  unit: z.string().optional(),
+  // pillars
+  pillars: z.array(z.string()).optional(),
+  unstableIndex: z.number().int().optional(),
+  carries: z.string().optional(),
+  // closer
+  statement: z.string().optional(),
+});
+export type DraftScene = z.infer<typeof DraftScene>;
 
 export const ScriptDraft = z.object({
   title: z.string(),
   voiceover: z.string(),
-  scenes: z
-    .array(
-      z.discriminatedUnion("type", [
-        z.object({
-          ...draftBase,
-          type: z.literal("hook"),
-          kicker: z.string().optional(),
-        }),
-        z.object({
-          ...draftBase,
-          type: z.literal("counter"),
-          values: z
-            .array(
-              z.object({
-                label: z.string(),
-                value: z.number(),
-                suffix: z.string().optional(),
-              }),
-            )
-            .min(1)
-            .max(3),
-        }),
-        z.object({
-          ...draftBase,
-          type: z.literal("iconGrid"),
-          icon: IconName,
-          total: z.number().int(),
-          remaining: z.number().int(),
-        }),
-        z.object({
-          ...draftBase,
-          type: z.literal("mapFlow"),
-          region: z.enum(["europe", "world"]),
-          flows: z
-            .array(
-              z.object({
-                from: z.string(),
-                to: z.string(),
-                label: z.string().optional(),
-              }),
-            )
-            .min(1),
-        }),
-        z.object({
-          ...draftBase,
-          type: z.literal("chain"),
-          nodes: z
-            .array(z.object({ icon: IconName, label: z.string() }))
-            .min(2),
-          breakAt: z.number().int(),
-        }),
-        z.object({
-          ...draftBase,
-          type: z.literal("split"),
-          left: Panel,
-          right: Panel,
-          connector: z.string().optional(),
-        }),
-        z.object({
-          ...draftBase,
-          type: z.literal("chart"),
-          variant: z.enum(["line", "bar"]),
-          series: z.array(z.number()).min(2),
-          labels: z.array(z.string()).min(2),
-          unit: z.string().optional(),
-        }),
-        z.object({
-          ...draftBase,
-          type: z.literal("pillars"),
-          pillars: z.array(z.string()).min(2).max(6),
-          unstableIndex: z.number().int(),
-          carries: z.string(),
-        }),
-        z.object({
-          ...draftBase,
-          type: z.literal("closer"),
-          statement: z.string(),
-        }),
-      ]),
-    )
-    .min(6)
-    .max(16),
+  scenes: z.array(DraftScene),
 });
 export type ScriptDraft = z.infer<typeof ScriptDraft>;
+
+/**
+ * Build a strict Scene from a flat draft scene.
+ *
+ * Returns null when the draft lacks something the type needs — the caller
+ * reports that as a validation problem rather than guessing a default, because
+ * a counter with invented numbers is worse than a counter that gets fixed.
+ */
+export function draftSceneToScene(
+  draft: DraftScene,
+  id: string,
+): Scene | null {
+  const base = {
+    id,
+    durationInFrames: 90,
+    anchorPhrase: draft.anchorPhrase,
+    headline: draft.headline,
+    sub: draft.sub,
+    phase: draft.phase ?? "crisis",
+  };
+
+  const candidate = (() => {
+    switch (draft.type) {
+      case "hook":
+        return { ...base, type: "hook" as const, kicker: draft.kicker };
+      case "counter":
+        return draft.values?.length
+          ? { ...base, type: "counter" as const, values: draft.values.slice(0, 3) }
+          : null;
+      case "iconGrid":
+        return draft.icon && draft.total != null && draft.remaining != null
+          ? {
+              ...base,
+              type: "iconGrid" as const,
+              icon: draft.icon,
+              total: draft.total,
+              remaining: draft.remaining,
+            }
+          : null;
+      case "mapFlow":
+        return draft.flows?.length
+          ? {
+              ...base,
+              type: "mapFlow" as const,
+              region: draft.region ?? "europe",
+              flows: draft.flows,
+            }
+          : null;
+      case "chain":
+        return draft.nodes && draft.nodes.length >= 2
+          ? {
+              ...base,
+              type: "chain" as const,
+              nodes: draft.nodes,
+              breakAt: draft.breakAt ?? 0,
+            }
+          : null;
+      case "split":
+        return draft.left && draft.right
+          ? {
+              ...base,
+              type: "split" as const,
+              left: draft.left,
+              right: draft.right,
+              connector: draft.connector,
+            }
+          : null;
+      case "chart":
+        return draft.series && draft.series.length >= 2 && draft.labels
+          ? {
+              ...base,
+              type: "chart" as const,
+              variant: draft.variant ?? "line",
+              series: draft.series,
+              labels: draft.labels,
+              unit: draft.unit,
+            }
+          : null;
+      case "pillars":
+        return draft.pillars && draft.pillars.length >= 2 && draft.carries
+          ? {
+              ...base,
+              type: "pillars" as const,
+              pillars: draft.pillars.slice(0, 6),
+              unstableIndex: draft.unstableIndex ?? 0,
+              carries: draft.carries,
+            }
+          : null;
+      case "closer":
+        return draft.statement
+          ? { ...base, type: "closer" as const, statement: draft.statement }
+          : null;
+      default:
+        return null;
+    }
+  })();
+
+  if (!candidate) return null;
+
+  const parsed = Scene.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
 
 /** Request/response bodies for the API routes. */
 export const ScriptRequest = z.object({
@@ -281,6 +372,12 @@ export function draftToProject(
   topic: string,
   id: string,
 ): VideoProject {
+  const scenes = draft.scenes
+    .map((scene, i) =>
+      draftSceneToScene(scene, `s${String(i + 1).padStart(2, "0")}`),
+    )
+    .filter((scene): scene is Scene => scene !== null);
+
   return VideoProject.parse({
     id,
     topic,
@@ -290,11 +387,6 @@ export function draftToProject(
     fps: 30,
     width: 1920,
     height: 1080,
-    scenes: draft.scenes.map((scene, i) => ({
-      ...scene,
-      id: `s${String(i + 1).padStart(2, "0")}`,
-      // Placeholder. resolveSceneTimings() overwrites this the moment audio exists.
-      durationInFrames: 90,
-    })),
+    scenes,
   });
 }
