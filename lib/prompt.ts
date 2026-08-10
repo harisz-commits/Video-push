@@ -23,7 +23,10 @@ STIL:
 - Pacing: schnell, energiegeladen, 150 bis 170 Wörter pro Minute.
 - Struktur: Start mit einer steilen, unerwarteten Behauptung. Danach Schritt
   für Schritt auflösen, warum das so ist.
-- Kurze, prägnante Sätze. Rhetorische Fragen. Cliffhanger vor jedem Abschnitt.`;
+- Kurze, prägnante Sätze. Rhetorische Fragen. Cliffhanger vor jedem Abschnitt.
+- ANREDE: durchgehend "du". Sprich die Zuschauerin direkt an — "stell dir vor",
+  "du kennst das", "das Regal, vor dem du morgen stehst". Kein "man", kein
+  "wir" als Ersatz für die Anrede, kein Siezen.`;
 
 export const VOICEOVER_SYSTEM_PROMPT = `${STYLE}
 
@@ -87,9 +90,15 @@ Dazu je nach "type" genau diese Felder, vollständig ausgefüllt:
 Lass alle Felder weg, die nicht zum Typ gehören.
 
 REGELN:
-- 10 bis 14 Szenen, in der Reihenfolge, in der die anchorPhrases im Voiceover
-  vorkommen.
+- DICHTE: alle vier bis acht Sekunden gesprochener Text eine neue Szene. Bei
+  einem fünfminütigen Voiceover sind das vierzig bis siebzig Szenen. Ein Bild,
+  das zwanzig Sekunden steht, ist ein Fehler — lieber denselben Gedanken auf
+  zwei oder drei Szenen aufteilen, die aufeinander aufbauen.
+- Die anchorPhrases stehen in der Reihenfolge, in der sie im Voiceover
+  vorkommen, und verteilen sich gleichmäßig über den ganzen Text. Nimm die
+  Phrasen aus allen Abschnitten, nicht nur aus den ersten.
 - Die erste Szene ist "hook", die letzte "closer".
+- Wiederhole denselben Typ nicht zweimal hintereinander.
 - Wähle den Typ nach Inhalt, nicht nach Abwechslung. Zahlenvergleich → counter.
   Ursachenkette → chain. Zeitverlauf → chart. Gegenüberstellung → split.
   Warenströme zwischen Orten → mapFlow. Etwas verschwindet Stück für Stück

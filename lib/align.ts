@@ -309,3 +309,77 @@ export function wordsFromAlignment(alignment: Alignment): WordTiming[] {
 
   return words;
 }
+
+/**
+ * A block of subtitle text that stays on screen as a unit.
+ *
+ * The first version slid a window of words along and re-centred it on every
+ * spoken word, so the whole line jumped roughly three times a second — the
+ * highlight was the only stable thing on screen. Subtitles have to hold still
+ * long enough to be read: text is grouped into two-line blocks up front, each
+ * block holds for as long as its words are being spoken, and only the
+ * highlight moves within it.
+ */
+export type CaptionPage = {
+  words: WordTiming[];
+  /** Index into `words` of the first word on the second line. */
+  breakAt: number;
+  start: number;
+  end: number;
+};
+
+/** Characters that comfortably fit one line at the caption's type size. */
+const LINE_CHARS = 38;
+/** Never hold a block longer than this, even if the speaker pauses. */
+const MAX_PAGE_SECONDS = 6;
+
+export function captionPages(words: WordTiming[]): CaptionPage[] {
+  const pages: CaptionPage[] = [];
+  let current: WordTiming[] = [];
+  let lineChars = 0;
+  let lines = 1;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    // Split the block into two balanced lines.
+    const total = current.reduce((n, w) => n + w.word.length + 1, 0);
+    let running = 0;
+    let breakAt = current.length;
+    for (let i = 0; i < current.length; i++) {
+      running += current[i].word.length + 1;
+      if (running >= total / 2) {
+        breakAt = i + 1;
+        break;
+      }
+    }
+    pages.push({
+      words: current,
+      breakAt: Math.min(breakAt, current.length),
+      start: current[0].start,
+      end: current[current.length - 1].end,
+    });
+    current = [];
+    lineChars = 0;
+    lines = 1;
+  };
+
+  for (const word of words) {
+    const next = lineChars + word.word.length + 1;
+    const tooWide = next > LINE_CHARS;
+    const tooLong =
+      current.length > 0 && word.end - current[0].start > MAX_PAGE_SECONDS;
+
+    if (tooLong || (tooWide && lines === 2)) {
+      flush();
+    } else if (tooWide) {
+      lines = 2;
+      lineChars = 0;
+    }
+
+    current.push(word);
+    lineChars += word.word.length + 1;
+  }
+  flush();
+
+  return pages;
+}

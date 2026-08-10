@@ -68,7 +68,22 @@ export const SceneShell: React.FC<{
         }}
       />
 
-      <AbsoluteFill style={{ padding: SAFE }}>{children}</AbsoluteFill>
+      {/*
+        A slow drift across the whole scene. Elements used to animate in over
+        twelve frames and then hold perfectly still for the rest of the shot,
+        which is what made finished videos feel like a slideshow. This is
+        deliberately below the threshold of notice on its own — it reads as the
+        frame being alive, not as an effect.
+      */}
+      <AbsoluteFill
+        style={{
+          padding: SAFE,
+          transform: `scale(${1 + 0.018 * (frame / 300)}) translateY(${-2 * Math.sin(frame / 220)}px)`,
+          transformOrigin: "center",
+        }}
+      >
+        {children}
+      </AbsoluteFill>
 
       {project.captions ? (
         <Caption absoluteFrame={from + frame} accent={ACCENT[phase]} />

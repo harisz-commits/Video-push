@@ -139,7 +139,7 @@ async function generate(
     for (let attempt = 0; attempt < 2; attempt++) {
       const message = await client.messages.create({
         model: MODEL,
-        max_tokens: 8000,
+        max_tokens: 16000,
         system: SCENES_SYSTEM_PROMPT,
         messages,
       });
@@ -304,9 +304,13 @@ function validateDraft(draft: ScriptDraftType): string[] {
     );
   }
 
-  if (draft.scenes.length < 6 || draft.scenes.length > 16) {
+  // Density is the point: a still image that holds for twenty seconds is the
+  // single biggest reason a finished video feels dead.
+  const spokenSeconds = (words / 150) * 60;
+  const wanted = Math.round(spokenSeconds / 6);
+  if (draft.scenes.length < wanted * 0.6) {
     problems.push(
-      `Die Szenenliste hat ${draft.scenes.length} Einträge, gefordert sind 10 bis 14.`,
+      `Die Szenenliste hat nur ${draft.scenes.length} Einträge. Bei ${Math.round(spokenSeconds)} Sekunden Text sind rund ${wanted} nötig — alle vier bis acht Sekunden eine neue Szene.`,
     );
   }
 
