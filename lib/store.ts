@@ -6,13 +6,23 @@ import { head, put } from "@vercel/blob";
  * keeps the deployment to one Vercel project with one storage add-on.
  */
 
+/** Raised when the Blob store was never attached — a setup problem, not a miss. */
+export class BlobNotConfiguredError extends Error {
+  constructor() {
+    super(
+      "BLOB_READ_WRITE_TOKEN fehlt. Auf vercel.com unter Storage einen Blob-Store anlegen, mit diesem Projekt verbinden und neu deployen.",
+    );
+    this.name = "BlobNotConfiguredError";
+  }
+}
+
+export function hasBlobToken(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
+
 function token(): string {
   const value = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!value) {
-    throw new Error(
-      'BLOB_READ_WRITE_TOKEN fehlt. Auf vercel.com unter Storage einen Blob-Store anlegen und mit diesem Projekt verbinden, dann "vercel env pull .env.local".',
-    );
-  }
+  if (!value) throw new BlobNotConfiguredError();
   return value;
 }
 
@@ -34,11 +44,18 @@ export async function writeJson(
 }
 
 export async function readJson<T>(pathname: string): Promise<T | null> {
+  // Resolved before the try on purpose. Inside it, a missing token would be
+  // caught by the same handler that means "no such blob", so a store that was
+  // never attached would look exactly like a document that does not exist yet
+  // — and the caller would happily carry on until the next write threw.
+  const blobToken = token();
+
   let url: string;
   try {
-    const meta = await head(pathname, { token: token() });
+    const meta = await head(pathname, { token: blobToken });
     url = meta.url;
   } catch {
+    // Genuinely absent, which is normal on the first read of a key.
     return null;
   }
 

@@ -1,4 +1,4 @@
-import { readJson, writeJson } from "./store";
+import { hasBlobToken, readJson, writeJson } from "./store";
 
 /**
  * Every call to /api/script, /api/voice and /api/render spends real money —
@@ -116,13 +116,26 @@ export async function consumeDailyBudget(kind: BudgetKind): Promise<Guard> {
     };
   }
 
+  // The counter lives in Vercel Blob, so no store means no way to enforce the
+  // cap. Checked up front and by name: without this, every expensive route
+  // fails deep inside the storage layer with an error about a token, which
+  // says nothing about why generating a script needs blob storage at all.
+  if (!hasBlobToken()) {
+    return {
+      ok: false,
+      status: 503,
+      error:
+        "Kein Blob-Store verbunden. Das Tagesbudget wird dort gezählt, und ohne diesen Zähler wird jede kostenpflichtige Anfrage abgelehnt. Auf vercel.com unter Storage einen Blob-Store anlegen, diesem Projekt zuweisen und neu deployen.",
+    };
+  }
+
   const day = today();
   let doc: BudgetDoc;
   try {
     doc = (await readJson<BudgetDoc>(budgetPath(day))) ?? {};
   } catch {
-    // If the budget store is unreachable we would rather refuse than spend
-    // blind — the whole point of this layer is that it cannot be bypassed.
+    // Refuse rather than spend blind — the point of this layer is that it
+    // cannot be bypassed, least of all by its own storage being flaky.
     return {
       ok: false,
       status: 503,
@@ -140,7 +153,18 @@ export async function consumeDailyBudget(kind: BudgetKind): Promise<Guard> {
     };
   }
 
-  await writeJson(budgetPath(day), { ...doc, [kind]: used + 1 });
+  try {
+    await writeJson(budgetPath(day), { ...doc, [kind]: used + 1 });
+  } catch {
+    // Same reasoning as the read: an uncounted call is an uncapped call.
+    return {
+      ok: false,
+      status: 503,
+      error:
+        "Das Tagesbudget lässt sich gerade nicht fortschreiben. Aus Kostengründen wird die Anfrage abgelehnt.",
+    };
+  }
+
   return { ok: true };
 }
 
