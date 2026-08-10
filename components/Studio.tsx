@@ -10,6 +10,7 @@ import { getJson, postJson } from "./api";
 
 type ScriptJobState = {
   status: "running" | "done" | "error";
+  step?: string;
   project?: unknown;
   error?: string;
 };
@@ -67,6 +68,7 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [scriptDone, setScriptDone] = useState(false);
   const [scriptJobId, setScriptJobId] = useState<string | null>(null);
+  const [scriptStep, setScriptStep] = useState<string | null>(null);
 
   const [voices, setVoices] = useState<{ voiceId: string; name: string }[]>([]);
   const [voiceId, setVoiceId] = useState<string>("");
@@ -155,6 +157,7 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
 
       forgetJob();
       setScriptJobId(null);
+      setScriptStep(null);
       setScriptBusy(false);
       return true;
     },
@@ -186,6 +189,7 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
         }
         return;
       }
+      setScriptStep(result.data.step ?? null);
       applyScriptJob(result.data);
     };
 
@@ -355,12 +359,18 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
               disabled={scriptBusy || topic.trim().length < 3}
             >
               {scriptBusy
-                ? "Skript wird erzeugt…"
+                ? (scriptStep ?? "Skript wird erzeugt…")
                 : scriptDone
                   ? "Skript erzeugt"
                   : "Skript erzeugen"}
             </Button>
             {scriptError ? <Note tone="alert">{scriptError}</Note> : null}
+            {scriptBusy ? (
+              <Note tone="info">
+                Läuft auf dem Server weiter. Du kannst den Tab schließen und
+                später zurückkommen.
+              </Note>
+            ) : null}
             {!topic && !scriptDone ? (
               <Note tone="info">
                 Gib ein Thema ein. Aus einem Satz wird ein Fünf-Minuten-Video.

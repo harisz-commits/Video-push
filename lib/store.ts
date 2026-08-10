@@ -156,6 +156,8 @@ export type ScriptJob = {
   jobId: string;
   topic: string;
   status: "running" | "done" | "error";
+  /** Which half of the work is happening, for the studio to show. */
+  step?: string;
   /** Present once status is "done". Shape validated by VideoProject. */
   project?: unknown;
   error?: string;

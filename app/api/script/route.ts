@@ -1,11 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { waitUntil } from "@vercel/functions";
 import { errorResponse, guard } from "../../../lib/guardrails";
 import {
   buildRepairPrompt,
-  buildScriptUserPrompt,
-  SCRIPT_SYSTEM_PROMPT,
+  buildScenesPrompt,
+  buildVoiceoverPrompt,
+  SCENES_SYSTEM_PROMPT,
+  VOICEOVER_SYSTEM_PROMPT,
 } from "../../../lib/prompt";
 import type { ScriptDraft as ScriptDraftType } from "../../../lib/schema";
 import { draftToProject, ScriptDraft, ScriptRequest } from "../../../lib/schema";
@@ -25,22 +26,6 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
-
-/**
- * How hard the model works on the script.
- *
- * Defaults to low because latency is the binding constraint here, not depth:
- * the route has to return inside the function timeout, and a scriptwriting
- * task this tightly specified gains little from extra deliberation. Set
- * ANTHROPIC_EFFORT=medium or high where there is time to spare.
- *
- * (The 400s this route hit earlier came from the schema, not from this
- * parameter — worth stating, because it was removed on that suspicion.)
- */
-const EFFORT = (process.env.ANTHROPIC_EFFORT ?? "low") as
-  | "low"
-  | "medium"
-  | "high";
 
 export async function POST(req: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -106,7 +91,7 @@ async function generate(
 ): Promise<void> {
   const startedAt = Date.now();
 
-  const finish = async (patch: Partial<ScriptJob>): Promise<void> => {
+  const update = async (patch: Partial<ScriptJob>): Promise<void> => {
     await writeJson(scriptJobPath(jobId), {
       jobId,
       topic,
@@ -119,31 +104,48 @@ async function generate(
     });
   };
 
-  const client = new Anthropic({ apiKey });
-
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: buildScriptUserPrompt(topic) },
-  ];
+  const client = new Anthropic({ apiKey, maxRetries: 1 });
 
   try {
-    // Two attempts at most: the model gets exactly one chance to repair its
-    // own output, with the concrete failures named. Beyond that we surface the
-    // problem instead of burning tokens in a loop.
+    // ---- 1. The voiceover, as prose. -------------------------------------
+    await update({ step: "Voiceover wird geschrieben" });
+
+    const voiceMessage = await client.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      system: VOICEOVER_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: buildVoiceoverPrompt(topic) }],
+    });
+
+    const voiceover = textOf(voiceMessage).trim();
+    if (voiceover.length < 200) {
+      await update({
+        status: "error",
+        error: "Das Modell hat kein brauchbares Voiceover geliefert.",
+      });
+      return;
+    }
+
+    // ---- 2. The scenes, derived from that finished text. ------------------
+    await update({ step: "Szenen werden gesetzt" });
+
+    const messages: Anthropic.MessageParam[] = [
+      { role: "user", content: buildScenesPrompt(voiceover) },
+    ];
+
+    // Two attempts at most: one chance to repair its own output, with the
+    // failures named. Beyond that we surface the problem instead of burning
+    // tokens in a loop.
     for (let attempt = 0; attempt < 2; attempt++) {
-      const message = await client.messages.parse({
+      const message = await client.messages.create({
         model: MODEL,
-        max_tokens: 16000,
-        system: SCRIPT_SYSTEM_PROMPT,
-        thinking: { type: "adaptive" },
-        output_config: {
-          effort: EFFORT,
-          format: zodOutputFormat(ScriptDraft),
-        },
+        max_tokens: 8000,
+        system: SCENES_SYSTEM_PROMPT,
         messages,
       });
 
       if (message.stop_reason === "refusal") {
-        await finish({
+        await update({
           status: "error",
           error:
             "Das Modell hat dieses Thema abgelehnt. Formuliere das Stichwort anders oder wähle ein anderes Thema.",
@@ -151,52 +153,52 @@ async function generate(
         return;
       }
 
-      const draft = message.parsed_output;
-      if (!draft) {
-        await finish({
-          status: "error",
-          error:
-            message.stop_reason === "max_tokens"
-              ? "Die Antwort wurde abgeschnitten, bevor sie vollständig war. Versuch es mit einem enger gefassten Stichwort."
-              : "Das Modell hat kein auswertbares Skript geliefert.",
-        });
-        return;
+      const raw = textOf(message);
+      const parsed = parseSceneJson(raw, voiceover);
+
+      if (!parsed.ok) {
+        if (attempt === 1) {
+          await update({ status: "error", error: parsed.error });
+          return;
+        }
+        messages.push(
+          { role: "assistant", content: raw },
+          { role: "user", content: buildRepairPrompt([parsed.error]) },
+        );
+        continue;
       }
 
-      const problems = validateDraft(draft);
+      const problems = validateDraft(parsed.draft);
       if (problems.length === 0) {
         const project = draftToProject(
-          draft,
+          parsed.draft,
           topic,
           `p${Date.now().toString(36)}`,
         );
-        await finish({ status: "done", project });
+        await update({ status: "done", project, step: undefined });
         return;
       }
 
       if (attempt === 1) {
-        await finish({
+        await update({
           status: "error",
-          error: `Das Skript war auch nach einem Korrekturversuch ungültig: ${problems
+          error: `Die Szenenliste war auch nach einem Korrekturversuch ungültig: ${problems
             .slice(0, 3)
             .join(" ")}`,
         });
         return;
       }
 
-      // Feed the failed draft back as a complete assistant turn, then the
-      // repair request. The assistant turn is not the last message, so this is
-      // ordinary conversation history rather than a prefill.
       messages.push(
-        { role: "assistant", content: JSON.stringify(draft) },
+        { role: "assistant", content: raw },
         { role: "user", content: buildRepairPrompt(problems) },
       );
     }
 
-    await finish({ status: "error", error: "Skripterzeugung fehlgeschlagen." });
+    await update({ status: "error", error: "Skripterzeugung fehlgeschlagen." });
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) {
-      await finish({
+      await update({
         status: "error",
         error:
           "Die Anthropic-API ist gerade ausgelastet. Versuch es in einer Minute erneut.",
@@ -204,9 +206,7 @@ async function generate(
       return;
     }
     if (err instanceof Anthropic.APIError) {
-      // Pass the API's own words through. A bare status code sent us guessing
-      // at the model name when the real complaint was about a parameter.
-      await finish({
+      await update({
         status: "error",
         error: `Die Anthropic-API antwortete mit ${err.status} für das Modell "${MODEL}".${apiErrorDetail(err)}`,
       });
@@ -214,11 +214,64 @@ async function generate(
     }
     // eslint-disable-next-line no-console
     console.error("[/api/script]", err);
-    await finish({
+    await update({
       status: "error",
       error: "Unerwarteter Fehler bei der Skripterzeugung.",
     });
   }
+}
+
+/** Concatenate the text blocks of a message. */
+function textOf(message: Anthropic.Message): string {
+  return message.content
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+}
+
+/**
+ * Pull the JSON object out of a model reply and validate it.
+ *
+ * Tolerates a fenced code block or a stray sentence around the object, because
+ * insisting on cleanliness here costs a whole retry for something a substring
+ * search fixes.
+ */
+function parseSceneJson(
+  raw: string,
+  voiceover: string,
+):
+  | { ok: true; draft: ScriptDraftType }
+  | { ok: false; error: string } {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    return { ok: false, error: "Die Antwort enthielt kein JSON-Objekt." };
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(raw.slice(start, end + 1));
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Das JSON ließ sich nicht parsen: ${(err as Error).message}`,
+    };
+  }
+
+  // The voiceover is ours, not the model's, so it is spliced in rather than
+  // asked for a second time.
+  const parsed = ScriptDraft.safeParse({
+    ...(value as Record<string, unknown>),
+    voiceover,
+  });
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .slice(0, 4)
+      .map((i) => `${i.path.join(".") || "(Wurzel)"}: ${i.message}`)
+      .join("; ");
+    return { ok: false, error: `Das JSON passt nicht zum Schema: ${issues}` };
+  }
+  return { ok: true, draft: parsed.data };
 }
 
 /** The human-readable part of an Anthropic error, if there is one. */

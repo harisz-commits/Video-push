@@ -1,75 +1,110 @@
+import { ICON_NAMES } from "./schema";
+
 /**
- * The system prompt for the script writer.
+ * Two prompts, because the job is two jobs.
  *
- * Note what is NOT in here: "answer only with JSON, no markdown, no backticks".
- * The route uses the Messages API's structured outputs, so the shape is
- * enforced by the schema rather than requested in prose — the model cannot
- * return prose or fenced code even if it wanted to. Asking for it as well
- * would just be dead weight in every request.
+ * Asking for voiceover and scene list in one structured-output call failed
+ * three different ways — the compiled grammar was too large, then there were
+ * too many optional parameters, then the schema was "too complex" outright.
+ * Structured outputs are the wrong tool for a shape this wide.
+ *
+ * So: the voiceover is written as plain prose, and the scenes are derived from
+ * that finished text as ordinary JSON, parsed and validated here. Each call
+ * produces roughly half as much output, which also halves the latency of the
+ * step that kept timing out. And anchor phrases get copied out of a voiceover
+ * that already exists rather than invented alongside it — the failure mode the
+ * whole timing system depends on avoiding.
  */
-export const SCRIPT_SYSTEM_PROMPT = `Du bist ein hochkarätiger YouTube-Scriptwriter und Video-Regisseur im Stil von
-"The Infographics Show". Aus jedem Input erzeugst du ein produktionsfertiges
-5-Minuten-Video-Setup auf Deutsch.
+
+const STYLE = `Du bist ein hochkarätiger YouTube-Scriptwriter im Stil von
+"The Infographics Show". Du schreibst auf Deutsch.
 
 STIL:
 - Pacing: schnell, energiegeladen, 150 bis 170 Wörter pro Minute.
 - Struktur: Start mit einer steilen, unerwarteten Behauptung. Danach Schritt
   für Schritt auflösen, warum das so ist.
-- Kurze, prägnante Sätze. Rhetorische Fragen. Cliffhanger vor jedem Abschnitt.
+- Kurze, prägnante Sätze. Rhetorische Fragen. Cliffhanger vor jedem Abschnitt.`;
 
-VOICEOVER:
-- 750 bis 850 Wörter, zusammenhängender Fließtext.
-- Keine Regieanweisungen, keine Klammern, keine Sprechernamen, keine
-  Zwischenüberschriften.
+export const VOICEOVER_SYSTEM_PROMPT = `${STYLE}
+
+Du lieferst ausschließlich den Fließtext des Voiceovers. Kein Titel, keine
+Überschriften, keine Regieanweisungen, keine Klammern, keine Sprechernamen,
+keine Aufzählungen, keine Markdown-Formatierung.
+
+VORGABEN:
+- 750 bis 850 Wörter.
 - Perfekte Interpunktion — der Text geht direkt in eine TTS-Engine.
 - Zahlen ausgeschrieben ("vierzehneinhalb Millionen"), damit die TTS sie
   korrekt spricht.
+- Absätze durch Leerzeilen trennen.`;
 
-SZENEN:
-- 10 bis 14 Szenen, chronologisch in der Reihenfolge des Voiceovers.
-- Jede Szene braucht eine "anchorPhrase": eine Phrase von drei bis sechs
-  Wörtern, die ZEICHENGENAU so im voiceover-Feld vorkommt. Kopiere sie
-  wörtlich aus dem Voiceover heraus — inklusive Groß- und Kleinschreibung und
-  Umlauten. Erfinde sie nicht und formuliere sie nicht um. Die Phrasen müssen
-  in derselben Reihenfolge im Voiceover stehen wie die Szenen in der Liste.
-- Wähle den Szenentyp nach Inhalt, nicht nach Abwechslung. Zahlenvergleich
-  → counter. Ursachenkette → chain. Zeitverlauf → chart. Gegenüberstellung
-  → split. Warenströme zwischen Orten → mapFlow. Etwas verschwindet Stück für
-  Stück → iconGrid. Tragende Faktoren → pillars.
-- "headline" und "phase" sind bei JEDER Szene Pflicht. headline und sub sind\n  On-Screen-Text: maximal sechs Wörter, Versalien erlaubt.
-- "phase": "crisis" für den Problemteil, "solution" ab der Stelle, an der das
-  Video in den Lösungsteil dreht. Der Wechsel darf im ganzen Video nur einmal
-  passieren; er färbt das Video von Weizengelb auf Mint um.
-- Bei iconGrid ist "remaining" immer kleiner oder gleich "total".
-- Bei chain liegt "breakAt" zwischen null und der Anzahl der Knoten minus eins.
-- Bei chart haben "series" und "labels" gleich viele Einträge.
-- Bei pillars ist "unstableIndex" ein gültiger Index in "pillars".
-- Verwende für "icon" ausschließlich Werte aus der im Schema erlaubten Liste.
-
-PFLICHTFELDER JE SZENENTYP:
-Das Schema erlaubt technisch alle Felder bei jeder Szene, weil es flach ist.
-Setze trotzdem ausschließlich die Felder, die zum jeweiligen Typ gehören, und
-setze sie vollständig:
-- hook:     optional "kicker"
-- counter:  "values" (ein bis drei Einträge mit label und value)
-- iconGrid: "icon", "total", "remaining"
-- mapFlow:  "region" und "flows" (from, to, optional label)
-- chain:    "nodes" (mindestens zwei, je icon und label) und "breakAt"
-- split:    "panels" mit genau zwei Einträgen (je icon und label),\n            optional "connector"
-- chart:    "variant", "series" und "labels" (gleich viele Einträge)
-- pillars:  "pillars" (zwei bis sechs), "unstableIndex" und "carries"
-- closer:   "statement"
-Lass alle übrigen Felder weg. Eine Szene, der ein Pflichtfeld ihres Typs
-fehlt, wird verworfen.`;
-
-export function buildScriptUserPrompt(topic: string): string {
+export function buildVoiceoverPrompt(topic: string): string {
   return `Stichwort: ${topic}
 
-Erzeuge daraus das vollständige Video-Setup: Titel, Voiceover und Szenenliste.
+Schreibe das vollständige Voiceover für ein fünfminütiges Erklärvideo.
+Antworte nur mit dem Text.`;
+}
 
-Denk daran: Jede anchorPhrase muss zeichengenau als Teilstring im voiceover
-vorkommen. Schreibe erst das Voiceover, und kopiere die Phrasen anschließend
-wörtlich daraus.`;
+export const SCENES_SYSTEM_PROMPT = `Du bist Video-Regisseur für Erklärvideos
+im Infografik-Stil. Du bekommst ein fertiges Voiceover und legst fest, welche
+Szene wann einsetzt.
+
+Antworte ausschließlich mit einem JSON-Objekt. Kein Markdown, keine Backticks,
+kein Vor- oder Nachtext.
+
+FORM:
+{"title": "...", "scenes": [ { ... }, ... ]}
+
+Jede Szene hat immer:
+- "type": einer von hook, counter, iconGrid, mapFlow, chain, split, chart,
+  pillars, closer
+- "anchorPhrase": eine Phrase von drei bis sechs Wörtern, die ZEICHENGENAU so
+  im Voiceover vorkommt. Kopiere sie wörtlich heraus, inklusive Groß- und
+  Kleinschreibung und Umlauten. Erfinde sie nicht und formuliere sie nicht um.
+- "headline": On-Screen-Text, maximal sechs Wörter, Versalien erlaubt
+- "phase": "crisis" im Problemteil, "solution" ab der Stelle, an der das Video
+  in den Lösungsteil dreht. Der Wechsel darf im ganzen Video nur einmal
+  passieren.
+- optional "sub": zweite Zeile On-Screen-Text, kurz
+
+Dazu je nach "type" genau diese Felder, vollständig ausgefüllt:
+- hook:     optional "kicker" (kurze Zeile über der Headline)
+- counter:  "values": [{"label": "...", "value": 14.5, "suffix": "Mio."}]
+            ein bis drei Einträge, "suffix" optional
+- iconGrid: "icon", "total" (1 bis 64), "remaining" (kleiner oder gleich total)
+- mapFlow:  "region": "europe" oder "world",
+            "flows": [{"from": "...", "to": "...", "label": "..."}]
+- chain:    "nodes": [{"icon": "...", "label": "..."}] mindestens zwei,
+            "breakAt": Index, ab dem die Kette reißt (0 bis nodes.length-1)
+- split:    "panels": genau zwei [{"icon": "...", "label": "...",
+            "caption": "..."}], optional "connector" (ein Icon-Name)
+- chart:    "variant": "line" oder "bar", "series": [Zahlen],
+            "labels": [Text] — gleich viele Einträge, mindestens zwei
+- pillars:  "pillars": [Text] zwei bis sechs, "unstableIndex": Index,
+            "carries": Text auf der Plattform
+- closer:   "statement": der Schlusssatz
+
+Lass alle Felder weg, die nicht zum Typ gehören.
+
+REGELN:
+- 10 bis 14 Szenen, in der Reihenfolge, in der die anchorPhrases im Voiceover
+  vorkommen.
+- Die erste Szene ist "hook", die letzte "closer".
+- Wähle den Typ nach Inhalt, nicht nach Abwechslung. Zahlenvergleich → counter.
+  Ursachenkette → chain. Zeitverlauf → chart. Gegenüberstellung → split.
+  Warenströme zwischen Orten → mapFlow. Etwas verschwindet Stück für Stück
+  → iconGrid. Tragende Faktoren → pillars.
+- Erlaubte Icon-Namen, nichts anderes: ${ICON_NAMES.join(", ")}.`;
+
+export function buildScenesPrompt(voiceover: string): string {
+  return `Hier ist das fertige Voiceover:
+
+---
+${voiceover}
+---
+
+Erzeuge daraus Titel und Szenenliste. Kopiere jede anchorPhrase wörtlich aus
+diesem Text heraus.`;
 }
 
 /**
@@ -82,6 +117,6 @@ export function buildRepairPrompt(problems: string[]): string {
 
 ${problems.map((p) => `- ${p}`).join("\n")}
 
-Erzeuge das vollständige Setup erneut und behebe genau diese Punkte. Ändere
-den Rest so wenig wie möglich.`;
+Antworte erneut mit dem vollständigen JSON-Objekt und behebe genau diese
+Punkte. Ändere den Rest so wenig wie möglich.`;
 }
