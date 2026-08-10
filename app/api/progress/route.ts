@@ -1,13 +1,22 @@
-import { errorResponse, rateLimit, clientKey } from "../../../lib/guardrails";
-import { progressPath, readJson, type RenderProgress } from "../../../lib/store";
+import { getRenderProgress } from "@remotion/vercel";
+import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
+import {
+  progressPath,
+  readJson,
+  type RenderJob,
+  type RenderProgress,
+} from "../../../lib/store";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
- * Poll target for the studio's render bar.
+ * Asks the sandbox how far it is, rather than reporting a copy.
  *
- * Reading is cheap but a stuck client could poll forever, so it carries a
- * generous rate limit of its own.
+ * The previous version served a document that the render function wrote as it
+ * went. When that function was killed — which it always was, on any video long
+ * enough to matter — the document froze at its last value and the studio spun
+ * forever on "rendering". The sandbox is the only thing that actually knows.
  */
 export async function GET(req: Request) {
   const renderId = new URL(req.url).searchParams.get("renderId");
@@ -18,13 +27,106 @@ export async function GET(req: Request) {
   const limited = rateLimit(clientKey(req, "progress"), 120, 60_000);
   if (!limited.ok) return errorResponse(limited.error, limited.status);
 
-  const progress = await readJson<RenderProgress>(progressPath(renderId));
-  if (!progress) {
+  const job = await readJson<RenderJob>(progressPath(renderId));
+  if (!job) {
     return errorResponse(
-      "Zu dieser renderId gibt es keinen Fortschritt. Entweder ist der Render noch nicht gestartet oder er ist älter als die Aufbewahrungsfrist.",
+      "Zu dieser renderId gibt es keinen Render. Entweder ist er noch nicht gestartet oder er ist älter als die Aufbewahrungsfrist.",
       404,
     );
   }
 
-  return Response.json(progress);
+  const base = {
+    renderId,
+    startedAt: job.startedAt,
+    updatedAt: Date.now(),
+  };
+
+  try {
+    const p = await getRenderProgress({
+      sandboxId: job.sandboxId,
+      cmdId: job.cmdId,
+    });
+
+    switch (p.stage) {
+      case "starting":
+        return Response.json({
+          ...base,
+          status: "queued",
+          progress: 0,
+          phase: "Sandbox wird gestartet",
+        } satisfies RenderProgress);
+      case "opening-browser":
+        return Response.json({
+          ...base,
+          status: "rendering",
+          progress: p.overallProgress,
+          phase: "Browser wird geöffnet",
+        } satisfies RenderProgress);
+      case "selecting-composition":
+        return Response.json({
+          ...base,
+          status: "rendering",
+          progress: p.overallProgress,
+          phase: "Komposition wird gewählt",
+        } satisfies RenderProgress);
+      case "render-progress":
+        return Response.json({
+          ...base,
+          status: "rendering",
+          progress: p.overallProgress,
+          phase: `Rendert ${Math.round(p.overallProgress * job.totalFrames)} von ${job.totalFrames} Frames`,
+        } satisfies RenderProgress);
+      case "uploading":
+        return Response.json({
+          ...base,
+          status: "rendering",
+          progress: p.overallProgress,
+          phase: "Video wird hochgeladen",
+        } satisfies RenderProgress);
+      case "done":
+        return Response.json({
+          ...base,
+          status: "done",
+          progress: 1,
+          phase: "Gerendert",
+          outputUrl: p.url,
+          sizeBytes: p.size,
+        } satisfies RenderProgress);
+      case "error":
+        return Response.json({
+          ...base,
+          status: "error",
+          progress: 0,
+          phase: "Abgebrochen",
+          error: describeRenderError(p),
+        } satisfies RenderProgress);
+      default:
+        return Response.json({
+          ...base,
+          status: "rendering",
+          progress: 0,
+          phase: "Läuft",
+        } satisfies RenderProgress);
+    }
+  } catch (err) {
+    // A sandbox that has expired or been reclaimed cannot be asked any more.
+    // Saying so beats leaving the studio to spin.
+    // eslint-disable-next-line no-console
+    console.error("[/api/progress]", err);
+    return Response.json({
+      ...base,
+      status: "error",
+      progress: 0,
+      phase: "Abgebrochen",
+      error:
+        "Der Render ist nicht mehr erreichbar. Die Sandbox wurde beendet, bevor das Video fertig war. Starte den Render erneut.",
+    } satisfies RenderProgress);
+  }
+}
+
+function describeRenderError(stage: { stage: "error" } & Record<string, unknown>): string {
+  const message = stage.message ?? stage.error;
+  return typeof message === "string" && message
+    ? message.slice(0, 400)
+    : "Der Render ist fehlgeschlagen.";
 }

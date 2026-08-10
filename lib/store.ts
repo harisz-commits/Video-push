@@ -128,7 +128,23 @@ export async function writeBinary(
   return url;
 }
 
-/** Progress document written by /api/render and read by /api/progress. */
+/**
+ * The handle on a detached render.
+ *
+ * Deliberately not a progress snapshot: the sandbox owns the truth about how
+ * far along it is, and a copy written by a function that may be killed at any
+ * moment is exactly how a render came to sit at "38%, rendering" forever.
+ * /api/progress asks the sandbox instead.
+ */
+export type RenderJob = {
+  renderId: string;
+  sandboxId: string;
+  cmdId: string;
+  totalFrames: number;
+  startedAt: number;
+};
+
+/** What /api/progress reports to the studio. */
 export type RenderProgress = {
   renderId: string;
   status: "queued" | "rendering" | "done" | "error";

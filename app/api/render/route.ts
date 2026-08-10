@@ -1,31 +1,25 @@
-import {
-  addBundleToSandbox,
-  createSandbox,
-  renderMediaOnVercel,
-  uploadToVercelBlob,
-} from "@remotion/vercel";
-import { waitUntil } from "@vercel/functions";
-import { errorResponse, guard } from "../../../lib/guardrails";
+import { renderMediaOnVercel } from "@remotion/vercel";
 import { resolveSceneTimings } from "../../../lib/align";
+import { COMP_NAME } from "../../../lib/constants";
+import { errorResponse, guard } from "../../../lib/guardrails";
 import { RenderRequest, type VideoProject } from "../../../lib/schema";
 import {
   BLOB_ACCESS,
   progressPath,
   resolveBlobToken,
   writeJson,
-  type RenderProgress,
+  type RenderJob,
 } from "../../../lib/store";
-import { COMP_NAME } from "../../../lib/constants";
-import { bundleRemotionProject, ensureSandboxBundleRoot } from "./helpers";
 import { restoreSnapshot } from "./restore-snapshot";
 
 export const runtime = "nodejs";
 /**
- * The function stays alive for the whole render because it drives the sandbox.
- * A five-minute 1080p video needs the headroom; on Vercel Hobby the ceiling is
- * lower than this and long renders will be cut off (see README, Guardrails).
+ * Only long enough to boot a sandbox and hand it the job. The render itself
+ * runs detached and is not on this clock — which it used to be, and which is
+ * why a six-minute video froze at 38% when the function was killed at 300
+ * seconds while the progress document kept claiming "rendering" forever.
  */
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const blob = resolveBlobToken();
@@ -61,133 +55,48 @@ export async function POST(req: Request) {
   const renderId = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const timing = resolveSceneTimings(project);
 
-  const initial: RenderProgress = {
-    renderId,
-    status: "queued",
-    progress: 0,
-    phase: "Sandbox wird gestartet",
-    startedAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  await writeJson(progressPath(renderId), initial);
-
-  waitUntil(runRender(renderId, project, timing.totalFrames, blob.value));
-
-  return Response.json({
-    renderId,
-    totalFrames: timing.totalFrames,
-    durationSeconds: timing.totalFrames / project.fps,
-  });
-}
-
-async function runRender(
-  renderId: string,
-  project: VideoProject,
-  totalFrames: number,
-  blobToken: string,
-): Promise<void> {
-  const startedAt = Date.now();
-  let lastWrite = 0;
-
-  /** Progress writes are throttled — the UI polls, it does not need every frame. */
-  const report = async (
-    patch: Partial<RenderProgress>,
-    force = false,
-  ): Promise<void> => {
-    const now = Date.now();
-    if (!force && now - lastWrite < 1_000) return;
-    lastWrite = now;
-    await writeJson(progressPath(renderId), {
-      renderId,
-      status: "rendering",
-      progress: 0,
-      phase: "",
-      startedAt,
-      ...patch,
-      updatedAt: now,
-    } as RenderProgress).catch(() => {
-      // A dropped progress write must never abort the render itself.
-    });
-  };
-
-  let sandbox: Awaited<ReturnType<typeof createSandbox>> | undefined;
-
   try {
-    sandbox = process.env.VERCEL
-      ? await restoreSnapshot()
-      : await createSandbox({
-          onProgress: async ({ progress, message }) => {
-            await report({ phase: message, progress: progress * 0.1 });
-          },
-        });
+    const sandbox = await restoreSnapshot();
 
-    if (!process.env.VERCEL) {
-      // Local only: on Vercel the bundle already lives in the snapshot.
-      bundleRemotionProject(".remotion");
-      await ensureSandboxBundleRoot(sandbox);
-      await addBundleToSandbox({ sandbox, bundleDir: ".remotion" });
-    }
-
-    const { sandboxFilePath, contentType } = await renderMediaOnVercel({
+    // Detached: the sandbox renders and uploads on its own, so nothing here
+    // has to stay alive for the twenty minutes a long video can take. The
+    // sandbox is deliberately NOT stopped — stopping it would kill the render.
+    const { sandboxId, cmdId } = await renderMediaOnVercel({
       sandbox,
+      detached: true,
       compositionId: COMP_NAME,
       inputProps: { project },
-      onProgress: async (update) => {
-        switch (update.stage) {
-          case "opening-browser":
-            await report({ phase: "Browser wird geöffnet", progress: 0.12 });
-            break;
-          case "selecting-composition":
-            await report({ phase: "Komposition wird gewählt", progress: 0.18 });
-            break;
-          case "render-progress":
-            await report({
-              phase: `Rendert ${Math.round(update.overallProgress * totalFrames)} von ${totalFrames} Frames`,
-              progress: 0.2 + update.overallProgress * 0.75,
-            });
-            break;
-          default:
-            break;
-        }
+      // Match the cores the sandbox was given; frames render in parallel.
+      concurrency: 8,
+      vercelBlob: {
+        blobToken: blob.value,
+        access: BLOB_ACCESS,
+        blobPath: `renders/${renderId}.mp4`,
       },
     });
 
-    await report({ phase: "Video wird hochgeladen", progress: 0.96 }, true);
+    const job: RenderJob = {
+      renderId,
+      sandboxId,
+      cmdId,
+      totalFrames: timing.totalFrames,
+      startedAt: Date.now(),
+    };
+    await writeJson(progressPath(renderId), job);
 
-    const { url, size } = await uploadToVercelBlob({
-      sandbox,
-      sandboxFilePath,
-      contentType,
-      blobToken,
-      access: BLOB_ACCESS,
+    return Response.json({
+      renderId,
+      totalFrames: timing.totalFrames,
+      durationSeconds: timing.totalFrames / project.fps,
     });
-
-    await report(
-      {
-        status: "done",
-        progress: 1,
-        phase: "Gerendert",
-        outputUrl: url,
-        sizeBytes: size,
-      },
-      true,
-    );
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[/api/render]", err);
-    await report(
-      {
-        status: "error",
-        progress: 0,
-        phase: "Abgebrochen",
-        error:
-          err instanceof Error
-            ? err.message.slice(0, 300)
-            : "Unbekannter Fehler beim Rendern.",
-      },
-      true,
+    return errorResponse(
+      err instanceof Error
+        ? err.message.slice(0, 400)
+        : "Der Render konnte nicht gestartet werden.",
+      500,
     );
-  } finally {
-    await sandbox?.stop().catch(() => {});
   }
 }

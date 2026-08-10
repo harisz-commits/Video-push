@@ -2,7 +2,21 @@ import { get } from "@vercel/blob";
 import { Sandbox } from "@vercel/sandbox";
 import { BLOB_ACCESS, resolveBlobToken } from "../../../lib/store";
 
-const SANDBOX_CREATING_TIMEOUT = 5 * 60 * 1000;
+/**
+ * How long the sandbox may live.
+ *
+ * It has to outlast the render, not the request that started it: a detached
+ * render keeps working after the response is sent, and a sandbox that expired
+ * meanwhile would take the render with it.
+ */
+const SANDBOX_LIFETIME = 45 * 60 * 1000;
+
+/**
+ * Cores to give it. Rendering is parallel across frames, and the default
+ * allotment managed about nine frames a second — twenty minutes for a
+ * six-minute video.
+ */
+const SANDBOX_RESOURCES = { vcpus: 8 } as const;
 
 const getSnapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
@@ -36,6 +50,7 @@ export async function restoreSnapshot() {
 
   return Sandbox.create({
     source: { type: "snapshot", snapshotId },
-    timeout: SANDBOX_CREATING_TIMEOUT,
+    timeout: SANDBOX_LIFETIME,
+    resources: SANDBOX_RESOURCES,
   });
 }
