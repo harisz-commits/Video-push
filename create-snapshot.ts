@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   // nor the Blob client — it should cost nothing on a first deploy.
   const { addBundleToSandbox, createSandbox } = await import("@remotion/vercel");
   const { put } = await import("@vercel/blob");
-  const { bundleRemotionProject } = await import("./app/api/render/helpers");
+  const { bundleRemotionProject } = await import("./app/api/render/helpers.ts");
 
   const sandbox = await createSandbox({
     onProgress: ({ progress, message }) => {

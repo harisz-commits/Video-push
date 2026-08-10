@@ -11,6 +11,9 @@
 		"module": "esnext",
 		"moduleResolution": "Bundler",
 		"resolveJsonModule": true,
+		// create-snapshot.ts runs under node --experimental-strip-types, where ESM
+		// requires the explicit .ts specifier on relative imports.
+		"allowImportingTsExtensions": true,
 		"isolatedModules": true,
 		"jsx": "react-jsx",
 		"noUnusedLocals": true,
