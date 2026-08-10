@@ -320,6 +320,16 @@ async function scenesForSegment(
     }
 
     const raw = textOf(message);
+
+    // A reply cut off at the token ceiling is not a formatting problem and no
+    // repair round will fix it, so say what actually happened.
+    if (message.stop_reason === "max_tokens") {
+      return {
+        ok: false,
+        error: `${label}: die Antwort wurde beim Token-Limit abgeschnitten (${message.usage.output_tokens} Tokens). Weniger Szenen pro Abschnitt anfordern.`,
+      };
+    }
+
     const parsed = parseScenes(raw);
 
     const problems = parsed.ok
@@ -330,19 +340,26 @@ async function scenesForSegment(
         })
       : [parsed.error];
 
-    if (problems.length === 0 && parsed.ok) return { ok: true, scenes: parsed.scenes };
+    if (parsed.ok && problems.length === 0) return { ok: true, scenes: parsed.scenes };
 
     if (attempt === 1) {
+      // The reply itself is the evidence when the reply is the problem —
+      // "enthielt kein JSON-Objekt" alone leaves nothing to act on.
+      const evidence = parsed.ok
+        ? ""
+        : ` Antwort begann mit: ${JSON.stringify(raw.slice(0, 200))} (stop_reason ${message.stop_reason}, ${raw.length} Zeichen)`;
       return {
         ok: false,
         error: `${label} war auch nach einem Korrekturversuch ungültig: ${problems
           .slice(0, 3)
-          .join(" ")}`,
+          .join(" ")}${evidence}`,
       };
     }
 
     messages.push(
-      { role: "assistant", content: raw },
+      // An empty text block is rejected by the API, and an empty reply is
+      // exactly one of the ways this step fails.
+      { role: "assistant", content: raw.trim() || "(leere Antwort)" },
       { role: "user", content: buildRepairPrompt(problems) },
     );
   }
