@@ -89,7 +89,7 @@ function describe(response: Response, raw: string, path: string): string {
   }
 
   if (status === 504 || status === 408) {
-    return `Zeitüberschreitung: ${path} hat länger gebraucht, als die Vercel-Function laufen darf. Auf dem Hobby-Plan liegt die Grenze bei 60 Sekunden. Setze ANTHROPIC_EFFORT auf "low" oder wechsle auf einen Plan mit längerem Limit.`;
+    return `Zeitüberschreitung: ${path} hat länger gebraucht, als die Vercel-Function laufen darf (60 Sekunden auf Hobby, sonst bis zu 300). Bei der Skripterzeugung hilft ANTHROPIC_EFFORT=low; bleibt es dabei, kürze die Wortvorgabe in lib/prompt.ts.`;
   }
 
   if (status === 413) {

@@ -10,24 +10,30 @@ import type { ScriptDraft as ScriptDraftType } from "../../../lib/schema";
 import { draftToProject, ScriptDraft, ScriptRequest } from "../../../lib/schema";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+/**
+ * Generating roughly 800 words plus a scene list is a few thousand output
+ * tokens and regularly needs more than two minutes. 300 is the ceiling on
+ * plans above Hobby, where the limit is 60 and this route cannot fit at all.
+ */
+export const maxDuration = 300;
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
 
 /**
  * How hard the model works on the script.
  *
- * Sent only when explicitly configured. Not every model accepts every effort
- * level, and an unsupported value is a 400 for the whole request — not worth
- * risking for a parameter nobody asked for. Set ANTHROPIC_EFFORT=low if the
- * route needs to fit inside a 60-second function timeout, or high for better
- * scripts where there is room.
+ * Defaults to low because latency is the binding constraint here, not depth:
+ * the route has to return inside the function timeout, and a scriptwriting
+ * task this tightly specified gains little from extra deliberation. Set
+ * ANTHROPIC_EFFORT=medium or high where there is time to spare.
+ *
+ * (The 400s this route hit earlier came from the schema, not from this
+ * parameter — worth stating, because it was removed on that suspicion.)
  */
-const EFFORT = process.env.ANTHROPIC_EFFORT as
+const EFFORT = (process.env.ANTHROPIC_EFFORT ?? "low") as
   | "low"
   | "medium"
-  | "high"
-  | undefined;
+  | "high";
 
 export async function POST(req: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -69,7 +75,7 @@ export async function POST(req: Request) {
         system: SCRIPT_SYSTEM_PROMPT,
         thinking: { type: "adaptive" },
         output_config: {
-          ...(EFFORT ? { effort: EFFORT } : {}),
+          effort: EFFORT,
           format: zodOutputFormat(ScriptDraft),
         },
         messages,
