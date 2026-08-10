@@ -15,7 +15,7 @@ import {
   type RenderProgress,
 } from "../../../lib/store";
 import { COMP_NAME } from "../../../lib/constants";
-import { bundleRemotionProject } from "./helpers";
+import { bundleRemotionProject, ensureSandboxBundleRoot } from "./helpers";
 import { restoreSnapshot } from "./restore-snapshot";
 
 export const runtime = "nodejs";
@@ -123,6 +123,7 @@ async function runRender(
     if (!process.env.VERCEL) {
       // Local only: on Vercel the bundle already lives in the snapshot.
       bundleRemotionProject(".remotion");
+      await ensureSandboxBundleRoot(sandbox);
       await addBundleToSandbox({ sandbox, bundleDir: ".remotion" });
     }
 
