@@ -28,8 +28,13 @@ export function resolveBlobToken(): { name: string; value: string } | null {
   const direct = process.env.BLOB_READ_WRITE_TOKEN;
   if (direct) return { name: "BLOB_READ_WRITE_TOKEN", value: direct };
 
+  // A second store gets a prefix derived from its name, and the prefix simply
+  // replaces the leading BLOB — a store called video-push-blob-public yields
+  // VIDEO_PUSH_BLOB_PUBLIC_READ_WRITE_TOKEN, which does not end in
+  // BLOB_READ_WRITE_TOKEN. Matching the READ_WRITE_TOKEN suffix catches both
+  // shapes; nothing else in this project uses that suffix.
   for (const [name, value] of Object.entries(process.env)) {
-    if (value && name.endsWith("BLOB_READ_WRITE_TOKEN")) {
+    if (value && name.endsWith("READ_WRITE_TOKEN")) {
       return { name, value };
     }
   }

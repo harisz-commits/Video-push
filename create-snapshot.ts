@@ -17,9 +17,16 @@
 function findBlobToken(): string | null {
   if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
   for (const [name, value] of Object.entries(process.env)) {
-    if (value && name.endsWith("BLOB_READ_WRITE_TOKEN")) return value;
+    if (value && name.endsWith("READ_WRITE_TOKEN")) return value;
   }
   return null;
+}
+
+/** Names of anything Blob-ish in the environment, to make a skip diagnosable. */
+function blobEnvNames(): string[] {
+  return Object.keys(process.env)
+    .filter((n) => n.includes("BLOB") || n.endsWith("READ_WRITE_TOKEN"))
+    .sort();
 }
 
 const snapshotBlobKey = () =>
@@ -30,13 +37,20 @@ async function main(): Promise<void> {
   if (!blobToken) {
     console.log(
       [
-        "[snapshot] Übersprungen: kein Blob-Token in der Umgebung gefunden.",
-        "[snapshot] Das ist beim allerersten Deployment normal.",
+        "[snapshot] ============================================================",
+        "[snapshot] ÜBERSPRUNGEN — kein Blob-Token in der Umgebung gefunden.",
+        "[snapshot] Dieser Build ist GRÜN, aber es entsteht KEIN Snapshot,",
+        "[snapshot] und zur Laufzeit wird jede kostenpflichtige Route abgelehnt.",
+        "[snapshot] Beim allerersten Deployment ist das erwartet; danach nicht.",
+        `[snapshot] Blob-nahe Variablen in dieser Umgebung: ${
+          blobEnvNames().join(", ") || "(keine)"
+        }`,
+        "[snapshot] Erwartet wird BLOB_READ_WRITE_TOKEN oder ein Name, der auf",
+        "[snapshot] READ_WRITE_TOKEN endet.",
         "[snapshot] Nächste Schritte:",
-        "[snapshot]   1. vercel.com → Storage → Create Database → Blob",
-        "[snapshot]   2. Den Store diesem Projekt zuweisen",
-        "[snapshot]   3. Neu deployen — dann läuft dieser Schritt durch",
-        "[snapshot] Bis dahin ist die App nutzbar, nur Rendern ist gesperrt.",
+        "[snapshot]   1. vercel.com → Storage → Blob-Store dem Projekt zuweisen",
+        "[snapshot]   2. Neu deployen — dann läuft dieser Schritt durch",
+        "[snapshot] ============================================================",
       ].join("\n"),
     );
     return;
