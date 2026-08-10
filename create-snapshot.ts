@@ -69,12 +69,36 @@ async function main(): Promise<void> {
   // is parallel across frames, and the default allotment managed about nine
   // frames a second — far too slow for a five-minute video inside a sandbox
   // whose lifetime cannot be extended either.
-  const sandbox = await createSandbox({
-    resources: { vcpus: 8 },
-    onProgress: ({ progress, message }) => {
-      console.log(`[snapshot] ${message} (${Math.round(progress * 100)}%)`);
-    },
-  });
+  //
+  // How many cores an account may ask for varies, and asking for too many
+  // fails the call. The build must not die over that, so we step down and take
+  // whatever is granted — a slower snapshot still beats no deployment.
+  const onProgress = ({
+    progress,
+    message,
+  }: {
+    progress: number;
+    message: string;
+  }) => {
+    console.log(`[snapshot] ${message} (${Math.round(progress * 100)}%)`);
+  };
+
+  let sandbox: Awaited<ReturnType<typeof createSandbox>> | null = null;
+  for (const vcpus of [8, 4, 2]) {
+    try {
+      sandbox = await createSandbox({ resources: { vcpus }, onProgress });
+      console.log(`[snapshot] Sandbox mit ${vcpus} vCPUs`);
+      break;
+    } catch (err) {
+      console.log(
+        `[snapshot] ${vcpus} vCPUs abgelehnt (${(err as Error).message.slice(0, 120)}), versuche weniger…`,
+      );
+    }
+  }
+  if (!sandbox) {
+    sandbox = await createSandbox({ onProgress });
+    console.log("[snapshot] Sandbox mit Standard-Ausstattung");
+  }
 
   console.log("[snapshot] Remotion-Bundle wird erzeugt…");
   bundleRemotionProject(".remotion");
