@@ -9,11 +9,43 @@ import { drive } from "../shared/motion";
 
 type IconGridScene = Extract<Scene, { type: "iconGrid" }>;
 
-const PER_ROW = 8;
 /** Frame at which icons start disappearing. */
 const VANISH_AT = 20;
 const VANISH_STAGGER = 2;
 const VANISH_DURATION = 10;
+
+/**
+ * A column count that leaves the last row as full as possible.
+ *
+ * A fixed eight columns turns twelve icons into a row of eight and a stump of
+ * four, which reads as a rendering accident rather than a quantity. Twelve
+ * wants six and six; twenty-four still wants eight.
+ */
+function columnsFor(total: number): number {
+  if (total <= 10) return total;
+
+  let best = 8;
+  let bestScore = Infinity;
+  for (let columns = 10; columns >= 5; columns--) {
+    const remainder = total % columns;
+    const empty = remainder === 0 ? 0 : columns - remainder;
+    // Full rows dominate; among equally full options, prefer fewer rows.
+    const score = empty * 10 + Math.ceil(total / columns);
+    if (score < bestScore) {
+      bestScore = score;
+      best = columns;
+    }
+  }
+  return best;
+}
+
+/** Icons shrink as rows stack, so even sixty-four of them stay in frame. */
+function sizeForRows(rows: number): { icon: number; gap: number } {
+  if (rows <= 2) return { icon: 96, gap: 34 };
+  if (rows <= 4) return { icon: 76, gap: 26 };
+  if (rows <= 6) return { icon: 58, gap: 20 };
+  return { icon: 44, gap: 14 };
+}
 
 /** A grid of icons, of which some quietly disappear. "Farms are vanishing." */
 export const IconGrid: React.FC<SceneRenderProps<IconGridScene>> = ({
@@ -28,7 +60,8 @@ export const IconGrid: React.FC<SceneRenderProps<IconGridScene>> = ({
   const lost = total - remaining;
 
   const cells = Array.from({ length: total }, (_, i) => i);
-  const columns = Math.min(PER_ROW, total);
+  const columns = columnsFor(total);
+  const { icon: iconSize, gap } = sizeForRows(Math.ceil(total / columns));
 
   // Icons vanish from the end backwards, so the survivors stay left-aligned.
   const vanishOrderOf = (index: number) => total - 1 - index;
@@ -92,9 +125,11 @@ export const IconGrid: React.FC<SceneRenderProps<IconGridScene>> = ({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${columns}, 1fr)`,
-          gap: 34,
-          maxWidth: 1280,
+          // Fixed tracks rather than fractions: the grid then occupies only
+          // what it needs, instead of stretching a short row across the frame.
+          gridTemplateColumns: `repeat(${columns}, ${iconSize + 34}px)`,
+          gap,
+          justifyContent: "start",
         }}
       >
         {cells.map((i) => {
@@ -129,7 +164,7 @@ export const IconGrid: React.FC<SceneRenderProps<IconGridScene>> = ({
                 color: gone > 0.5 ? C.muted : accent,
               }}
             >
-              <Icon name={scene.icon} size={96} />
+              <Icon name={scene.icon} size={iconSize} />
             </div>
           );
         })}
