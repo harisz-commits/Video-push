@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { waitUntil } from "@vercel/functions";
 import { errorResponse, guard } from "../../../lib/guardrails";
 import {
   buildRepairPrompt,
@@ -8,6 +9,12 @@ import {
 } from "../../../lib/prompt";
 import type { ScriptDraft as ScriptDraftType } from "../../../lib/schema";
 import { draftToProject, ScriptDraft, ScriptRequest } from "../../../lib/schema";
+import {
+  readJson,
+  scriptJobPath,
+  writeJson,
+  type ScriptJob,
+} from "../../../lib/store";
 
 export const runtime = "nodejs";
 /**
@@ -58,6 +65,60 @@ export async function POST(req: Request) {
   const allowed = await guard(req, "script", 6);
   if (!allowed.ok) return errorResponse(allowed.error, allowed.status);
 
+  const jobId = `j${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const job: ScriptJob = {
+    jobId,
+    topic,
+    status: "running",
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  await writeJson(scriptJobPath(jobId), job);
+
+  // Runs past this response. The browser gets an id straight away and polls
+  // GET /api/script?jobId=… , so a closed tab no longer costs a script.
+  waitUntil(generate(jobId, topic, apiKey));
+
+  return Response.json({ jobId });
+}
+
+/** Poll target: the current state of a generation started by POST. */
+export async function GET(req: Request) {
+  const jobId = new URL(req.url).searchParams.get("jobId");
+  if (!jobId || !/^[a-zA-Z0-9_-]{6,64}$/.test(jobId)) {
+    return errorResponse("Ungültige oder fehlende jobId.", 400);
+  }
+
+  const job = await readJson<ScriptJob>(scriptJobPath(jobId));
+  if (!job) {
+    return errorResponse(
+      "Zu dieser jobId gibt es keinen Auftrag. Entweder läuft er noch nicht oder er ist älter als die Aufbewahrungsfrist.",
+      404,
+    );
+  }
+  return Response.json(job);
+}
+
+async function generate(
+  jobId: string,
+  topic: string,
+  apiKey: string,
+): Promise<void> {
+  const startedAt = Date.now();
+
+  const finish = async (patch: Partial<ScriptJob>): Promise<void> => {
+    await writeJson(scriptJobPath(jobId), {
+      jobId,
+      topic,
+      status: "running",
+      startedAt,
+      ...patch,
+      updatedAt: Date.now(),
+    } as ScriptJob).catch(() => {
+      // Nothing useful to do here; the poller reports a stale job instead.
+    });
+  };
+
   const client = new Anthropic({ apiKey });
 
   const messages: Anthropic.MessageParam[] = [
@@ -82,35 +143,45 @@ export async function POST(req: Request) {
       });
 
       if (message.stop_reason === "refusal") {
-        return errorResponse(
-          "Das Modell hat dieses Thema abgelehnt. Formuliere das Stichwort anders oder wähle ein anderes Thema.",
-          422,
-        );
+        await finish({
+          status: "error",
+          error:
+            "Das Modell hat dieses Thema abgelehnt. Formuliere das Stichwort anders oder wähle ein anderes Thema.",
+        });
+        return;
       }
 
       const draft = message.parsed_output;
       if (!draft) {
-        return errorResponse(
-          message.stop_reason === "max_tokens"
-            ? "Die Antwort wurde abgeschnitten, bevor sie vollständig war. Versuch es mit einem enger gefassten Stichwort."
-            : "Das Modell hat kein auswertbares Skript geliefert.",
-          502,
-        );
+        await finish({
+          status: "error",
+          error:
+            message.stop_reason === "max_tokens"
+              ? "Die Antwort wurde abgeschnitten, bevor sie vollständig war. Versuch es mit einem enger gefassten Stichwort."
+              : "Das Modell hat kein auswertbares Skript geliefert.",
+        });
+        return;
       }
 
       const problems = validateDraft(draft);
       if (problems.length === 0) {
-        const project = draftToProject(draft, topic, `p${Date.now().toString(36)}`);
-        return Response.json({ project });
+        const project = draftToProject(
+          draft,
+          topic,
+          `p${Date.now().toString(36)}`,
+        );
+        await finish({ status: "done", project });
+        return;
       }
 
       if (attempt === 1) {
-        return errorResponse(
-          `Das Skript war auch nach einem Korrekturversuch ungültig: ${problems
+        await finish({
+          status: "error",
+          error: `Das Skript war auch nach einem Korrekturversuch ungültig: ${problems
             .slice(0, 3)
             .join(" ")}`,
-          502,
-        );
+        });
+        return;
       }
 
       // Feed the failed draft back as a complete assistant turn, then the
@@ -122,26 +193,31 @@ export async function POST(req: Request) {
       );
     }
 
-    return errorResponse("Skripterzeugung fehlgeschlagen.", 502);
+    await finish({ status: "error", error: "Skripterzeugung fehlgeschlagen." });
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) {
-      return errorResponse(
-        "Die Anthropic-API ist gerade ausgelastet. Versuch es in einer Minute erneut.",
-        429,
-      );
+      await finish({
+        status: "error",
+        error:
+          "Die Anthropic-API ist gerade ausgelastet. Versuch es in einer Minute erneut.",
+      });
+      return;
     }
     if (err instanceof Anthropic.APIError) {
       // Pass the API's own words through. A bare status code sent us guessing
       // at the model name when the real complaint was about a parameter.
-      const detail = apiErrorDetail(err);
-      return errorResponse(
-        `Die Anthropic-API antwortete mit ${err.status} für das Modell "${MODEL}".${detail}`,
-        502,
-      );
+      await finish({
+        status: "error",
+        error: `Die Anthropic-API antwortete mit ${err.status} für das Modell "${MODEL}".${apiErrorDetail(err)}`,
+      });
+      return;
     }
     // eslint-disable-next-line no-console
     console.error("[/api/script]", err);
-    return errorResponse("Unerwarteter Fehler bei der Skripterzeugung.", 500);
+    await finish({
+      status: "error",
+      error: "Unerwarteter Fehler bei der Skripterzeugung.",
+    });
   }
 }
 

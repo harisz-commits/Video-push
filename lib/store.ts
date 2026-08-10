@@ -143,3 +143,24 @@ export type RenderProgress = {
 
 export const progressPath = (renderId: string) =>
   `renders/${renderId}/progress.json`;
+
+/**
+ * A background job the browser does not have to wait for.
+ *
+ * Script generation takes minutes, and a request held open that long dies with
+ * the tab — closing the laptop should not cost a script. The route starts the
+ * work, writes its state here, and hands back an id the studio polls, exactly
+ * as rendering already worked.
+ */
+export type ScriptJob = {
+  jobId: string;
+  topic: string;
+  status: "running" | "done" | "error";
+  /** Present once status is "done". Shape validated by VideoProject. */
+  project?: unknown;
+  error?: string;
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const scriptJobPath = (jobId: string) => `jobs/script/${jobId}.json`;

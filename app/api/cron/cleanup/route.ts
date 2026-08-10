@@ -15,7 +15,7 @@ const MAX_AGE_DAYS = Number.parseInt(process.env.BLOB_MAX_AGE_DAYS ?? "30", 10);
  * render route boots from — deleting it would break rendering until the next
  * deploy, so it must never be swept up by an age rule.
  */
-const SWEEPABLE = ["renders/", "audio/"];
+const SWEEPABLE = ["renders/", "audio/", "jobs/"];
 
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;

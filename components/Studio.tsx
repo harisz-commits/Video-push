@@ -3,9 +3,43 @@
 import { Player, type PlayerRef } from "@remotion/player";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveSceneTimings } from "../lib/align";
-import type { Scene, VideoProject } from "../lib/schema";
+import type { Scene } from "../lib/schema";
+import { VideoProject } from "../lib/schema";
 import { Video } from "../remotion/Video";
 import { getJson, postJson } from "./api";
+
+type ScriptJobState = {
+  status: "running" | "done" | "error";
+  project?: unknown;
+  error?: string;
+};
+
+/**
+ * The running job id outlives the page, so a reload reconnects to it instead
+ * of starting a second, equally expensive generation.
+ */
+const JOB_KEY = "infographics-studio.scriptJob";
+const rememberJob = (id: string) => {
+  try {
+    window.localStorage.setItem(JOB_KEY, id);
+  } catch {
+    // Private mode or a full quota — polling still works for this session.
+  }
+};
+const recallJob = (): string | null => {
+  try {
+    return window.localStorage.getItem(JOB_KEY);
+  } catch {
+    return null;
+  }
+};
+const forgetJob = () => {
+  try {
+    window.localStorage.removeItem(JOB_KEY);
+  } catch {
+    // Nothing to clean up if storage is unavailable.
+  }
+};
 import { SceneInspector } from "./SceneInspector";
 import { Timeline } from "./Timeline";
 import { Button, Field, formatTimecode, Note, Panel } from "./ui";
@@ -32,6 +66,7 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
   const [scriptError, setScriptError] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [scriptDone, setScriptDone] = useState(false);
+  const [scriptJobId, setScriptJobId] = useState<string | null>(null);
 
   const [voices, setVoices] = useState<{ voiceId: string; name: string }[]>([]);
   const [voiceId, setVoiceId] = useState<string>("");
@@ -76,27 +111,97 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
   }, []);
 
   // ---- 01 Thema -----------------------------------------------------------
+  //
+  // Generation runs as a background job on the server. The browser only starts
+  // it and then asks how it is going, so closing the tab — or the laptop —
+  // does not abandon a script that takes minutes to write.
   async function generateScript() {
     setScriptBusy(true);
     setScriptError(null);
     setScriptDone(false);
-    try {
-      const result = await postJson<{ project: VideoProject }>("/api/script", {
-        topic,
-      });
+
+    const result = await postJson<{ jobId: string }>("/api/script", { topic });
+    if (!result.ok) {
+      setScriptError(result.error);
+      setScriptBusy(false);
+      return;
+    }
+
+    rememberJob(result.data.jobId);
+    setScriptJobId(result.data.jobId);
+  }
+
+  /** Adopt a finished job, whether we started it this session or not. */
+  const applyScriptJob = useCallback(
+    (job: ScriptJobState) => {
+      if (job.status === "running") return false;
+
+      if (job.status === "done" && job.project) {
+        const parsed = VideoProject.safeParse(job.project);
+        if (parsed.success) {
+          setProject(parsed.data);
+          setSelectedSceneId(parsed.data.scenes[0]?.id ?? null);
+          setRender(null);
+          setScriptDone(true);
+          seek(0);
+        } else {
+          setScriptError(
+            "Das erzeugte Skript passt nicht zum Schema. Versuch es erneut.",
+          );
+        }
+      } else {
+        setScriptError(job.error ?? "Die Skripterzeugung ist fehlgeschlagen.");
+      }
+
+      forgetJob();
+      setScriptJobId(null);
+      setScriptBusy(false);
+      return true;
+    },
+    [seek],
+  );
+
+  // Poll a running job, including one started before this page was loaded.
+  useEffect(() => {
+    if (!scriptJobId) return;
+    setScriptBusy(true);
+
+    let cancelled = false;
+    const tick = async () => {
+      const result = await getJson<ScriptJobState>(
+        `/api/script?jobId=${encodeURIComponent(scriptJobId)}`,
+      );
+      if (cancelled) return;
+
       if (!result.ok) {
-        setScriptError(result.error);
+        // A 404 means the job is gone; anything else is likely transient, so
+        // keep polling rather than throwing away a run that may still finish.
+        if (result.error.includes("keinen Auftrag")) {
+          setScriptError(
+            "Der Auftrag ist nicht mehr auffindbar. Starte die Erzeugung neu.",
+          );
+          forgetJob();
+          setScriptJobId(null);
+          setScriptBusy(false);
+        }
         return;
       }
-      setProject(result.data.project);
-      setSelectedSceneId(result.data.project.scenes[0]?.id ?? null);
-      setRender(null);
-      setScriptDone(true);
-      seek(0);
-    } finally {
-      setScriptBusy(false);
-    }
-  }
+      applyScriptJob(result.data);
+    };
+
+    void tick();
+    const id = window.setInterval(() => void tick(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [scriptJobId, applyScriptJob]);
+
+  // Resume after a reload: the job kept running on the server meanwhile.
+  useEffect(() => {
+    const stored = recallJob();
+    if (stored) setScriptJobId(stored);
+  }, []);
 
   // ---- 03 Stimme ----------------------------------------------------------
   async function generateVoice() {
