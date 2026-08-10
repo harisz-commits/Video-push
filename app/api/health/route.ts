@@ -31,7 +31,7 @@ export async function GET() {
       candidateNames: blobEnvNames(),
     },
     settings: {
-      ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
+      ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5",
       ANTHROPIC_EFFORT: process.env.ANTHROPIC_EFFORT ?? "low",
       DAILY_SCRIPT_LIMIT: process.env.DAILY_SCRIPT_LIMIT ?? "40",
       DAILY_VOICE_LIMIT: process.env.DAILY_VOICE_LIMIT ?? "20",
