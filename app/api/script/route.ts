@@ -12,20 +12,22 @@ import { draftToProject, ScriptDraft, ScriptRequest } from "../../../lib/schema"
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
 
 /**
  * How hard the model works on the script.
  *
- * Defaults to "low" because this route has to finish inside the platform's
- * function timeout — 60 seconds on the Vercel Hobby plan — and 800 words plus
- * a scene list is already a few thousand output tokens. On a plan with a
- * longer limit, set ANTHROPIC_EFFORT=medium (or high) for better scripts.
+ * Sent only when explicitly configured. Not every model accepts every effort
+ * level, and an unsupported value is a 400 for the whole request — not worth
+ * risking for a parameter nobody asked for. Set ANTHROPIC_EFFORT=low if the
+ * route needs to fit inside a 60-second function timeout, or high for better
+ * scripts where there is room.
  */
-const EFFORT = (process.env.ANTHROPIC_EFFORT ?? "low") as
+const EFFORT = process.env.ANTHROPIC_EFFORT as
   | "low"
   | "medium"
-  | "high";
+  | "high"
+  | undefined;
 
 export async function POST(req: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -67,7 +69,7 @@ export async function POST(req: Request) {
         system: SCRIPT_SYSTEM_PROMPT,
         thinking: { type: "adaptive" },
         output_config: {
-          effort: EFFORT,
+          ...(EFFORT ? { effort: EFFORT } : {}),
           format: zodOutputFormat(ScriptDraft),
         },
         messages,
@@ -123,8 +125,11 @@ export async function POST(req: Request) {
       );
     }
     if (err instanceof Anthropic.APIError) {
+      // Pass the API's own words through. A bare status code sent us guessing
+      // at the model name when the real complaint was about a parameter.
+      const detail = apiErrorDetail(err);
       return errorResponse(
-        `Die Anthropic-API antwortete mit ${err.status}. Prüfe ANTHROPIC_API_KEY und das Modell "${MODEL}".`,
+        `Die Anthropic-API antwortete mit ${err.status} für das Modell "${MODEL}".${detail}`,
         502,
       );
     }
@@ -132,6 +137,13 @@ export async function POST(req: Request) {
     console.error("[/api/script]", err);
     return errorResponse("Unerwarteter Fehler bei der Skripterzeugung.", 500);
   }
+}
+
+/** The human-readable part of an Anthropic error, if there is one. */
+function apiErrorDetail(err: InstanceType<typeof Anthropic.APIError>): string {
+  const body = err.error as { error?: { message?: string } } | undefined;
+  const message = body?.error?.message ?? err.message;
+  return message ? ` ${message.slice(0, 300)}` : "";
 }
 
 /**
