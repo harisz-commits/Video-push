@@ -3,26 +3,15 @@ import { Sandbox } from "@vercel/sandbox";
 import { BLOB_ACCESS, resolveBlobToken } from "../../../lib/store";
 
 /**
- * How long the sandbox may live, longest first.
+ * The lifetime a restored snapshot accepts.
  *
- * It has to outlast the render, not the request that started it: a detached
- * render keeps working after the response is sent, and a sandbox that expired
- * meanwhile would take the render with it. So we ask for as much as we can get.
- *
- * The ceiling depends on the account, and asking for more than it allows fails
- * the whole call with sandbox_timeout_invalid rather than clamping. Rather than
- * hardcode a guess that is wrong on some other plan, we walk down until one is
- * accepted, and report which.
+ * Not a choice — anything else is refused with sandbox_timeout_invalid,
+ * "extension would exceed maximum execution timeout". A restore inherits the
+ * snapshot's execution budget and cannot extend it, so the render has to fit
+ * in this window. Speed therefore comes from the cores the snapshot was built
+ * with (see create-snapshot.ts), which a restore does inherit.
  */
-const SANDBOX_LIFETIMES = [30, 20, 15, 10, 5].map((m) => m * 60 * 1000);
-
-/** The longest lifetime this account accepted, remembered between calls. */
-let acceptedLifetime: number | null = null;
-
-// No resources override here on purpose: a snapshot restored with a different
-// allotment than it was created with is rejected outright ("Status code 400 is
-// not ok"), which fails the render before it starts. Speed comes from the
-// render being detached, not from cores this call is not allowed to change.
+const SANDBOX_LIFETIME = 5 * 60 * 1000;
 
 const getSnapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
@@ -54,36 +43,9 @@ export async function restoreSnapshot() {
     );
   }
 
-  const candidates = acceptedLifetime
-    ? [acceptedLifetime]
-    : SANDBOX_LIFETIMES;
-
-  let lastError: unknown;
-  for (const timeout of candidates) {
-    try {
-      const sandbox = await Sandbox.create({
-        source: { type: "snapshot", snapshotId },
-        timeout,
-      });
-      acceptedLifetime = timeout;
-      // eslint-disable-next-line no-console
-      console.log(`[render] Sandbox-Laufzeit: ${timeout / 60000} Minuten`);
-      return { sandbox, lifetimeMs: timeout };
-    } catch (err) {
-      if (!isTimeoutRejection(err)) throw err;
-      lastError = err;
-    }
-  }
-  throw lastError;
-}
-
-/** Distinguishes "that lifetime is too long" from every other failure. */
-function isTimeoutRejection(err: unknown): boolean {
-  const text = JSON.stringify(
-    (err as { text?: unknown; json?: unknown })?.text ??
-      (err as { json?: unknown })?.json ??
-      (err as Error)?.message ??
-      "",
-  );
-  return text.includes("sandbox_timeout_invalid");
+  const sandbox = await Sandbox.create({
+    source: { type: "snapshot", snapshotId },
+    timeout: SANDBOX_LIFETIME,
+  });
+  return { sandbox, lifetimeMs: SANDBOX_LIFETIME };
 }

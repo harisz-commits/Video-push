@@ -64,7 +64,13 @@ async function main(): Promise<void> {
     "./app/api/render/helpers.ts"
   );
 
+  // Cores are set HERE, not when the snapshot is restored: a restore inherits
+  // the snapshot's resources and rejects any attempt to change them. Rendering
+  // is parallel across frames, and the default allotment managed about nine
+  // frames a second — far too slow for a five-minute video inside a sandbox
+  // whose lifetime cannot be extended either.
   const sandbox = await createSandbox({
+    resources: { vcpus: 8 },
     onProgress: ({ progress, message }) => {
       console.log(`[snapshot] ${message} (${Math.round(progress * 100)}%)`);
     },
