@@ -90,11 +90,34 @@ export async function POST(req: Request) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[/api/render]", err);
-    return errorResponse(
-      err instanceof Error
-        ? err.message.slice(0, 400)
-        : "Der Render konnte nicht gestartet werden.",
-      500,
-    );
+    return errorResponse(sandboxErrorDetail(err), 500);
   }
+}
+
+/**
+ * The Sandbox API answers a rejected request with "Status code 400 is not ok"
+ * and puts the reason in the body. Reporting only the status turned a specific
+ * complaint into two deploys of guessing, so the body comes along.
+ */
+function sandboxErrorDetail(err: unknown): string {
+  if (!(err instanceof Error)) {
+    return "Der Render konnte nicht gestartet werden.";
+  }
+  const carrier = err as Error & {
+    text?: unknown;
+    json?: unknown;
+    cause?: { text?: unknown; json?: unknown };
+  };
+  const body =
+    carrier.text ??
+    carrier.cause?.text ??
+    carrier.json ??
+    carrier.cause?.json;
+  const detail =
+    typeof body === "string"
+      ? body
+      : body
+        ? JSON.stringify(body)
+        : "";
+  return `${err.message}${detail ? ` — ${detail}` : ""}`.slice(0, 500);
 }
