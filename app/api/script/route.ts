@@ -14,6 +14,19 @@ export const maxDuration = 120;
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
+/**
+ * How hard the model works on the script.
+ *
+ * Defaults to "low" because this route has to finish inside the platform's
+ * function timeout — 60 seconds on the Vercel Hobby plan — and 800 words plus
+ * a scene list is already a few thousand output tokens. On a plan with a
+ * longer limit, set ANTHROPIC_EFFORT=medium (or high) for better scripts.
+ */
+const EFFORT = (process.env.ANTHROPIC_EFFORT ?? "low") as
+  | "low"
+  | "medium"
+  | "high";
+
 export async function POST(req: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -54,7 +67,7 @@ export async function POST(req: Request) {
         system: SCRIPT_SYSTEM_PROMPT,
         thinking: { type: "adaptive" },
         output_config: {
-          effort: "medium",
+          effort: EFFORT,
           format: zodOutputFormat(ScriptDraft),
         },
         messages,

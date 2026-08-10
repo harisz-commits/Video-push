@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { resolveSceneTimings } from "../lib/align";
 import type { Scene, VideoProject } from "../lib/schema";
 import { Video } from "../remotion/Video";
+import { getJson, postJson } from "./api";
 import { SceneInspector } from "./SceneInspector";
 import { Timeline } from "./Timeline";
 import { Button, Field, formatTimecode, Note, Panel } from "./ui";
@@ -62,13 +63,16 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
 
   // ---- Voice list ---------------------------------------------------------
   useEffect(() => {
-    fetch("/api/voice")
-      .then((r) => (r.ok ? r.json() : { voices: [] }))
-      .then((data: { voices?: { voiceId: string; name: string }[]; defaultVoiceId?: string }) => {
-        setVoices(data.voices ?? []);
-        setVoiceId(data.defaultVoiceId ?? data.voices?.[0]?.voiceId ?? "");
-      })
-      .catch(() => setVoices([]));
+    void getJson<{
+      voices?: { voiceId: string; name: string }[];
+      defaultVoiceId?: string;
+    }>("/api/voice").then((result) => {
+      if (!result.ok) return;
+      setVoices(result.data.voices ?? []);
+      setVoiceId(
+        result.data.defaultVoiceId ?? result.data.voices?.[0]?.voiceId ?? "",
+      );
+    });
   }, []);
 
   // ---- 01 Thema -----------------------------------------------------------
@@ -77,28 +81,18 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
     setScriptError(null);
     setScriptDone(false);
     try {
-      const response = await fetch("/api/script", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic }),
+      const result = await postJson<{ project: VideoProject }>("/api/script", {
+        topic,
       });
-      const data = (await response.json()) as {
-        project?: VideoProject;
-        error?: string;
-      };
-      if (!response.ok || !data.project) {
-        setScriptError(data.error ?? "Die Skripterzeugung ist fehlgeschlagen.");
+      if (!result.ok) {
+        setScriptError(result.error);
         return;
       }
-      setProject(data.project);
-      setSelectedSceneId(data.project.scenes[0]?.id ?? null);
+      setProject(result.data.project);
+      setSelectedSceneId(result.data.project.scenes[0]?.id ?? null);
       setRender(null);
       setScriptDone(true);
       seek(0);
-    } catch {
-      setScriptError(
-        "Der Server war nicht erreichbar. Prüfe die Verbindung und versuch es erneut.",
-      );
     } finally {
       setScriptBusy(false);
     }
@@ -109,35 +103,25 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
     setVoiceBusy(true);
     setVoiceError(null);
     try {
-      const response = await fetch("/api/voice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: project.id,
-          voiceover: project.voiceover,
-          voiceId: voiceId || undefined,
-        }),
+      const result = await postJson<{
+        audioUrl: string;
+        alignment: NonNullable<VideoProject["alignment"]>;
+      }>("/api/voice", {
+        projectId: project.id,
+        voiceover: project.voiceover,
+        voiceId: voiceId || undefined,
       });
-      const data = (await response.json()) as {
-        audioUrl?: string;
-        alignment?: VideoProject["alignment"];
-        error?: string;
-      };
-      if (!response.ok || !data.audioUrl || !data.alignment) {
-        setVoiceError(data.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
+      if (!result.ok) {
+        setVoiceError(result.error);
         return;
       }
       setProject((p) => ({
         ...p,
-        audioUrl: data.audioUrl,
-        alignment: data.alignment,
+        audioUrl: result.data.audioUrl,
+        alignment: result.data.alignment,
       }));
       setRender(null);
       seek(0);
-    } catch {
-      setVoiceError(
-        "Der Server war nicht erreichbar. Prüfe die Verbindung und versuch es erneut.",
-      );
     } finally {
       setVoiceBusy(false);
     }
@@ -151,41 +135,25 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
       progress: 0,
       phase: "Wird gestartet",
     });
-    try {
-      const response = await fetch("/api/render", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project }),
-      });
-      const data = (await response.json()) as {
-        renderId?: string;
-        error?: string;
-      };
-      if (!response.ok || !data.renderId) {
-        setRender({
-          renderId: "",
-          status: "error",
-          progress: 0,
-          phase: "Abgebrochen",
-          error: data.error ?? "Der Render konnte nicht gestartet werden.",
-        });
-        return;
-      }
-      setRender({
-        renderId: data.renderId,
-        status: "rendering",
-        progress: 0,
-        phase: "Sandbox wird gestartet",
-      });
-    } catch {
+    const result = await postJson<{ renderId: string }>("/api/render", {
+      project,
+    });
+    if (!result.ok) {
       setRender({
         renderId: "",
         status: "error",
         progress: 0,
         phase: "Abgebrochen",
-        error: "Der Server war nicht erreichbar.",
+        error: result.error,
       });
+      return;
     }
+    setRender({
+      renderId: result.data.renderId,
+      status: "rendering",
+      progress: 0,
+      phase: "Sandbox wird gestartet",
+    });
   }
 
   // Poll progress while a render is in flight.
