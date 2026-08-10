@@ -18,19 +18,22 @@ import { ProjectProvider, useProject } from "./shared/ProjectContext";
 import { ACCENT, SceneShell } from "./shared/SceneShell";
 import { C } from "./shared/Tokens";
 
-ensureFonts();
-
 /**
  * The mapper: a VideoProject in, a film out.
  *
  * Adding a new scene type means adding a component and one case below — see
  * the "Adding a scene type" section of the README.
  */
-export const Video: React.FC<{ project: VideoProject }> = ({ project }) => (
-  <ProjectProvider project={project}>
-    <Timeline />
-  </ProjectProvider>
-);
+export const Video: React.FC<{ project: VideoProject }> = ({ project }) => {
+  // Inside the component: at module scope Remotion's rendering context does
+  // not exist yet, and the font registration resolves against the wrong root.
+  ensureFonts();
+  return (
+    <ProjectProvider project={project}>
+      <Timeline />
+    </ProjectProvider>
+  );
+};
 
 const Timeline: React.FC = () => {
   const { project, timing } = useProject();
