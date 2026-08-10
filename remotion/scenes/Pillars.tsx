@@ -4,6 +4,7 @@ import type { Scene } from "../../lib/schema";
 import type { SceneRenderProps } from "../shared/SceneShell";
 import { C, TYPE } from "../shared/Tokens";
 import { drive } from "../shared/motion";
+import { Cue } from "../shared/Sound";
 
 type PillarsScene = Extract<Scene, { type: "pillars" }>;
 
@@ -20,6 +21,7 @@ export const Pillars: React.FC<SceneRenderProps<PillarsScene>> = ({
 }) => {
   const { fps } = useVideoConfig();
 
+  // Announced by the sound a beat before the eye catches the movement.
   const wobbleAmount = interpolate(frame, [WOBBLE_AT, WOBBLE_AT + 20], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
@@ -135,6 +137,9 @@ export const Pillars: React.FC<SceneRenderProps<PillarsScene>> = ({
           );
         })}
       </div>
+
+      {/* The load shifting, heard just before it is seen. */}
+      <Cue name="rumble" at={WOBBLE_AT - 4} />
     </div>
   );
 };

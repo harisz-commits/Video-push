@@ -58,6 +58,25 @@ const sceneBase = {
    * script actually turns.
    */
   phase: z.enum(["crisis", "solution"]).default("crisis"),
+  /**
+   * A sound cue chosen for what the passage is about, not for what the scene
+   * type draws.
+   *
+   * Structural sounds — a scene arriving, a number landing, an icon going out —
+   * are the components' own business and need no help from the script. This is
+   * the other kind: the till when the text mentions money, the glitch when it
+   * mentions danger. Only the writer knows which passage is which, so only the
+   * writer can place these.
+   */
+  sfx: z.enum(["money", "danger", "drop", "reveal"]).optional(),
+  /**
+   * What the narrator figure does with its body. Ignored by every other type.
+   *
+   * Rigged rather than animated: a small set of named poses the writer picks
+   * from, in the spirit of the reference — readable actions instead of fluid
+   * motion nobody can author at this volume.
+   */
+  action: z.enum(["talk", "point", "shake", "shrug"]).optional(),
 };
 
 export const Scene = z.discriminatedUnion("type", [
@@ -204,6 +223,8 @@ export const DraftScene = z.object({
   headline: z.string(),
   phase: z.enum(["crisis", "solution"]),
   sub: z.string().optional(),
+  sfx: z.enum(["money", "danger", "drop", "reveal"]).optional(),
+  action: z.enum(["talk", "point", "shake", "shrug"]).optional(),
 
   // hook
   kicker: z.string().optional(),
@@ -277,6 +298,8 @@ export function draftSceneToScene(
     headline: draft.headline,
     sub: draft.sub,
     phase: draft.phase,
+    sfx: draft.sfx,
+    action: draft.action,
   };
 
   const candidate = (() => {

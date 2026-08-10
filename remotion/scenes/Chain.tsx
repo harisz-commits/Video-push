@@ -5,6 +5,7 @@ import { Icon } from "../shared/icons";
 import type { SceneRenderProps } from "../shared/SceneShell";
 import { C, TYPE } from "../shared/Tokens";
 import { drive } from "../shared/motion";
+import { Cue } from "../shared/Sound";
 
 type ChainScene = Extract<Scene, { type: "chain" }>;
 
@@ -125,6 +126,10 @@ export const Chain: React.FC<SceneRenderProps<ChainScene>> = ({
           );
         })}
       </div>
+
+      {/* The chain giving way: the failure itself, then the weight of it. */}
+      <Cue name="glitch" at={BREAK_AT} />
+      <Cue name="rumble" at={BREAK_AT + 4} gain={0.8} />
     </div>
   );
 };

@@ -1,7 +1,8 @@
 import React from "react";
-import { useVideoConfig } from "remotion";
+import { interpolate, useVideoConfig } from "remotion";
 import type { Scene } from "../../lib/schema";
 import type { SceneRenderProps } from "../shared/SceneShell";
+import { Cue } from "../shared/Sound";
 import { formatNumber } from "../shared/text";
 import { C, T, TYPE } from "../shared/Tokens";
 import { drive } from "../shared/motion";
@@ -14,6 +15,11 @@ type CounterScene = Extract<Scene, { type: "counter" }>;
  * The count starts at frame 0 of the scene, and the scene starts on its
  * anchorPhrase — so the number begins ticking on the exact word that names it,
  * with no per-scene delay to tune.
+ *
+ * The landing is the point. A number that merely stops counting is a number
+ * nobody registers, so each one overshoots and settles on the frame it arrives,
+ * with a hit underneath it. A single value gets the full screen and the biggest
+ * type in the film; two or three share it and step down accordingly.
  */
 export const Counter: React.FC<SceneRenderProps<CounterScene>> = ({
   scene,
@@ -25,6 +31,9 @@ export const Counter: React.FC<SceneRenderProps<CounterScene>> = ({
 
   const falling =
     values.length === 2 && values[1].value < values[0].value;
+
+  // One number owns the frame; three have to share it.
+  const numberSize = values.length === 1 ? 260 : values.length === 2 ? 168 : 128;
 
   return (
     <div
@@ -72,12 +81,25 @@ export const Counter: React.FC<SceneRenderProps<CounterScene>> = ({
               value={entry.value}
               suffix={entry.suffix}
               accent={accent}
+              size={numberSize}
+              frame={frame}
+              landsAt={i * T.stagger + T.count}
               countProgress={drive(frame, fps, i * T.stagger, T.count)}
               enterProgress={drive(frame, fps, i * T.stagger)}
             />
           </React.Fragment>
         ))}
       </div>
+
+      {/* One hit per number, on the frame it stops counting. */}
+      {values.map((entry, i) => (
+        <Cue
+          key={`hit-${entry.label}-${i}`}
+          name="impact"
+          at={i * T.stagger + T.count}
+          gain={values.length === 1 ? 1 : 0.8}
+        />
+      ))}
 
       {scene.sub ? (
         <div
@@ -101,40 +123,70 @@ const Value: React.FC<{
   value: number;
   suffix?: string;
   accent: string;
+  size: number;
+  frame: number;
+  landsAt: number;
   countProgress: number;
   enterProgress: number;
-}> = ({ label, value, suffix, accent, countProgress, enterProgress }) => (
-  <div
-    style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      opacity: enterProgress,
-      transform: `scale(${0.92 + 0.08 * enterProgress})`,
-    }}
-  >
-    <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
-      <span style={{ ...TYPE.number, color: accent }}>
-        {formatNumber(value * countProgress, value)}
-      </span>
-      {suffix ? (
+}> = ({
+  label,
+  value,
+  suffix,
+  accent,
+  size,
+  frame,
+  landsAt,
+  countProgress,
+  enterProgress,
+}) => {
+  // A short punch outward on the landing frame, settling back over six frames.
+  const punch = interpolate(
+    frame,
+    [landsAt - 1, landsAt + 2, landsAt + 8],
+    [0, 1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+  );
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        opacity: enterProgress,
+        transform: `scale(${0.92 + 0.08 * enterProgress + 0.075 * punch})`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
         <span
           style={{
             ...TYPE.number,
-            fontSize: 64,
+            fontSize: size,
             color: accent,
-            opacity: 0.75,
+            textShadow: `0 0 ${40 * punch}px ${accent}`,
           }}
         >
-          {suffix}
+          {formatNumber(value * countProgress, value)}
         </span>
-      ) : null}
+        {suffix ? (
+          <span
+            style={{
+              ...TYPE.number,
+              fontSize: size * 0.4,
+              color: accent,
+              opacity: 0.75,
+            }}
+          >
+            {suffix}
+          </span>
+        ) : null}
+      </div>
+      <div style={{ ...TYPE.label, marginTop: 12, textAlign: "center" }}>
+        {label}
+      </div>
     </div>
-    <div style={{ ...TYPE.label, marginTop: 12, textAlign: "center" }}>
-      {label}
-    </div>
-  </div>
-);
+  );
+};
 
 /** Only drawn between two values; red and pointing down when the trend falls. */
 const Arrow: React.FC<{ falling: boolean; progress: number }> = ({

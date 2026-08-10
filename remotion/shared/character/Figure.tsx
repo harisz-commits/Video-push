@@ -25,19 +25,59 @@ const MOUTHS: Record<Viseme, { d: string; fill: boolean }> = {
   teeth: { d: "M88 104 Q100 100 112 104 L112 108 Q100 111 88 108 Z", fill: true },
 };
 
+/**
+ * An arm, as one number.
+ *
+ * 0 hangs at the side, 1 is extended out and up. Every pose the narrator can
+ * strike is some value of this on each side, which keeps the poses to a single
+ * interpolation instead of a set of hand-drawn paths that jump between each
+ * other.
+ */
+function arm(lift: number, mirror: boolean): string {
+  const lerp = (a: number, b: number) => a + (b - a) * lift;
+  const shoulderX = mirror ? 58 : 142;
+  const shoulderY = 198;
+  const dir = mirror ? -1 : 1;
+
+  const controlX = shoulderX + dir * lerp(18, 30);
+  const controlY = lerp(218, 190);
+  const handX = shoulderX + dir * lerp(14, 56);
+  const handY = lerp(240, 178);
+
+  return `M${shoulderX} ${shoulderY} Q${controlX} ${controlY} ${handX} ${handY}`;
+}
+
 export const Figure: React.FC<{
   viseme: Viseme;
   /** 0 = eyes open, 1 = fully shut. */
   blink: number;
   /** Radians of gentle sway, driven by the caller so it stays frame-exact. */
   sway: number;
-  /** 0 = arms down, 1 = gesturing. */
-  gesture: number;
+  /** 0 = arms down, 1 = extended. Left and right move independently. */
+  armLeft: number;
+  armRight: number;
+  /** Degrees the head turns — a shake is this oscillating. */
+  headTurn: number;
+  /** 0 = shoulders relaxed, 1 = raised. */
+  shrug: number;
   accent: string;
   size?: number;
-}> = ({ viseme, blink, sway, gesture, accent, size = 520 }) => {
+}> = ({
+  viseme,
+  blink,
+  sway,
+  armLeft,
+  armRight,
+  headTurn,
+  shrug,
+  accent,
+  size = 520,
+}) => {
   const mouth = MOUTHS[viseme];
   const eyeHeight = 1 - blink;
+  // Brows follow whatever the body is doing — a raised arm without a raised
+  // brow reads as a puppet.
+  const brow = Math.max(shrug, (armLeft + armRight) / 2);
 
   return (
     <svg
@@ -48,8 +88,9 @@ export const Figure: React.FC<{
       style={{ overflow: "visible" }}
     >
       <g transform={`rotate(${sway * 1.6} 100 210)`}>
-        {/* Torso */}
+        {/* Torso — rises a little with the shoulders on a shrug. */}
         <path
+          transform={`translate(0 ${-6 * shrug})`}
           d="M56 260 V196 Q56 168 100 168 Q144 168 144 196 V260 Z"
           fill={C.bgAlt}
           stroke={accent}
@@ -65,28 +106,22 @@ export const Figure: React.FC<{
           fill="none"
         />
 
-        {/* Arms — they lift a little when the narrator is making a point. */}
+        {/* Arms — one number each, so every pose is the same interpolation. */}
         <g
-          transform={`rotate(${-14 * gesture} 60 200)`}
           stroke={accent}
           strokeWidth={2.5}
           strokeLinecap="round"
           fill="none"
+          transform={`translate(0 ${-6 * shrug})`}
         >
-          <path d="M58 198 Q40 218 44 240" />
-        </g>
-        <g
-          transform={`rotate(${14 * gesture} 142 200)`}
-          stroke={accent}
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          fill="none"
-        >
-          <path d="M142 198 Q160 218 156 240" />
+          <path d={arm(armLeft, true)} />
+          <path d={arm(armRight, false)} />
         </g>
 
         {/* Head */}
-        <g transform={`rotate(${sway * 2.6} 100 120)`}>
+        <g
+          transform={`rotate(${sway * 2.6 + headTurn} 100 160) translate(0 ${-6 * shrug})`}
+        >
           <path
             d="M100 168 V152"
             stroke={accent}
@@ -122,8 +157,8 @@ export const Figure: React.FC<{
             strokeLinecap="round"
             opacity={0.75}
           >
-            <path d={`M77 ${82 - gesture * 2} Q84 ${78 - gesture * 3} 91 ${82 - gesture * 2}`} />
-            <path d={`M109 ${82 - gesture * 2} Q116 ${78 - gesture * 3} 123 ${82 - gesture * 2}`} />
+            <path d={`M77 ${82 - brow * 2} Q84 ${78 - brow * 3} 91 ${82 - brow * 2}`} />
+            <path d={`M109 ${82 - brow * 2} Q116 ${78 - brow * 3} 123 ${82 - brow * 2}`} />
           </g>
 
           {/* Mouth */}

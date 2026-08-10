@@ -5,6 +5,7 @@ import type { SceneRenderProps } from "../shared/SceneShell";
 import { splitLines } from "../shared/text";
 import { TYPE } from "../shared/Tokens";
 import { drive } from "../shared/motion";
+import { Cue } from "../shared/Sound";
 
 type CloserScene = Extract<Scene, { type: "closer" }>;
 
@@ -77,6 +78,9 @@ export const Closer: React.FC<
           </div>
         );
       })}
+
+      {/* The film's last word gets the film's lowest sound. */}
+      <Cue name="rumble" at={2} />
     </div>
   );
 };

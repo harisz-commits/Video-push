@@ -34,11 +34,34 @@ Du lieferst ausschließlich den Fließtext des Voiceovers. Kein Titel, keine
 Überschriften, keine Regieanweisungen, keine Klammern, keine Sprechernamen,
 keine Aufzählungen, keine Markdown-Formatierung.
 
+AUFBAU — Trichter, in dieser Reihenfolge:
+1. DOOMSDAY-HOOK (erste dreißig Sekunden, rund achtzig Wörter): Steig mit dem
+   extremsten realistischen Worst Case ein, und zwar dem, der die Zuschauerin
+   selbst trifft — nicht "die Weltwirtschaft", sondern das leere Regal, vor dem
+   sie steht. Keine Einleitung, kein "In diesem Video". Erster Satz ist der
+   Schock.
+2. DEKONSTRUKTION DES ALLTAGS: Nimm etwas völlig Normales und leg die
+   unsichtbare, fragile Maschinerie dahinter frei. Zerstöre die Illusion, dass
+   das selbstverständlich ist.
+3. BEWEIS: Ein reales, überprüfbares Beispiel aus der Vergangenheit, das zeigt,
+   dass das schon passiert ist. Nenne Ort und Jahr.
+4. ERWEITERUNG: Genau an der Stelle, an der die Zuschauerin denkt, sie hätte es
+   verstanden — oder an eine naheliegende Lösung glaubt — nimm ihr das wieder
+   weg. Die naheliegende Lösung deckt nur einen Teil des Problems ab; der Rest
+   bleibt.
+5. SCHLUSS: Ein Satz, der die Frage zurück an die Zuschauerin gibt.
+
 VORGABEN:
 - 750 bis 850 Wörter.
 - Perfekte Interpunktion — der Text geht direkt in eine TTS-Engine.
+- Dramatische Pausen entstehen durch Satzzeichen, nicht durch Regieanweisungen.
+  Setz vor der Pointe einen Punkt und einen kurzen Satz dahinter. Drei Wörter,
+  eigener Satz — das ist die Pause.
 - Zahlen ausgeschrieben ("vierzehneinhalb Millionen"), damit die TTS sie
   korrekt spricht.
+- WAHRHEIT: Nenne nur Zahlen und Ereignisse, die du für belastbar hältst. Lieber
+  eine gerundete Größenordnung ("mehr als die Hälfte") als eine erfundene
+  Nachkommastelle. Kein erfundenes Beispiel, keine erfundene Studie.
 - Absätze durch Leerzeilen trennen.`;
 
 export function buildVoiceoverPrompt(topic: string): string {
@@ -59,6 +82,11 @@ const SCENE_FIELDS = `Jede Szene hat immer:
   in den Lösungsteil dreht. Der Wechsel darf im ganzen Video nur einmal
   passieren.
 - optional "sub": zweite Zeile On-Screen-Text, kurz
+- optional "sfx": EIN Geräusch, das zum INHALT der Stelle passt — nicht zur
+  Grafik. "money", wenn von Geld, Preisen oder Kosten die Rede ist. "danger"
+  bei Gefahr, Zusammenbruch oder Bedrohung. "drop", wenn etwas abstürzt oder
+  einbricht. "reveal", wenn etwas aufgedeckt oder aufgelöst wird. Lass das
+  Feld weg, wenn nichts davon zutrifft — höchstens jede dritte Szene.
 
 Dazu je nach "type" genau diese Felder, vollständig ausgefüllt:
 - hook:     optional "kicker" (kurze Zeile über der Headline)
@@ -76,8 +104,12 @@ Dazu je nach "type" genau diese Felder, vollständig ausgefüllt:
 - pillars:  "pillars": [Text] zwei bis sechs, "unstableIndex": Index,
             "carries": Text auf der Plattform
 - closer:   "statement": der Schlusssatz
-- narrator: keine zusätzlichen Felder. Eine Erzählerfigur spricht die Stelle
-            lippensynchron mit; "headline" ist die Aussage neben ihr.
+- narrator: "action": was die Figur tut — "point" (zeigt auf die Aussage,
+            wenn sie etwas behauptet), "shake" (schüttelt den Kopf bei einer
+            Verneinung oder einem Irrtum), "shrug" (zuckt mit den Schultern bei
+            einer offenen Frage), "talk" (redet einfach). Sonst keine Felder;
+            die Figur spricht die Stelle lippensynchron mit, und "headline" ist
+            die Aussage neben ihr.
 
 Lass alle Felder weg, die nicht zum Typ gehören.`;
 

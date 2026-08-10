@@ -6,6 +6,7 @@ import type { SceneRenderProps } from "../shared/SceneShell";
 import { formatNumber } from "../shared/text";
 import { C, TYPE } from "../shared/Tokens";
 import { drive } from "../shared/motion";
+import { Cue } from "../shared/Sound";
 
 type IconGridScene = Extract<Scene, { type: "iconGrid" }>;
 
@@ -169,6 +170,14 @@ export const IconGrid: React.FC<SceneRenderProps<IconGridScene>> = ({
           );
         })}
       </div>
+
+      {/*
+        One tick per icon going out — but only for the first eight. Forty of
+        them inside two seconds stops being a countdown and becomes a rattle.
+      */}
+      {Array.from({ length: Math.min(lost, 8) }, (_, k) => (
+        <Cue key={`tick-${k}`} name="tick" at={VANISH_AT + k * VANISH_STAGGER} />
+      ))}
     </div>
   );
 };

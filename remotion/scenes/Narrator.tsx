@@ -11,6 +11,57 @@ import { isSpeaking, visemeAt } from "../shared/visemes";
 
 type NarratorScene = Extract<Scene, { type: "narrator" }>;
 
+type Pose = {
+  armLeft: number;
+  armRight: number;
+  headTurn: number;
+  shrug: number;
+};
+
+/**
+ * The four things the narrator can do with its body.
+ *
+ * Rigged rather than animated, in the spirit of the reference: a small set of
+ * readable actions the script picks from, not fluid motion. Each one settles
+ * into place shortly after the scene opens and then holds, because a pose that
+ * keeps moving competes with the mouth for attention.
+ */
+function poseFor(
+  action: NonNullable<NarratorScene["action"]>,
+  frame: number,
+  settled: number,
+  idle: number,
+): Pose {
+  switch (action) {
+    case "point":
+      // Toward the headline, which always sits to the figure's right.
+      return {
+        armLeft: idle * 0.4,
+        armRight: idle + (1 - idle) * settled,
+        headTurn: 4 * settled,
+        shrug: 0,
+      };
+    case "shake":
+      // Slow no. Two full swings, then back to centre.
+      return {
+        armLeft: idle,
+        armRight: idle,
+        headTurn: 7 * settled * Math.sin(frame / 7) * Math.exp(-frame / 90),
+        shrug: 0,
+      };
+    case "shrug":
+      return {
+        armLeft: 0.35 + 0.25 * settled,
+        armRight: 0.35 + 0.25 * settled,
+        headTurn: 0,
+        shrug: settled,
+      };
+    case "talk":
+    default:
+      return { armLeft: idle, armRight: idle * 1.15, headTurn: 0, shrug: 0 };
+  }
+}
+
 /** Blink roughly every four seconds, over four frames. */
 const BLINK_PERIOD = 120;
 const BLINK_FRAMES = 4;
@@ -40,14 +91,16 @@ export const Narrator: React.FC<
       : 0;
 
   const sway = Math.sin(absoluteFrame / 48);
-  // Arms rise while speaking and settle during pauses.
-  const gesture = interpolate(
-    Math.sin(absoluteFrame / 70),
-    [-1, 1],
-    [0.15, 1],
-  ) * (speaking ? 1 : 0.25);
+
+  // Arms drift while speaking and settle during pauses — the baseline the
+  // named actions are layered on top of.
+  const idle =
+    interpolate(Math.sin(absoluteFrame / 70), [-1, 1], [0.05, 0.32]) *
+    (speaking ? 1 : 0.4);
 
   const enter = drive(frame, fps, 0);
+  const settled = drive(frame, fps, 6); // actions strike after the figure lands
+  const pose = poseFor(scene.action ?? "talk", frame, settled, idle);
   const lines = splitLines(scene.headline ?? "", 16);
 
   return (
@@ -73,7 +126,10 @@ export const Narrator: React.FC<
           viseme={viseme}
           blink={blink}
           sway={sway}
-          gesture={gesture}
+          armLeft={pose.armLeft}
+          armRight={pose.armRight}
+          headTurn={pose.headTurn}
+          shrug={pose.shrug}
           accent={accent}
         />
       </div>
