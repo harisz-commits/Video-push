@@ -60,7 +60,7 @@ FORM:
 
 Jede Szene hat immer:
 - "type": einer von hook, counter, iconGrid, mapFlow, chain, split, chart,
-  pillars, closer
+  pillars, closer, narrator
 - "anchorPhrase": eine Phrase von drei bis sechs Wörtern, die ZEICHENGENAU so
   im Voiceover vorkommt. Kopiere sie wörtlich heraus, inklusive Groß- und
   Kleinschreibung und Umlauten. Erfinde sie nicht und formuliere sie nicht um.
@@ -86,6 +86,8 @@ Dazu je nach "type" genau diese Felder, vollständig ausgefüllt:
 - pillars:  "pillars": [Text] zwei bis sechs, "unstableIndex": Index,
             "carries": Text auf der Plattform
 - closer:   "statement": der Schlusssatz
+- narrator: keine zusätzlichen Felder. Eine Erzählerfigur spricht die Stelle
+            lippensynchron mit; "headline" ist die Aussage neben ihr.
 
 Lass alle Felder weg, die nicht zum Typ gehören.
 
@@ -103,6 +105,10 @@ REGELN:
   Ursachenkette → chain. Zeitverlauf → chart. Gegenüberstellung → split.
   Warenströme zwischen Orten → mapFlow. Etwas verschwindet Stück für Stück
   → iconGrid. Tragende Faktoren → pillars.
+- narrator setzt du dort ein, wo der Text die Zuschauerin direkt anspricht,
+  eine Frage stellt oder eine Meinung zuspitzt — also da, wo kein Diagramm
+  hilft, sondern jemand etwas sagt. Ungefähr jede fünfte bis sechste Szene,
+  gleichmäßig verteilt, und niemals zwei hintereinander.
 - Erlaubte Icon-Namen, nichts anderes: ${ICON_NAMES.join(", ")}.`;
 
 export function buildScenesPrompt(voiceover: string): string {

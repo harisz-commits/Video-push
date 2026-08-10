@@ -11,6 +11,7 @@ import { DataChart } from "./scenes/DataChart";
 import { Hook } from "./scenes/Hook";
 import { IconGrid } from "./scenes/IconGrid";
 import { MapFlow } from "./scenes/MapFlow";
+import { Narrator } from "./scenes/Narrator";
 import { Pillars } from "./scenes/Pillars";
 import { SplitCompare } from "./scenes/SplitCompare";
 import { ensureFonts } from "./shared/fonts";
@@ -77,7 +78,7 @@ const SceneFrame: React.FC<{
       isPhaseTurn={isPhaseTurn}
       vignette={scene.type === "hook" || scene.type === "closer"}
     >
-      {renderScene(scene, frame, accent)}
+      {renderScene(scene, frame, scene.from + frame, accent)}
     </SceneShell>
   );
 };
@@ -85,6 +86,7 @@ const SceneFrame: React.FC<{
 function renderScene(
   scene: ResolvedScene,
   frame: number,
+  absoluteFrame: number,
   accent: string,
 ): React.ReactNode {
   // `scene` carries the resolved timing fields on top of the Scene union;
@@ -108,6 +110,15 @@ function renderScene(
       return <DataChart scene={s} frame={frame} accent={accent} />;
     case "pillars":
       return <Pillars scene={s} frame={frame} accent={accent} />;
+    case "narrator":
+      return (
+        <Narrator
+          scene={s}
+          frame={frame}
+          absoluteFrame={absoluteFrame}
+          accent={accent}
+        />
+      );
     case "closer":
       return (
         <Closer

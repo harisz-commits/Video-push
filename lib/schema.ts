@@ -134,6 +134,12 @@ export const Scene = z.discriminatedUnion("type", [
     type: z.literal("closer"),
     statement: z.string(),
   }),
+  z.object({
+    ...sceneBase,
+    // The narrator carries no data of its own: the mouth reads the alignment
+    // and the text comes from headline and sub like every other scene.
+    type: z.literal("narrator"),
+  }),
 ]);
 export type Scene = z.infer<typeof Scene>;
 export type SceneType = Scene["type"];
@@ -189,6 +195,7 @@ export const DraftScene = z.object({
     "chart",
     "pillars",
     "closer",
+    "narrator",
   ]),
   anchorPhrase: z.string(),
   // Required on purpose: nearly every scene carries an on-screen headline, and
@@ -342,6 +349,8 @@ export function draftSceneToScene(
         return draft.statement
           ? { ...base, type: "closer" as const, statement: draft.statement }
           : null;
+      case "narrator":
+        return { ...base, type: "narrator" as const };
       default:
         return null;
     }
