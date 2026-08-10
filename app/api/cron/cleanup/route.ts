@@ -1,5 +1,6 @@
 import { del, list } from "@vercel/blob";
 import { errorResponse } from "../../../../lib/guardrails";
+import { resolveBlobToken } from "../../../../lib/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,8 +26,9 @@ export async function GET(req: Request) {
     }
   }
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return errorResponse("BLOB_READ_WRITE_TOKEN fehlt.", 500);
+  const blob = resolveBlobToken();
+  if (!blob) {
+    return errorResponse("Kein Blob-Store verbunden.", 500);
   }
 
   const cutoff = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
@@ -41,7 +43,7 @@ export async function GET(req: Request) {
           prefix,
           cursor,
           limit: 1000,
-          token: process.env.BLOB_READ_WRITE_TOKEN,
+          token: blob.value,
         });
         scanned += page.blobs.length;
 
@@ -51,7 +53,7 @@ export async function GET(req: Request) {
         if (stale.length > 0) {
           await del(
             stale.map((b) => b.url),
-            { token: process.env.BLOB_READ_WRITE_TOKEN },
+            { token: blob.value },
           );
           deleted.push(...stale.map((b) => b.pathname));
         }

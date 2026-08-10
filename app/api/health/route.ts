@@ -1,3 +1,5 @@
+import { blobEnvNames, resolveBlobToken } from "../../../lib/store";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,12 @@ export async function GET() {
       ELEVENLABS_VOICE_ID: Boolean(process.env.ELEVENLABS_VOICE_ID),
       BLOB_READ_WRITE_TOKEN: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
       STUDIO_PASSWORD: Boolean(process.env.STUDIO_PASSWORD),
+    },
+    // Which variable the Blob layer actually resolved, and every Blob-ish name
+    // present. Names are not secrets; values are never reported.
+    blob: {
+      resolvedFrom: resolveBlobToken()?.name ?? null,
+      candidateNames: blobEnvNames(),
     },
     settings: {
       ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",

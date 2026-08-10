@@ -10,6 +10,7 @@ import { resolveSceneTimings } from "../../../lib/align";
 import { RenderRequest, type VideoProject } from "../../../lib/schema";
 import {
   progressPath,
+  resolveBlobToken,
   writeJson,
   type RenderProgress,
 } from "../../../lib/store";
@@ -26,9 +27,10 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  const blob = resolveBlobToken();
+  if (!blob) {
     return errorResponse(
-      'BLOB_READ_WRITE_TOKEN fehlt. Auf vercel.com unter Storage einen Blob-Store anlegen, mit diesem Projekt verbinden und neu deployen.',
+      "Kein Blob-Store verbunden. Auf vercel.com unter Storage einen Blob-Store anlegen, diesem Projekt zuweisen und neu deployen.",
       500,
     );
   }
@@ -68,7 +70,7 @@ export async function POST(req: Request) {
   };
   await writeJson(progressPath(renderId), initial);
 
-  waitUntil(runRender(renderId, project, timing.totalFrames));
+  waitUntil(runRender(renderId, project, timing.totalFrames, blob.value));
 
   return Response.json({
     renderId,
@@ -81,6 +83,7 @@ async function runRender(
   renderId: string,
   project: VideoProject,
   totalFrames: number,
+  blobToken: string,
 ): Promise<void> {
   const startedAt = Date.now();
   let lastWrite = 0;
@@ -153,7 +156,7 @@ async function runRender(
       sandbox,
       sandboxFilePath,
       contentType,
-      blobToken: process.env.BLOB_READ_WRITE_TOKEN as string,
+      blobToken,
       access: "public",
     });
 

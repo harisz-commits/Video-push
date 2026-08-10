@@ -16,14 +16,41 @@ export class BlobNotConfiguredError extends Error {
   }
 }
 
+/**
+ * Find the Blob token whatever Vercel decided to call it.
+ *
+ * Connecting a store normally sets BLOB_READ_WRITE_TOKEN, but when a prefix is
+ * configured — or a second store is attached — the name becomes
+ * <PREFIX>_BLOB_READ_WRITE_TOKEN. The dashboard reports "Connected" either
+ * way, so hardcoding the plain name turns a working store into a missing one.
+ */
+export function resolveBlobToken(): { name: string; value: string } | null {
+  const direct = process.env.BLOB_READ_WRITE_TOKEN;
+  if (direct) return { name: "BLOB_READ_WRITE_TOKEN", value: direct };
+
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value && name.endsWith("BLOB_READ_WRITE_TOKEN")) {
+      return { name, value };
+    }
+  }
+  return null;
+}
+
+/** Names of every Blob-ish variable present, for diagnostics. Names only. */
+export function blobEnvNames(): string[] {
+  return Object.keys(process.env)
+    .filter((name) => name.includes("BLOB"))
+    .sort();
+}
+
 export function hasBlobToken(): boolean {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  return resolveBlobToken() !== null;
 }
 
 function token(): string {
-  const value = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!value) throw new BlobNotConfiguredError();
-  return value;
+  const found = resolveBlobToken();
+  if (!found) throw new BlobNotConfiguredError();
+  return found.value;
 }
 
 export async function writeJson(

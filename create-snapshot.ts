@@ -13,14 +13,24 @@
  * impossible and leave no project to attach a store to. The app still deploys
  * and serves; only rendering waits for the redeploy, and /api/render says so.
  */
+/** Same prefix-tolerant lookup as lib/store.ts, inlined to keep this import-free. */
+function findBlobToken(): string | null {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value && name.endsWith("BLOB_READ_WRITE_TOKEN")) return value;
+  }
+  return null;
+}
+
 const snapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
 
 async function main(): Promise<void> {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  const blobToken = findBlobToken();
+  if (!blobToken) {
     console.log(
       [
-        "[snapshot] Übersprungen: BLOB_READ_WRITE_TOKEN ist nicht gesetzt.",
+        "[snapshot] Übersprungen: kein Blob-Token in der Umgebung gefunden.",
         "[snapshot] Das ist beim allerersten Deployment normal.",
         "[snapshot] Nächste Schritte:",
         "[snapshot]   1. vercel.com → Storage → Create Database → Blob",
@@ -56,6 +66,7 @@ async function main(): Promise<void> {
     contentType: "application/json",
     addRandomSuffix: false,
     allowOverwrite: true,
+    token: blobToken,
   });
 
   console.log(`[snapshot] Gespeichert: ${snapshotId}`);
