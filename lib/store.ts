@@ -178,6 +178,14 @@ export type ScriptJob = {
   step?: string;
   /** Present once status is "done". Shape validated by VideoProject. */
   project?: unknown;
+  /**
+   * What the research step actually looked up, verbatim.
+   *
+   * Kept on the job so the numbers in a finished video can be traced back to a
+   * source rather than taken on trust. A fact nobody can check is the same
+   * problem as an invented one.
+   */
+  research?: string;
   error?: string;
   startedAt: number;
   updatedAt: number;

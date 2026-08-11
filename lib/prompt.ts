@@ -24,9 +24,52 @@ STIL:
 - Struktur: Start mit einer steilen, unerwarteten Behauptung. Danach Schritt
   für Schritt auflösen, warum das so ist.
 - Kurze, prägnante Sätze. Rhetorische Fragen. Cliffhanger vor jedem Abschnitt.
-- ANREDE: durchgehend "du". Sprich die Zuschauerin direkt an — "stell dir vor",
-  "du kennst das", "das Regal, vor dem du morgen stehst". Kein "man", kein
-  "wir" als Ersatz für die Anrede, kein Siezen.`;
+- ANREDE: durchgehend "du", klein geschrieben. Sprich die Zuschauerin direkt
+  an — "stell dir vor", "du kennst das", "das Regal, vor dem du morgen stehst".
+  Imperative stehen in der Du-Form: "stell dir vor", NICHT "stellen Sie sich
+  vor". "schau", NICHT "schauen Sie". Kein "man", kein "wir" als Ersatz für die
+  Anrede. Die Wörter "Sie", "Ihnen", "Ihr", "Ihre" als Anrede kommen im ganzen
+  Text kein einziges Mal vor.`;
+
+/**
+ * The research step, and why it exists.
+ *
+ * A model asked for "a real example with place and year" will produce one that
+ * reads correctly and may be wrong — recalled, not looked up. Prompting cannot
+ * fix that, because the failure is not disobedience: the model does not know
+ * which of its own recollections are sound. The only fix is to make it look
+ * things up and then forbid it from writing any number the lookup did not
+ * return.
+ *
+ * So facts are gathered first, with web search, into a sheet the writer must
+ * work from — and the sheet is kept on the job, so every number in a finished
+ * video can be traced back to where it came from.
+ */
+export const RESEARCH_SYSTEM_PROMPT = `Du bist Faktenrechercheur für ein
+Erklärvideo. Du suchst im Web und lieferst eine Faktenliste.
+
+Antworte ausschließlich mit der Liste, ein Fakt pro Zeile, in diesem Format:
+- FAKT | QUELLE
+
+VORGABEN:
+- Acht bis fünfzehn Fakten.
+- Jeder Fakt, der eine Zahl oder eine Jahreszahl enthält, MUSS aus einem
+  Suchergebnis stammen. Schreib nichts aus dem Gedächtnis.
+- Nenne die Jahreszahl, wo es eine gibt. "im Jahr zweitausendzweiundzwanzig",
+  nicht "vor ein paar Jahren".
+- QUELLE ist der Name der Seite oder Organisation, von der der Fakt stammt.
+- Wenn du eine Zahl nicht belegen kannst, lass den Fakt weg. Eine kurze Liste
+  belegter Fakten ist besser als eine lange mit erfundenen.
+- Suche gezielt nach: dem konkreten Ausmaß in Zahlen, einem realen
+  historischen Ereignis mit Ort und Jahr, und den Grenzen der naheliegenden
+  Lösung.`;
+
+export function buildResearchPrompt(topic: string): string {
+  return `Thema: ${topic}
+
+Recherchiere die Fakten für ein fünfminütiges Erklärvideo zu diesem Thema.
+Suche im Web. Antworte nur mit der Faktenliste.`;
+}
 
 export const VOICEOVER_SYSTEM_PROMPT = `${STYLE}
 
@@ -59,13 +102,24 @@ VORGABEN:
   eigener Satz — das ist die Pause.
 - Zahlen ausgeschrieben ("vierzehneinhalb Millionen"), damit die TTS sie
   korrekt spricht.
-- WAHRHEIT: Nenne nur Zahlen und Ereignisse, die du für belastbar hältst. Lieber
-  eine gerundete Größenordnung ("mehr als die Hälfte") als eine erfundene
-  Nachkommastelle. Kein erfundenes Beispiel, keine erfundene Studie.
+- FAKTEN: Du bekommst eine recherchierte Faktenliste. Jede Zahl und jede
+  Jahreszahl in deinem Text MUSS aus dieser Liste stammen. Du erfindest keine
+  Zahl, kein Jahr, keinen Ort, kein Ereignis und keine Studie — auch dann
+  nicht, wenn du meinst, die Zahl zu kennen. Steht etwas nicht in der Liste,
+  schreibst du es nicht. Brauchst du eine Größenordnung, für die es keinen
+  Fakt gibt, formulierst du ohne Zahl ("ein Vielfaches", "der größte Teil").
+  Das ist die wichtigste Regel überhaupt: ein erfundenes Detail macht das
+  ganze Video wertlos.
 - Absätze durch Leerzeilen trennen.`;
 
-export function buildVoiceoverPrompt(topic: string): string {
+export function buildVoiceoverPrompt(topic: string, research: string): string {
   return `Stichwort: ${topic}
+
+Recherchierte Fakten — deine einzige Quelle für Zahlen, Jahre, Orte und
+Ereignisse:
+---
+${research}
+---
 
 Schreibe das vollständige Voiceover für ein fünfminütiges Erklärvideo.
 Antworte nur mit dem Text.`;

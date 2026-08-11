@@ -4,8 +4,10 @@ import { z } from "zod";
 import { errorResponse, guard } from "../../../lib/guardrails";
 import {
   buildRepairPrompt,
+  buildResearchPrompt,
   buildSegmentScenesPrompt,
   buildVoiceoverPrompt,
+  RESEARCH_SYSTEM_PROMPT,
   SEGMENT_SCENES_SYSTEM_PROMPT,
   TITLE_SYSTEM_PROMPT,
   VOICEOVER_SYSTEM_PROMPT,
@@ -129,26 +131,29 @@ async function generate(
   const client = new Anthropic({ apiKey, maxRetries: 1 });
 
   try {
-    // ---- 1. The voiceover, as prose. -------------------------------------
-    await update({ step: "Voiceover wird geschrieben" });
+    // ---- 1. The facts, looked up rather than recalled. --------------------
+    await update({ step: "Fakten werden recherchiert" });
 
-    const voiceMessage = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4000,
-      system: VOICEOVER_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildVoiceoverPrompt(topic) }],
-    });
-
-    const voiceover = textOf(voiceMessage).trim();
-    if (voiceover.length < 200) {
+    const research = await researchFacts(client, topic);
+    if (!research) {
       await update({
         status: "error",
-        error: "Das Modell hat kein brauchbares Voiceover geliefert.",
+        error:
+          "Die Faktenrecherche hat nichts geliefert. Ohne belegte Zahlen wird kein Skript geschrieben — sonst erfindet das Modell sie.",
       });
       return;
     }
+    await update({ step: "Voiceover wird geschrieben", research });
 
-    // ---- 2. The scenes, one slice of the text at a time. ------------------
+    // ---- 2. The voiceover, written from those facts. ----------------------
+    const voice = await writeVoiceover(client, topic, research);
+    if (!voice.ok) {
+      await update({ status: "error", error: voice.error, research });
+      return;
+    }
+    const voiceover = voice.text;
+
+    // ---- 3. The scenes, one slice of the text at a time. ------------------
     const segments = segmentVoiceover(voiceover);
     await update({
       step: `Szenen werden gesetzt (${segments.length} Abschnitte parallel)`,
@@ -170,7 +175,7 @@ async function generate(
 
     const failed = results.find((r) => !r.ok);
     if (failed && !failed.ok) {
-      await update({ status: "error", error: failed.error });
+      await update({ status: "error", error: failed.error, research });
       return;
     }
 
@@ -183,6 +188,7 @@ async function generate(
       await update({
         status: "error",
         error: `Die Szenenliste war ungültig: ${problems.slice(0, 3).join(" ")}`,
+        research,
       });
       return;
     }
@@ -192,7 +198,7 @@ async function generate(
       topic,
       `p${Date.now().toString(36)}`,
     );
-    await update({ status: "done", project, step: undefined });
+    await update({ status: "done", project, research, step: undefined });
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) {
       await update({
@@ -216,6 +222,157 @@ async function generate(
       error: "Unerwarteter Fehler bei der Skripterzeugung.",
     });
   }
+}
+
+
+/**
+ * Look the facts up before anything is written.
+ *
+ * Web search runs on Anthropic's side: the tool is declared and the model
+ * searches, reads and cites without anything round-tripping through here. The
+ * server loop can pause after ten iterations with stop_reason "pause_turn",
+ * which is not an error — the turn is resumed by sending the conversation back
+ * unchanged, and a cap keeps a runaway search from eating the function's life.
+ *
+ * `max_uses` is the cost lever. Searches are billed per thousand, and a script
+ * that quietly ran forty of them would be the sort of surprise this project
+ * exists to avoid.
+ */
+const MAX_SEARCHES = 8;
+const MAX_RESUMES = 4;
+
+async function researchFacts(
+  client: Anthropic,
+  topic: string,
+): Promise<string> {
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: buildResearchPrompt(topic) },
+  ];
+
+  for (let resume = 0; resume <= MAX_RESUMES; resume++) {
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      system: RESEARCH_SYSTEM_PROMPT,
+      tools: [
+        {
+          type: "web_search_20260209",
+          name: "web_search",
+          max_uses: MAX_SEARCHES,
+        },
+      ],
+      messages,
+    });
+
+    if (message.stop_reason === "pause_turn") {
+      // The server-side search loop hit its iteration limit mid-turn. Sending
+      // the assistant turn straight back resumes it; no extra user message.
+      messages.push({ role: "assistant", content: message.content });
+      continue;
+    }
+
+    // The reply interleaves search calls, their results and the model's text.
+    // Only the text is wanted, and the last block is the finished list — the
+    // earlier ones are its narration between searches.
+    const texts = message.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text.trim())
+      .filter(Boolean);
+
+    return texts.length > 0 ? texts[texts.length - 1] : "";
+  }
+
+  return "";
+}
+
+/**
+ * Formal address, found rather than forbidden.
+ *
+ * The prompt has asked for "du" throughout for a while and the model has kept
+ * slipping, because nothing checked. Anchor phrases only became reliable once
+ * they were validated, and this is the same fix.
+ *
+ * Capitalisation carries the whole distinction in German: lowercase "sie" is
+ * she or they, capitalised "Sie" mid-sentence is the formal you. At the start
+ * of a sentence the two are indistinguishable, so those are left alone — a
+ * missed slip is better than rejecting a correct script.
+ */
+const FORMAL_WORDS = /\b(Sie|Ihnen|Ihr|Ihre|Ihrem|Ihren|Ihrer|Ihres)\b/g;
+
+function formalAddressHits(text: string): string[] {
+  const hits: string[] = [];
+
+  for (const match of text.matchAll(FORMAL_WORDS)) {
+    const at = match.index ?? 0;
+    // Everything before it on this sentence; empty means it opens one, where
+    // the capital is just orthography. A colon does not start a sentence in
+    // German — a capitalised pronoun right after one is the formal address,
+    // not a coincidence of position.
+    const before = text.slice(Math.max(0, at - 200), at);
+    if (/(^|[.!?„"\n])\s*$/.test(before)) continue;
+
+    const from = Math.max(0, at - 30);
+    hits.push(`…${text.slice(from, at + match[0].length + 20).replace(/\s+/g, " ")}…`);
+  }
+
+  return hits;
+}
+
+/** The voiceover, with one chance to fix the things we can actually check. */
+async function writeVoiceover(
+  client: Anthropic,
+  topic: string,
+  research: string,
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: buildVoiceoverPrompt(topic, research) },
+  ];
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      system: VOICEOVER_SYSTEM_PROMPT,
+      messages,
+    });
+
+    const text = textOf(message).trim();
+    const problems: string[] = [];
+
+    if (text.length < 200) {
+      problems.push("Der Text ist zu kurz oder leer.");
+    }
+
+    const words = text.split(/\s+/).filter(Boolean).length;
+    if (words > 0 && words < 600) {
+      problems.push(`Der Text hat nur ${words} Wörter, gefordert sind 750 bis 850.`);
+    }
+
+    const formal = formalAddressHits(text);
+    if (formal.length > 0) {
+      problems.push(
+        `Der Text siezt an ${formal.length} Stelle(n). Gefordert ist durchgehend die Du-Form — "stell dir vor", nicht "stellen Sie sich vor". Betroffen: ${formal
+          .slice(0, 3)
+          .join(" | ")}`,
+      );
+    }
+
+    if (problems.length === 0) return { ok: true, text };
+
+    if (attempt === 1) {
+      return {
+        ok: false,
+        error: `Das Voiceover war auch nach einem Korrekturversuch ungültig: ${problems.join(" ")}`,
+      };
+    }
+
+    messages.push(
+      { role: "assistant", content: text || "(leere Antwort)" },
+      { role: "user", content: buildRepairPrompt(problems) },
+    );
+  }
+
+  return { ok: false, error: "Das Voiceover konnte nicht erzeugt werden." };
 }
 
 /** Concatenate the text blocks of a message. */
