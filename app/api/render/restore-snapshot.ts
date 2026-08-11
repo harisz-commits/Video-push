@@ -43,9 +43,21 @@ export async function restoreSnapshot() {
     );
   }
 
-  const sandbox = await Sandbox.create({
-    source: { type: "snapshot", snapshotId },
-    timeout: SANDBOX_LIFETIME,
-  });
+  let sandbox: Awaited<ReturnType<typeof Sandbox.create>>;
+  try {
+    sandbox = await Sandbox.create({
+      source: { type: "snapshot", snapshotId },
+      timeout: SANDBOX_LIFETIME,
+    });
+  } catch (err) {
+    // Snapshots expire now — they have to, or the storage fills up and no build
+    // can create one at all. The consequence is that a deployment left alone
+    // for weeks outlives the image it renders from, and the raw API error for
+    // that reads like a bug rather than the reminder it actually is.
+    throw new Error(
+      "Der Sandbox-Snapshot dieses Deployments existiert nicht mehr. Snapshots laufen nach einigen Wochen ab, damit der Speicher nicht vollläuft — einmal neu deployen erzeugt ihn wieder. "
+        + `(${(err as Error).message.slice(0, 160)})`,
+    );
+  }
   return { sandbox, lifetimeMs: SANDBOX_LIFETIME };
 }

@@ -28,6 +28,22 @@ import { Snapshot } from "@vercel/sandbox";
  */
 const DEFAULT_KEEP = 1;
 
+/**
+ * Whether a snapshot can still be booted from.
+ *
+ * Reusing one across deployments means trusting an id written by an earlier
+ * build, and that id can have expired or been pruned since. Asking first turns
+ * a broken render into a rebuilt snapshot.
+ */
+export async function snapshotAlive(snapshotId: string): Promise<boolean> {
+  try {
+    const snapshot = await Snapshot.get({ snapshotId });
+    return snapshot.status === "created";
+  } catch {
+    return false;
+  }
+}
+
 export type PruneResult = {
   /** Everything alive before the prune, newest first. */
   inventory: {
