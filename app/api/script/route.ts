@@ -234,17 +234,23 @@ async function generate(
  * which is not an error — the turn is resumed by sending the conversation back
  * unchanged, and a cap keeps a runaway search from eating the function's life.
  *
- * `max_uses` is the cost lever. Searches are billed per thousand, and a script
- * that quietly ran forty of them would be the sort of surprise this project
- * exists to avoid.
+ * `max_uses` is both the cost lever and the time lever, and time turned out to
+ * be the binding one: at eight searches this step ran five and a half minutes
+ * and consumed the entire function budget on its own, leaving nothing for the
+ * writing it exists to serve. Four searches is enough for the handful of
+ * numbers a script needs, and the deadline below guarantees the step gives up
+ * its remaining searches rather than the rest of the pipeline.
  */
-const MAX_SEARCHES = 8;
-const MAX_RESUMES = 4;
+const MAX_SEARCHES = 4;
+const MAX_RESUMES = 2;
+/** Hard ceiling on the research phase, well inside the function's own limit. */
+const RESEARCH_BUDGET_MS = 110_000;
 
 async function researchFacts(
   client: Anthropic,
   topic: string,
 ): Promise<string> {
+  const deadline = Date.now() + RESEARCH_BUDGET_MS;
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: buildResearchPrompt(topic) },
   ];
@@ -267,22 +273,33 @@ async function researchFacts(
     if (message.stop_reason === "pause_turn") {
       // The server-side search loop hit its iteration limit mid-turn. Sending
       // the assistant turn straight back resumes it; no extra user message.
+      // Past the deadline we stop resuming and take whatever has been found —
+      // a shorter fact sheet beats a killed function.
+      if (Date.now() > deadline) return lastText(message);
       messages.push({ role: "assistant", content: message.content });
       continue;
     }
 
-    // The reply interleaves search calls, their results and the model's text.
-    // Only the text is wanted, and the last block is the finished list — the
-    // earlier ones are its narration between searches.
-    const texts = message.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text.trim())
-      .filter(Boolean);
-
-    return texts.length > 0 ? texts[texts.length - 1] : "";
+    return lastText(message);
   }
 
   return "";
+}
+
+/**
+ * The finished answer out of a reply that also contains search machinery.
+ *
+ * A search turn interleaves the model's tool calls, their results and its own
+ * text. Only the text is wanted, and the last block is the finished list — the
+ * earlier ones are narration between searches.
+ */
+function lastText(message: Anthropic.Message): string {
+  const texts = message.content
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
+    .map((block) => block.text.trim())
+    .filter(Boolean);
+
+  return texts.length > 0 ? texts[texts.length - 1] : "";
 }
 
 /**
