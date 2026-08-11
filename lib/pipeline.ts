@@ -101,26 +101,30 @@ export async function researchPhase(args: {
 
   try {
     await update({ step: "Fakten werden recherchiert" });
-    const { text: research, searches } = await researchFacts(
-      client(args.apiKey),
-      args.topic,
-    );
+    const {
+      text: research,
+      raw,
+      searches,
+    } = await researchFacts(client(args.apiKey), args.topic);
 
     const factCount = research ? research.split("\n").length : 0;
 
     if (searches === 0) {
       await update({
         status: "error",
-        research,
+        research: raw.slice(0, 4000),
         error:
           "Die Websuche hat kein einziges Ergebnis geliefert, also gibt es keine belegten Zahlen — und ohne die wird kein Skript geschrieben, sonst erfindet das Modell sie. Prüf, ob Websuche für diesen Anthropic-Account freigeschaltet ist.",
       });
+
       return;
     }
     if (factCount < MIN_FACTS) {
       await update({
         status: "error",
-        research,
+        // The raw reply, not the empty extraction — when the shape check fails
+        // the only useful question is what the model actually wrote.
+        research: raw.slice(0, 4000),
         error: `Die Recherche hat nach ${searches} Suchen nur ${factCount} verwertbare Fakten geliefert, gebraucht werden mindestens ${MIN_FACTS}. Ohne belegte Zahlen wird kein Skript geschrieben.`,
       });
       return;
@@ -245,9 +249,10 @@ const MIN_FACTS = 5;
 async function researchFacts(
   client: Anthropic,
   topic: string,
-): Promise<{ text: string; searches: number }> {
+): Promise<{ text: string; raw: string; searches: number }> {
   const deadline = Date.now() + RESEARCH_BUDGET_MS;
   const facts: string[] = [];
+  const raw: string[] = [];
   let searches = 0;
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: buildResearchPrompt(topic) },
@@ -287,16 +292,29 @@ async function researchFacts(
       // Keep what this turn found before resuming; a later turn that runs out
       // of allowance would otherwise take the earlier findings down with it.
       facts.push(...factLines(message));
-      if (Date.now() > deadline) return { text: facts.join("\n"), searches };
+      raw.push(...plainText(message));
+      if (Date.now() > deadline) {
+        return { text: facts.join("\n"), raw: raw.join("\n\n"), searches };
+      }
       messages.push({ role: "assistant", content: message.content });
       continue;
     }
 
     facts.push(...factLines(message));
-    return { text: facts.join("\n"), searches };
+    raw.push(...plainText(message));
+    return { text: facts.join("\n"), raw: raw.join("\n\n"), searches };
   }
 
-  return { text: facts.join("\n"), searches };
+  return { text: facts.join("\n"), raw: raw.join("\n\n"), searches };
+}
+
+/** Every text block of a reply, for when extraction finds nothing and the
+ *  question becomes "what did it actually say". */
+function plainText(message: Anthropic.Message): string[] {
+  return message.content
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
+    .map((block) => block.text.trim())
+    .filter(Boolean);
 }
 
 /**
