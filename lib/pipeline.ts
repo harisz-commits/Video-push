@@ -101,23 +101,38 @@ export async function researchPhase(args: {
 
   try {
     await update({ step: "Fakten werden recherchiert" });
-    const research = await researchFacts(client(args.apiKey), args.topic);
+    const { text: research, searches } = await researchFacts(
+      client(args.apiKey),
+      args.topic,
+    );
 
-    if (!research) {
+    if (searches === 0) {
       await update({
         status: "error",
+        research,
         error:
-          "Die Faktenrecherche hat nichts geliefert. Ohne belegte Zahlen wird kein Skript geschrieben — sonst erfindet das Modell sie.",
+          "Die Websuche hat kein einziges Ergebnis geliefert, also gibt es keine belegten Zahlen — und ohne die wird kein Skript geschrieben, sonst erfindet das Modell sie. Prüf, ob Websuche für diesen Anthropic-Account freigeschaltet ist.",
+      });
+      return;
+    }
+    if (research.length < 80) {
+      await update({
+        status: "error",
+        research,
+        error: "Die Faktenrecherche hat keine brauchbare Liste geliefert.",
       });
       return;
     }
 
     await update({ step: "Voiceover wird geschrieben", research });
 
+    // The sheet travels in the request rather than being re-read from storage:
+    // the second phase would otherwise depend on a write that may not be
+    // visible yet, which is exactly how the first handover failed.
     const response = await fetch(`${args.origin}/api/script/continue`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jobId: args.jobId, token: args.token }),
+      body: JSON.stringify({ jobId: args.jobId, token: args.token, research }),
     });
 
     if (!response.ok) {
@@ -223,7 +238,7 @@ const RESEARCH_BUDGET_MS = 240_000;
 async function researchFacts(
   client: Anthropic,
   topic: string,
-): Promise<string> {
+): Promise<{ text: string; searches: number }> {
   const deadline = Date.now() + RESEARCH_BUDGET_MS;
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: buildResearchPrompt(topic) },
@@ -258,15 +273,36 @@ async function researchFacts(
       // the assistant turn straight back resumes it; no extra user message.
       // Past the deadline we stop resuming and take whatever has been found —
       // a shorter fact sheet beats a killed function.
-      if (Date.now() > deadline) return lastText(message);
+      if (Date.now() > deadline) {
+        return { text: lastText(message), searches: countSearches(message) };
+      }
       messages.push({ role: "assistant", content: message.content });
       continue;
     }
 
-    return lastText(message);
+    return { text: lastText(message), searches: countSearches(message) };
   }
 
-  return "";
+  return { text: "", searches: 0 };
+}
+
+/**
+ * How many web searches actually came back with results.
+ *
+ * A model whose searches all failed does not fall silent — it apologises, at
+ * length, in fluent German, and that apology is a non-empty string. Accepting
+ * it as a fact sheet is how unverified numbers would get into a script through
+ * the very step built to keep them out. Counting the results is the only
+ * honest check: either the web was consulted or it was not.
+ */
+function countSearches(message: Anthropic.Message): number {
+  let ok = 0;
+  for (const block of message.content as { type: string; content?: unknown }[]) {
+    if (block.type !== "web_search_tool_result") continue;
+    // A successful result carries a list; a failed one carries an error object.
+    if (Array.isArray(block.content)) ok += block.content.length > 0 ? 1 : 0;
+  }
+  return ok;
 }
 
 /**

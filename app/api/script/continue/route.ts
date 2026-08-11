@@ -25,11 +25,19 @@ export async function POST(req: Request) {
 
   let jobId: string;
   let token: string;
+  let research: string;
   try {
-    const body = (await req.json()) as { jobId?: string; token?: string };
-    if (!body.jobId || !body.token) throw new Error("incomplete");
+    const body = (await req.json()) as {
+      jobId?: string;
+      token?: string;
+      research?: string;
+    };
+    if (!body.jobId || !body.token || !body.research) {
+      throw new Error("incomplete");
+    }
     jobId = body.jobId;
     token = body.token;
+    research = body.research;
   } catch {
     return errorResponse("Ungültige Anfrage.", 400);
   }
@@ -42,9 +50,6 @@ export async function POST(req: Request) {
   if (!job.continueToken || job.continueToken !== token) {
     return errorResponse("Nicht autorisiert.", 401);
   }
-  if (!job.research) {
-    return errorResponse("Für diesen Auftrag liegt noch keine Recherche vor.", 409);
-  }
   if (job.status !== "running") {
     return errorResponse("Dieser Auftrag läuft nicht mehr.", 409);
   }
@@ -53,7 +58,7 @@ export async function POST(req: Request) {
     writePhase({
       jobId,
       topic: job.topic,
-      research: job.research,
+      research,
       apiKey,
       startedAt: job.startedAt,
     }),
