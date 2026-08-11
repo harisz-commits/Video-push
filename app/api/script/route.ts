@@ -35,6 +35,22 @@ export const maxDuration = 300;
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
 
+/**
+ * Thinking depth, set explicitly per step.
+ *
+ * Sonnet 5 thinks adaptively at effort "high" whenever nothing says otherwise,
+ * and nothing here did — which is why a research call with four web searches
+ * ran for five and a half minutes and took the whole function down with it.
+ * Effort is the documented lever for that, and the right level differs by job:
+ * searching and summarising is not the same work as writing the script.
+ */
+const EFFORT = {
+  research: "low",
+  voiceover: (process.env.ANTHROPIC_EFFORT as "low" | "medium" | "high") ?? "medium",
+  scenes: "low",
+  title: "low",
+} as const;
+
 export async function POST(req: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -256,19 +272,28 @@ async function researchFacts(
   ];
 
   for (let resume = 0; resume <= MAX_RESUMES; resume++) {
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4000,
-      system: RESEARCH_SYSTEM_PROMPT,
-      tools: [
-        {
-          type: "web_search_20260209",
-          name: "web_search",
-          max_uses: MAX_SEARCHES,
-        },
-      ],
-      messages,
-    });
+    if (Date.now() > deadline) break;
+
+    const message = await client.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 4000,
+        output_config: { effort: EFFORT.research },
+        system: RESEARCH_SYSTEM_PROMPT,
+        tools: [
+          {
+            type: "web_search_20260209",
+            name: "web_search",
+            max_uses: MAX_SEARCHES,
+          },
+        ],
+        messages,
+      },
+      // The deadline above only helps between turns; a single search turn can
+      // block for minutes on its own, so the request itself gets a hard cap.
+      // No retry — a second attempt would spend the budget the first one blew.
+      { timeout: Math.max(20_000, deadline - Date.now()), maxRetries: 0 },
+    );
 
     if (message.stop_reason === "pause_turn") {
       // The server-side search loop hit its iteration limit mid-turn. Sending
@@ -349,6 +374,7 @@ async function writeVoiceover(
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 4000,
+      output_config: { effort: EFFORT.voiceover },
       system: VOICEOVER_SYSTEM_PROMPT,
       messages,
     });
@@ -488,6 +514,7 @@ async function scenesForSegment(
       // is not the only thing counted against this ceiling, and a truncated
       // reply costs the whole script.
       max_tokens: 16000,
+      output_config: { effort: EFFORT.scenes },
       system: SEGMENT_SCENES_SYSTEM_PROMPT,
       messages,
     });
@@ -557,6 +584,7 @@ async function writeTitle(
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 100,
+      output_config: { effort: EFFORT.title },
       system: TITLE_SYSTEM_PROMPT,
       messages: [
         {
