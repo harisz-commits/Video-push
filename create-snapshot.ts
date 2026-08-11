@@ -43,6 +43,40 @@ const snapshotBlobKey = () =>
 const failureBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.error.json`;
 
+/**
+ * Pull Vercel's own words out of a Sandbox API error.
+ *
+ * The SDK's message for any refused call is `Status code 402 is not ok` — a
+ * number and nothing else, which is enough to know the account said no and not
+ * enough to know *what* it said no about. The response body it kept is the part
+ * that names the reason, and that is the part worth recording: the difference
+ * between "some limit, go look" and the limit itself.
+ */
+function apiErrorDetail(err: unknown): {
+  status: number | null;
+  url: string | null;
+  body: string | null;
+} {
+  const e = err as {
+    response?: { status?: number; url?: string };
+    text?: string;
+    json?: unknown;
+  };
+  const body =
+    typeof e?.text === "string" && e.text.trim()
+      ? e.text
+      : e?.json
+        ? JSON.stringify(e.json)
+        : null;
+  return {
+    status: e?.response?.status ?? null,
+    // Which endpoint refused — creating a sandbox and snapshotting one are
+    // different permissions and can fail for different reasons.
+    url: e?.response?.url ?? null,
+    body: body ? body.slice(0, 1000) : null,
+  };
+}
+
 async function recordFailure(err: unknown): Promise<void> {
   const token = findBlobToken();
   if (!token) return;
@@ -52,6 +86,7 @@ async function recordFailure(err: unknown): Promise<void> {
       failureBlobKey(),
       JSON.stringify({
         message: (err as Error)?.message ?? String(err),
+        ...apiErrorDetail(err),
         stack: (err as Error)?.stack?.split("\n").slice(0, 12).join("\n"),
         at: new Date().toISOString(),
         commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
@@ -127,6 +162,17 @@ async function main(): Promise<void> {
       console.log(`[snapshot] Sandbox mit ${vcpus} vCPUs`);
       break;
     } catch (err) {
+      // Stepping down only makes sense when the *size* was the problem. When
+      // the account will not grant a sandbox at all — payment, permission —
+      // asking three more times changes nothing and buries the real answer
+      // under two retries' worth of the same refusal.
+      const { status, body } = apiErrorDetail(err);
+      if (status === 401 || status === 402 || status === 403) {
+        console.error(
+          `[snapshot] Sandbox abgelehnt (HTTP ${status}). Antwort: ${body ?? "(leer)"}`,
+        );
+        throw err;
+      }
       console.log(
         `[snapshot] ${vcpus} vCPUs abgelehnt (${(err as Error).message.slice(0, 120)}), versuche weniger…`,
       );
@@ -179,6 +225,7 @@ main().catch(async (err) => {
       "[snapshot] ============================================================",
       "[snapshot] FEHLGESCHLAGEN — dieser Build bleibt trotzdem GRÜN.",
       `[snapshot] Grund: ${(err as Error)?.message ?? err}`,
+      `[snapshot] Antwort der API: ${apiErrorDetail(err).body ?? "(keine)"}`,
       "[snapshot] Die App wird deployed und läuft. Was NICHT geht: rendern,",
       "[snapshot] bis dieser Schritt einmal durchläuft. /api/render sagt das.",
       "[snapshot] Häufigste Ursache: es wurde keine Sandbox gewährt, weil zu",

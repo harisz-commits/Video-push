@@ -67,15 +67,30 @@ export async function GET() {
  * fine and the account simply will not grant a sandbox. The one that cost a
  * day of looking in the wrong place gets spelled out.
  */
-function explainSnapshotFailure(message: string): string {
-  if (message.includes("402")) {
-    return "Der Snapshot-Schritt bekommt vom Vercel-Account keine Sandbox: die API antwortet mit 402 (Payment Required). Das ist kein Fehler im Code — Build, Bundle und Deployment sind in Ordnung. Ursache ist ein Ausgabenlimit oder ein aufgebrauchtes Sandbox-Kontingent. Vercel → Settings → Spend Management prüfen, und ob Sandbox im aktuellen Tarif noch Guthaben hat. Bis dahin laufen Skript und Stimme normal, nur Rendern nicht.";
+function explainSnapshotFailure(reason: SnapshotFailure): string {
+  const message = reason.message ?? "";
+  // Vercel's own words, when the build managed to capture them. Everything
+  // below this line is interpretation; this line is evidence, and it is the
+  // only part that names which limit was hit.
+  const verbatim = reason.body
+    ? ` Wortlaut der API${reason.status ? ` (HTTP ${reason.status})` : ""}: ${reason.body.slice(0, 400)}`
+    : " Die Antwort der API wurde von diesem Build noch nicht mitgeschrieben — der nächste Build hält sie fest.";
+
+  if (message.includes("402") || reason.status === 402) {
+    return `Der Vercel-Account gibt dem Snapshot-Schritt keine Sandbox: die API antwortet mit 402 (Payment Required). Das ist kein Fehler im Code — Build, Bundle und Deployment sind in Ordnung. 402 heißt nur "der Account zahlt dafür nicht"; welche Grenze das genau ist, sagt der Wortlaut unten. In Frage kommen: das Ausgabenlimit unter Vercel → Settings → Spend Management, ein aufgebrauchtes Sandbox-Kontingent im Tarif, oder eine nicht hinterlegte Zahlungsmethode.${verbatim} Bis dahin laufen Skript und Stimme normal, nur Rendern nicht.`;
   }
-  if (message.includes("429")) {
-    return "Der Snapshot-Schritt wurde von der Sandbox-API ausgebremst (429). Ein erneutes Deployment in ein paar Minuten hilft meistens.";
+  if (message.includes("429") || reason.status === 429) {
+    return `Der Snapshot-Schritt wurde von der Sandbox-API ausgebremst (429). Ein erneutes Deployment in ein paar Minuten hilft meistens.${verbatim}`;
   }
-  return `Der Snapshot-Schritt ist fehlgeschlagen: ${message.slice(0, 300)}`;
+  return `Der Snapshot-Schritt ist fehlgeschlagen: ${message.slice(0, 300)}${verbatim}`;
 }
+
+type SnapshotFailure = {
+  message?: string;
+  status?: number | null;
+  body?: string | null;
+  at?: string;
+};
 
 async function snapshotState(
   token: string | undefined,
@@ -94,13 +109,13 @@ async function snapshotState(
     const reason = await fetch(
       `${(await head(`snapshot-cache/${id}.error.json`, { token })).url}?t=${Date.now()}`,
     )
-      .then((r) => r.json() as Promise<{ message?: string; at?: string }>)
+      .then((r) => r.json() as Promise<SnapshotFailure>)
       .catch(() => null);
 
     return {
       present: false,
       note: reason?.message
-        ? explainSnapshotFailure(reason.message)
+        ? explainSnapshotFailure(reason)
         : "Für dieses Deployment wurde kein Snapshot erzeugt. Die App läuft, aber Rendern schlägt fehl, bis ein Build den Snapshot-Schritt durchbekommt.",
     };
   }
