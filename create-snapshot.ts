@@ -29,6 +29,17 @@ function blobEnvNames(): string[] {
     .sort();
 }
 
+/**
+ * How long a snapshot lives if nothing deletes it first.
+ *
+ * The prune is what actually keeps the store small; this is the backstop for a
+ * project nobody deploys or sweeps any more.
+ */
+const SNAPSHOT_TTL_DAYS = Number.parseInt(
+  process.env.SNAPSHOT_TTL_DAYS ?? "14",
+  10,
+);
+
 const snapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
 
@@ -285,14 +296,16 @@ async function main(): Promise<void> {
   // added a permanent multi-gigabyte image until the plan's storage ceiling
   // refused the next one — taking rendering down with it.
   //
-  // Nothing is kept, not even the live deployment's. Sparing it sounds kinder
-  // and is the wrong call: two images have to fit at once for that to work, and
-  // it is precisely the "one more will fit" assumption that filled the store in
-  // the first place. The cost is that the currently-live deployment cannot
-  // render for the few minutes this build runs; the alternative is that the new
-  // deployment cannot render at all.
+  // The newest is kept. An earlier version of this deleted everything first,
+  // reasoning that the new image should have the whole allowance and that the
+  // live deployment would only be unable to render "for the few minutes this
+  // build runs". That was wrong in a way that reached the user: a deployment
+  // keeps pointing at its own snapshot for as long as anything talks to it, so
+  // deleting that snapshot does not inconvenience it for minutes — it breaks
+  // it permanently, with "Snapshot expired or deleted" on every render. Which
+  // is exactly what happened to a browser tab still on an older deployment.
   try {
-    const before = await pruneSnapshots({ keep: 0 });
+    const before = await pruneSnapshots({ keep: 1 });
     console.log(
       `[snapshot] Aufräumen: ${before.inventory.length} vorhanden, ${
         before.deleted.length
@@ -361,29 +374,27 @@ async function main(): Promise<void> {
   await addBundleToSandbox({ sandbox, bundleDir: ".remotion" });
 
   console.log("[snapshot] Snapshot wird gezogen…");
-  // No expiry, deliberately — deleting is our job, not the platform's.
+  // A backstop, not the mechanism. Pruning is what keeps the store small; this
+  // only covers the case where pruning stops running at all — an abandoned
+  // project should not hold a seven-hundred-megabyte image forever.
   //
-  // A fourteen-day expiry looked like the tidy answer to storage filling up.
-  // It was not the answer to anything: the storage filled up because nothing
-  // ever deleted the old snapshots, and that is now handled by the prune on
-  // both sides of this call. What the expiry did add was a snapshot that died
-  // roughly two hours after it was created — whatever the account actually
-  // grants, it is not what was asked for — and a dead snapshot fails every
-  // render with 410 until someone deploys again.
-  //
-  // Deleting on our own terms is verifiable; an expiry we do not control is
-  // not. Exactly one snapshot exists at a time either way.
-  const { snapshotId, expiresAt } = await sandbox.snapshot({ expiration: 0 });
+  // Fourteen days is honoured as asked (the API reports the expiry it granted,
+  // and it matches), and it is far longer than a deployment stays the live one.
+  const { snapshotId, expiresAt } = await sandbox.snapshot({
+    expiration: SNAPSHOT_TTL_DAYS * 24 * 60 * 60 * 1000,
+  });
   console.log(
     `[snapshot] Angelegt: ${snapshotId}, Ablauf laut API: ${
       expiresAt ? expiresAt.toISOString() : "keiner"
     }`,
   );
 
-  // Now that the new one exists, the one it replaces has no purpose: this
-  // build's deployment is about to become the live one.
+  // Two: this one, and the one the outgoing deployment is still serving from.
+  // It stops being needed once nothing talks to that deployment any more,
+  // which is not a moment this build can observe — so the nightly prune, which
+  // keeps only the newest, is what finally takes it.
   try {
-    const after = await pruneSnapshots({ keep: 1, keepIds: [snapshotId] });
+    const after = await pruneSnapshots({ keep: 2, keepIds: [snapshotId] });
     console.log(
       `[snapshot] Nach dem Ziehen aufgeräumt: ${after.deleted.length} gelöscht, ${after.kept.length} behalten`,
     );

@@ -24,11 +24,28 @@ const getSnapshotBlobKey = () =>
  * the second would defeat the whole point — the next build would find it,
  * believe it, and skip the rebuild that is the actual fix.
  */
-async function forget(fingerprint: string | undefined): Promise<void> {
+async function forget(
+  snapshotId: string,
+  fingerprint: string | undefined,
+): Promise<void> {
   const token = resolveBlobToken()?.value;
   if (!token) return;
   const keys = [getSnapshotBlobKey()];
-  if (fingerprint) keys.push(`snapshot-cache/bundle-${fingerprint}.json`);
+
+  // The content-keyed pointer is shared between deployments, so it is only
+  // this deployment's business when it names the snapshot that just failed.
+  // An old deployment discovering its own snapshot is gone must not invalidate
+  // a perfectly good one that newer deployments are rendering from — that
+  // would turn one stale tab into a fresh seven hundred megabytes.
+  if (fingerprint) {
+    const key = `snapshot-cache/bundle-${fingerprint}.json`;
+    const shared = await get(key, { access: BLOB_ACCESS, token })
+      .then((b) => (b ? new Response(b.stream).json() : null))
+      .then((j) => (j as { snapshotId?: string } | null)?.snapshotId)
+      .catch(() => undefined);
+    if (shared === snapshotId) keys.push(key);
+  }
+
   await del(keys, { token }).catch(() => {
     // Best effort. A failure here costs a redeploy, not correctness.
   });
@@ -75,7 +92,7 @@ export async function restoreSnapshot() {
     // a dead snapshot as "created" — so without this, a redeploy would reuse
     // the corpse and the render would keep failing with no way out but
     // guessing. Forgetting it here is what makes the next deploy a fix.
-    await forget(cache.fingerprint);
+    await forget(snapshotId, cache.fingerprint);
 
     throw new Error(
       "Der Sandbox-Snapshot dieses Deployments lässt sich nicht mehr starten. Er ist jetzt vergessen — das nächste Deployment erzeugt einen neuen, danach läuft Rendern wieder. "
