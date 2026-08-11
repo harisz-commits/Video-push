@@ -1,5 +1,6 @@
 import { del, list } from "@vercel/blob";
 import { errorResponse } from "../../../../lib/guardrails";
+import { audioInUse } from "../../../../lib/projects";
 import { sweepSandboxes } from "../../../../lib/sandboxes";
 import { pruneSnapshots } from "../../../../lib/snapshots";
 import { resolveBlobToken } from "../../../../lib/store";
@@ -15,7 +16,8 @@ const MAX_AGE_DAYS = Number.parseInt(process.env.BLOB_MAX_AGE_DAYS ?? "30", 10);
  *
  * Deliberately an allowlist. `snapshot-cache/` holds the sandbox snapshot the
  * render route boots from — deleting it would break rendering until the next
- * deploy, so it must never be swept up by an age rule.
+ * deploy, so it must never be swept up by an age rule. `projects/` is what a
+ * saved project *is*, and has no age at which it stops mattering.
  */
 const SWEEPABLE = ["renders/", "audio/", "jobs/"];
 
@@ -38,6 +40,13 @@ export async function GET(req: Request) {
   let scanned = 0;
 
   try {
+    // Age alone stopped being a good enough reason to delete audio the moment
+    // projects started outliving the session that made them: a saved project
+    // holds a URL to its voiceover, and a swept-away file leaves a project that
+    // will neither play nor render, with nothing to explain why. Costing a
+    // listing to avoid that is the cheaper side of the trade.
+    const protectedAudio = await audioInUse().catch(() => new Set<string>());
+
     for (const prefix of SWEEPABLE) {
       let cursor: string | undefined;
       do {
@@ -50,7 +59,9 @@ export async function GET(req: Request) {
         scanned += page.blobs.length;
 
         const stale = page.blobs.filter(
-          (b) => new Date(b.uploadedAt).getTime() < cutoff,
+          (b) =>
+            new Date(b.uploadedAt).getTime() < cutoff &&
+            !protectedAudio.has(b.pathname),
         );
         if (stale.length > 0) {
           await del(
@@ -90,6 +101,7 @@ export async function GET(req: Request) {
       scanned,
       deletedCount: deleted.length,
       deleted: deleted.slice(0, 50),
+      protectedAudio: protectedAudio.size,
       sandboxes,
       snapshots,
     });

@@ -20,6 +20,8 @@ type ScriptJobState = {
  * of starting a second, equally expensive generation.
  */
 const JOB_KEY = "infographics-studio.scriptJob";
+/** Which project this browser had open, so a reload comes back to it. */
+const PROJECT_KEY = "infographics-studio.projectId";
 const rememberJob = (id: string) => {
   try {
     window.localStorage.setItem(JOB_KEY, id);
@@ -41,6 +43,60 @@ const forgetJob = () => {
     // Nothing to clean up if storage is unavailable.
   }
 };
+
+const rememberProject = (id: string | null) => {
+  try {
+    if (id) window.localStorage.setItem(PROJECT_KEY, id);
+    else window.localStorage.removeItem(PROJECT_KEY);
+  } catch {
+    // Losing the pointer costs one click in the project list, nothing more.
+  }
+};
+const recallProject = (): string | null => {
+  try {
+    return window.localStorage.getItem(PROJECT_KEY);
+  } catch {
+    return null;
+  }
+};
+
+type ProjectSummary = {
+  id: string;
+  title: string;
+  topic: string;
+  updatedAt: number;
+  words: number;
+  scenes: number;
+  hasScript: boolean;
+  hasAudio: boolean;
+  renderUrl?: string;
+};
+
+type ProjectRecord = {
+  id: string;
+  title: string;
+  project: unknown;
+  lastRender?: { renderId: string; outputUrl?: string; sizeBytes?: number };
+};
+
+/** "vor 4 Minuten" — enough to tell a fresh save from a stale one. */
+function ago(timestamp: number): string {
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return "gerade eben";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `vor ${minutes} Min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `vor ${hours} Std`;
+  return `vor ${Math.round(hours / 24)} Tagen`;
+}
+
+/** What a project row says it already contains, so nothing is redone blindly. */
+function stageOf(p: ProjectSummary): string {
+  if (p.renderUrl) return "gerendert";
+  if (p.hasAudio) return "Ton fertig";
+  if (p.hasScript) return "Skript fertig";
+  return "leer";
+}
 import { SceneInspector } from "./SceneInspector";
 import { Timeline } from "./Timeline";
 import { Button, Field, formatTimecode, Note, Panel } from "./ui";
@@ -76,6 +132,15 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
   const [render, setRender] = useState<RenderState | null>(null);
   const playerRef = useRef<PlayerRef>(null);
 
+  // ---- Projects -----------------------------------------------------------
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [projectError, setProjectError] = useState<string | null>(null);
+
   const timing = useMemo(() => resolveSceneTimings(project), [project]);
   const wordCount = useMemo(
     () => project.voiceover.trim().split(/\s+/).filter(Boolean).length,
@@ -97,6 +162,157 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
     playerRef.current?.seekTo(frame);
     setCurrentFrame(frame);
   }, []);
+
+  // ---- Projects -----------------------------------------------------------
+  //
+  // A script costs a research pass and several model calls; a voiceover costs
+  // characters at ElevenLabs. Both used to live in React state alone, so a
+  // reload threw them away and the only way back was to generate something
+  // different. Saving happens on its own, because a save the user has to
+  // remember is one they will forget exactly once.
+
+  const refreshProjects = useCallback(async () => {
+    const result = await getJson<{ projects: ProjectSummary[] }>(
+      "/api/projects",
+    );
+    if (result.ok) setProjects(result.data.projects);
+  }, []);
+
+  useEffect(() => {
+    void refreshProjects();
+  }, [refreshProjects]);
+
+  /**
+   * What was last written, so the autosave can tell a real change from a
+   * re-render. Without it, loading a project immediately saves it back.
+   */
+  const lastSaved = useRef<string | null>(null);
+
+  const save = useCallback(
+    async (extra?: { lastRender?: ProjectRecord["lastRender"] }) => {
+      const payload = JSON.stringify(project);
+      setSaveState("saving");
+
+      const result = await postJson<{ id: string }>("/api/projects", {
+        id: projectId ?? undefined,
+        title: project.title || project.topic,
+        project,
+        ...extra,
+      });
+
+      if (!result.ok) {
+        setSaveState("error");
+        setProjectError(result.error);
+        return;
+      }
+
+      lastSaved.current = payload;
+      setProjectId(result.data.id);
+      rememberProject(result.data.id);
+      setSaveState("saved");
+      setSavedAt(Date.now());
+      setProjectError(null);
+      void refreshProjects();
+    },
+    [project, projectId, refreshProjects],
+  );
+
+  // Autosave, debounced. Nothing is written for the seed placeholder: an empty
+  // project saved on every page load would fill the list with rubbish.
+  useEffect(() => {
+    const worthKeeping = project.voiceover.trim().length > 0;
+    if (!worthKeeping && !projectId) return;
+    if (lastSaved.current === JSON.stringify(project)) return;
+
+    const id = window.setTimeout(() => void save(), 1200);
+    return () => window.clearTimeout(id);
+  }, [project, projectId, save]);
+
+  const loadProject = useCallback(
+    async (id: string) => {
+      setProjectError(null);
+      const result = await getJson<ProjectRecord>(
+        `/api/projects/${encodeURIComponent(id)}`,
+      );
+      if (!result.ok) {
+        setProjectError(result.error);
+        // A pointer to a project that no longer exists should not survive to
+        // fail again on the next reload.
+        if (recallProject() === id) rememberProject(null);
+        return;
+      }
+
+      const parsed = VideoProject.safeParse(result.data.project);
+      if (!parsed.success) {
+        setProjectError("Dieses Projekt lässt sich nicht mehr laden.");
+        return;
+      }
+
+      lastSaved.current = JSON.stringify(parsed.data);
+      setProject(parsed.data);
+      setProjectId(result.data.id);
+      rememberProject(result.data.id);
+      setTopic(parsed.data.topic);
+      setSelectedSceneId(parsed.data.scenes[0]?.id ?? null);
+      setScriptDone(parsed.data.voiceover.trim().length > 0);
+      setScriptError(null);
+      setVoiceError(null);
+      setSaveState("saved");
+      setSavedAt(result.data.lastRender ? Date.now() : null);
+
+      // A finished render is part of the project: showing it again beats
+      // re-rendering a video that already exists.
+      setRender(
+        result.data.lastRender?.outputUrl
+          ? {
+              renderId: result.data.lastRender.renderId,
+              status: "done",
+              progress: 1,
+              phase: "Gerendert",
+              outputUrl: result.data.lastRender.outputUrl,
+            }
+          : null,
+      );
+      seek(0);
+    },
+    [seek],
+  );
+
+  // Come back to whatever was open before the reload.
+  useEffect(() => {
+    const stored = recallProject();
+    if (stored) void loadProject(stored);
+    // Deliberately once, on mount: later changes to projectId are ours.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const newProject = useCallback(() => {
+    lastSaved.current = null;
+    setProjectId(null);
+    rememberProject(null);
+    setProject(seed);
+    setTopic("");
+    setScriptDone(false);
+    setScriptError(null);
+    setVoiceError(null);
+    setRender(null);
+    setSaveState("idle");
+    setSavedAt(null);
+    setSelectedSceneId(seed.scenes[0]?.id ?? null);
+    seek(0);
+  }, [seed, seek]);
+
+  const deleteProject = useCallback(async () => {
+    if (!projectId) return;
+    // The shared helper only speaks POST and this is the one DELETE in the
+    // studio — a bare fetch is clearer than a verb tunnelled through a query
+    // string. The audio and any rendered video survive; only the project goes.
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+      method: "DELETE",
+    }).catch(() => undefined);
+    newProject();
+    void refreshProjects();
+  }, [projectId, newProject, refreshProjects]);
 
   // ---- Voice list ---------------------------------------------------------
   useEffect(() => {
@@ -290,6 +506,19 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
     return () => window.clearInterval(id);
   }, [render?.renderId, render?.status]);
 
+  // A finished render belongs to the project. Without this the video exists in
+  // Blob storage and nothing remembers where — reopening the project would
+  // offer to render it again, which is the most expensive button in the app.
+  const savedRenderId = useRef<string | null>(null);
+  useEffect(() => {
+    if (render?.status !== "done" || !render.outputUrl) return;
+    if (savedRenderId.current === render.renderId) return;
+    savedRenderId.current = render.renderId;
+    void save({
+      lastRender: { renderId: render.renderId, outputUrl: render.outputUrl },
+    });
+  }, [render?.status, render?.renderId, render?.outputUrl, save]);
+
   // ---- Scene editing ------------------------------------------------------
   const updateScene = useCallback((id: string, patch: Partial<Scene>) => {
     setProject((p) => ({
@@ -341,6 +570,75 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
       <div className="studio-grid">
         {/* ---------------- Left rail ---------------- */}
         <div className="studio-rail">
+          <Panel
+            step="00"
+            title="Projekt"
+            right={
+              <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                {saveState === "saving"
+                  ? "speichert…"
+                  : saveState === "error"
+                    ? "nicht gespeichert"
+                    : savedAt
+                      ? `gespeichert ${ago(savedAt)}`
+                      : projectId
+                        ? "gespeichert"
+                        : "ungespeichert"}
+              </span>
+            }
+          >
+            <select
+              value={projectId ?? ""}
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id) void loadProject(id);
+                else newProject();
+              }}
+              aria-label="Gespeichertes Projekt"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid var(--grid)",
+                background: "#fff",
+                fontSize: 13,
+              }}
+            >
+              <option value="">— Neues Projekt —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title} · {stageOf(p)} · {ago(p.updatedAt)}
+                </option>
+              ))}
+            </select>
+
+            <div style={{ height: 8 }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button variant="ghost" onClick={newProject}>
+                Neu
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => void deleteProject()}
+                disabled={!projectId}
+                title={
+                  projectId
+                    ? "Löscht nur das Projekt — Ton und fertiges Video bleiben."
+                    : "Dieses Projekt ist noch nicht gespeichert."
+                }
+              >
+                Löschen
+              </Button>
+            </div>
+
+            {projectError ? <Note tone="alert">{projectError}</Note> : null}
+            {projects.length === 0 && !projectId ? (
+              <Note tone="info">
+                Sobald ein Skript da ist, wird es hier automatisch gespeichert.
+                Skript und Ton überleben dann jeden Reload.
+              </Note>
+            ) : null}
+          </Panel>
+
           <Panel step="01" title="Thema">
             <Field
               value={topic}
