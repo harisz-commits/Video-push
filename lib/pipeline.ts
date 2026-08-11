@@ -106,6 +106,8 @@ export async function researchPhase(args: {
       args.topic,
     );
 
+    const factCount = research ? research.split("\n").length : 0;
+
     if (searches === 0) {
       await update({
         status: "error",
@@ -115,11 +117,11 @@ export async function researchPhase(args: {
       });
       return;
     }
-    if (research.length < 80) {
+    if (factCount < MIN_FACTS) {
       await update({
         status: "error",
         research,
-        error: "Die Faktenrecherche hat keine brauchbare Liste geliefert.",
+        error: `Die Recherche hat nach ${searches} Suchen nur ${factCount} verwertbare Fakten geliefert, gebraucht werden mindestens ${MIN_FACTS}. Ohne belegte Zahlen wird kein Skript geschrieben.`,
       });
       return;
     }
@@ -234,12 +236,19 @@ const MAX_SEARCHES = 6;
 const MAX_RESUMES = 3;
 /** Hard ceiling on the research phase, well inside the function's own limit. */
 const RESEARCH_BUDGET_MS = 240_000;
+/**
+ * Fewer facts than this and the script would be written mostly from nothing,
+ * which is the failure this whole phase exists to prevent.
+ */
+const MIN_FACTS = 5;
 
 async function researchFacts(
   client: Anthropic,
   topic: string,
 ): Promise<{ text: string; searches: number }> {
   const deadline = Date.now() + RESEARCH_BUDGET_MS;
+  const facts: string[] = [];
+  let searches = 0;
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: buildResearchPrompt(topic) },
   ];
@@ -268,22 +277,26 @@ async function researchFacts(
       { timeout: Math.max(20_000, deadline - Date.now()), maxRetries: 0 },
     );
 
+    searches += countSearches(message);
+
     if (message.stop_reason === "pause_turn") {
       // The server-side search loop hit its iteration limit mid-turn. Sending
       // the assistant turn straight back resumes it; no extra user message.
       // Past the deadline we stop resuming and take whatever has been found —
       // a shorter fact sheet beats a killed function.
-      if (Date.now() > deadline) {
-        return { text: lastText(message), searches: countSearches(message) };
-      }
+      // Keep what this turn found before resuming; a later turn that runs out
+      // of allowance would otherwise take the earlier findings down with it.
+      facts.push(...factLines(message));
+      if (Date.now() > deadline) return { text: facts.join("\n"), searches };
       messages.push({ role: "assistant", content: message.content });
       continue;
     }
 
-    return { text: lastText(message), searches: countSearches(message) };
+    facts.push(...factLines(message));
+    return { text: facts.join("\n"), searches };
   }
 
-  return { text: "", searches: 0 };
+  return { text: facts.join("\n"), searches };
 }
 
 /**
@@ -306,19 +319,34 @@ function countSearches(message: Anthropic.Message): number {
 }
 
 /**
- * The finished answer out of a reply that also contains search machinery.
+ * The fact lines out of a reply that also contains search machinery.
  *
- * A search turn interleaves the model's tool calls, their results and its own
- * text. Only the text is wanted, and the last block is the finished list — the
- * earlier ones are narration between searches.
+ * Taking the last text block was wrong, and wrong in the way that matters: when
+ * the model exhausts its search allowance mid-turn it writes one more paragraph
+ * explaining that it cannot continue, so the last block is an apology and the
+ * facts are further up. A script was written from that apology — correctly
+ * containing no invented numbers, and also no numbers at all.
+ *
+ * The prompt asks for one fact per line as "- FAKT | QUELLE", so that shape is
+ * what gets extracted, from every text block in the reply. Prose around it is
+ * discarded whatever it says. It is the same lesson the anchor phrases taught:
+ * check the shape of what came back, not merely that something did.
  */
-function lastText(message: Anthropic.Message): string {
-  const texts = message.content
-    .filter((block): block is Anthropic.TextBlock => block.type === "text")
-    .map((block) => block.text.trim())
-    .filter(Boolean);
+const FACT_LINE = /^\s*[-*•]\s*(.+?)\s*\|\s*(.+?)\s*$/;
 
-  return texts.length > 0 ? texts[texts.length - 1] : "";
+function factLines(message: Anthropic.Message): string[] {
+  const lines: string[] = [];
+
+  for (const block of message.content) {
+    if (block.type !== "text") continue;
+    for (const line of block.text.split("\n")) {
+      const match = FACT_LINE.exec(line);
+      if (match && match[1].length > 10) lines.push(`- ${match[1]} | ${match[2]}`);
+    }
+  }
+
+  // The same fact can be restated across resumed turns.
+  return [...new Set(lines)];
 }
 
 /**
