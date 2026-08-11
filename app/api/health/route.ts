@@ -100,16 +100,34 @@ type SnapshotFailure = {
   at?: string;
 };
 
-async function snapshotState(
-  token: string | undefined,
-): Promise<{ present: boolean; note: string }> {
+async function snapshotState(token: string | undefined): Promise<{
+  present: boolean;
+  note: string;
+  snapshotId?: string;
+  fingerprint?: string;
+}> {
   if (!token) {
     return { present: false, note: "Kein Blob-Store — Rendern nicht möglich." };
   }
   const id = process.env.VERCEL_DEPLOYMENT_ID ?? "local";
   try {
-    await head(`snapshot-cache/${id}.json`, { token });
-    return { present: true, note: "Rendern möglich." };
+    const meta = await head(`snapshot-cache/${id}.json`, { token });
+
+    // Which image this deployment renders from, and the fingerprint of the
+    // content it was built for. Two deployments showing the same pair means
+    // the second one reused the first one's snapshot instead of creating a
+    // second copy — the only way to see from outside that a build cost no
+    // storage at all.
+    const pointer = await fetch(`${meta.url}?t=${Date.now()}`)
+      .then((r) => r.json() as Promise<{ snapshotId?: string; fingerprint?: string }>)
+      .catch(() => null);
+
+    return {
+      present: true,
+      note: "Rendern möglich.",
+      snapshotId: pointer?.snapshotId,
+      fingerprint: pointer?.fingerprint,
+    };
   } catch {
     // The build writes its reason next to where the snapshot would have gone,
     // so the answer to "why can't it render" lives here rather than only in a
