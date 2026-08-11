@@ -1,6 +1,7 @@
 import { del, list } from "@vercel/blob";
 import { errorResponse } from "../../../../lib/guardrails";
 import { sweepSandboxes } from "../../../../lib/sandboxes";
+import { pruneSnapshots } from "../../../../lib/snapshots";
 import { resolveBlobToken } from "../../../../lib/store";
 
 export const runtime = "nodejs";
@@ -74,6 +75,15 @@ export async function GET(req: Request) {
       failed: [{ id: "sweep", error: (err as Error).message }],
     }));
 
+    // Snapshots are the other half of that cost, and the more damaging one: a
+    // sandbox stops by itself eventually, a snapshot sits there until deleted.
+    // The build prunes them too, but only when there is a build — and a project
+    // nobody is deploying is exactly the one that quietly fills up. Keeping the
+    // newest spares whatever the live deployment renders from.
+    const snapshots = await pruneSnapshots({ keep: 1 }).catch((err) => ({
+      error: (err as Error).message,
+    }));
+
     return Response.json({
       ok: true,
       maxAgeDays: MAX_AGE_DAYS,
@@ -81,6 +91,7 @@ export async function GET(req: Request) {
       deletedCount: deleted.length,
       deleted: deleted.slice(0, 50),
       sandboxes,
+      snapshots,
     });
   } catch (err) {
     console.error("[/api/cron/cleanup]", err);

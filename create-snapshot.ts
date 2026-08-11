@@ -29,6 +29,18 @@ function blobEnvNames(): string[] {
     .sort();
 }
 
+/**
+ * How long a snapshot lives before Vercel reclaims it.
+ *
+ * A deployment stops being the live one within hours; two weeks is a wide
+ * margin on top of that, and the ceiling on how long an abandoned project can
+ * keep occupying snapshot storage.
+ */
+const SNAPSHOT_TTL_DAYS = Number.parseInt(
+  process.env.SNAPSHOT_TTL_DAYS ?? "14",
+  10,
+);
+
 const snapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
 
@@ -135,6 +147,35 @@ async function main(): Promise<void> {
   const { bundleRemotionProject, ensureSandboxBundleRoot } = await import(
     "./app/api/render/helpers.ts"
   );
+  const { pruneSnapshots } = await import("./lib/snapshots.ts");
+
+  // Before anything else, because the account may have no room left. Snapshots
+  // were being created with no expiry and never deleted, so every deployment
+  // added a permanent multi-gigabyte image until the plan's storage ceiling
+  // refused the next one — taking rendering down with it.
+  //
+  // Nothing is kept, not even the live deployment's. Sparing it sounds kinder
+  // and is the wrong call: two images have to fit at once for that to work, and
+  // it is precisely the "one more will fit" assumption that filled the store in
+  // the first place. The cost is that the currently-live deployment cannot
+  // render for the few minutes this build runs; the alternative is that the new
+  // deployment cannot render at all.
+  try {
+    const before = await pruneSnapshots({ keep: 0 });
+    console.log(
+      `[snapshot] Aufräumen: ${before.inventory.length} vorhanden, ${
+        before.deleted.length
+      } gelöscht, ${Math.round(before.freedBytes / 1e9)} GB frei gemacht` +
+        (before.failed.length
+          ? ` (${before.failed.length} nicht löschbar: ${before.failed[0].error.slice(0, 80)})`
+          : ""),
+    );
+  } catch (err) {
+    // Not fatal on its own: if there is room, the snapshot still succeeds.
+    console.log(
+      `[snapshot] Aufräumen fehlgeschlagen: ${(err as Error).message.slice(0, 200)}`,
+    );
+  }
 
   // Cores are set HERE, not when the snapshot is restored: a restore inherits
   // the snapshot's resources and rejects any attempt to change them. Rendering
@@ -189,7 +230,25 @@ async function main(): Promise<void> {
   await addBundleToSandbox({ sandbox, bundleDir: ".remotion" });
 
   console.log("[snapshot] Snapshot wird gezogen…");
-  const { snapshotId } = await sandbox.snapshot({ expiration: 0 });
+  // Expires on its own. `expiration: 0` — the previous value — means never,
+  // which is how the storage filled up: a deployment from months ago was still
+  // holding its image. Fourteen days is far longer than a deployment stays the
+  // live one, and it means a stretch without deploys cleans up by itself
+  // instead of quietly costing storage.
+  const { snapshotId } = await sandbox.snapshot({
+    expiration: SNAPSHOT_TTL_DAYS * 24 * 60 * 60 * 1000,
+  });
+
+  // Now that the new one exists, the one it replaces has no purpose: this
+  // build's deployment is about to become the live one.
+  try {
+    const after = await pruneSnapshots({ keep: 1, keepIds: [snapshotId] });
+    console.log(
+      `[snapshot] Nach dem Ziehen aufgeräumt: ${after.deleted.length} gelöscht, ${after.kept.length} behalten`,
+    );
+  } catch {
+    // The next build's prune will catch it.
+  }
 
   await put(snapshotBlobKey(), JSON.stringify({ snapshotId }), {
     access: process.env.BLOB_ACCESS === "private" ? "private" : "public",

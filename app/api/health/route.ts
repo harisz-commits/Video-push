@@ -76,8 +76,16 @@ function explainSnapshotFailure(reason: SnapshotFailure): string {
     ? ` Wortlaut der API${reason.status ? ` (HTTP ${reason.status})` : ""}: ${reason.body.slice(0, 400)}`
     : " Die Antwort der API wurde von diesem Build noch nicht mitgeschrieben — der nächste Build hält sie fest.";
 
+  // The specific 402 this project actually hits. Snapshots were created with no
+  // expiry and never deleted, so the plan's snapshot storage filled up and no
+  // further snapshot could be created. Worth naming precisely, because the
+  // generic "payment required" reading sends you to the billing page for a
+  // problem that a cleanup fixes.
+  if (reason.body?.includes("Snapshots Storage")) {
+    return `Der Snapshot-Speicher des Vercel-Tarifs ist voll — deshalb konnte dieser Build keinen neuen Snapshot anlegen, und deshalb geht Rendern nicht. Kein Ausgabenlimit und kein Fehler im Code. Ursache war, dass Snapshots ohne Ablaufdatum angelegt und nie gelöscht wurden, also pro Deployment einer liegen blieb. Ab jetzt räumt jeder Build vor dem Anlegen auf und der neue Snapshot läuft nach 14 Tagen selbst ab; der nächtliche Cron hält es zusätzlich sauber. Falls diese Meldung nach dem nächsten Deployment noch steht, ist der Speicher auch mit einem einzigen Snapshot zu klein — dann hilft nur ein größerer Tarif.${verbatim}`;
+  }
   if (message.includes("402") || reason.status === 402) {
-    return `Der Vercel-Account gibt dem Snapshot-Schritt keine Sandbox: die API antwortet mit 402 (Payment Required). Das ist kein Fehler im Code — Build, Bundle und Deployment sind in Ordnung. 402 heißt nur "der Account zahlt dafür nicht"; welche Grenze das genau ist, sagt der Wortlaut unten. In Frage kommen: das Ausgabenlimit unter Vercel → Settings → Spend Management, ein aufgebrauchtes Sandbox-Kontingent im Tarif, oder eine nicht hinterlegte Zahlungsmethode.${verbatim} Bis dahin laufen Skript und Stimme normal, nur Rendern nicht.`;
+    return `Der Vercel-Account gibt dem Snapshot-Schritt keine Sandbox: die API antwortet mit 402 (Payment Required). Das ist kein Fehler im Code — Build, Bundle und Deployment sind in Ordnung. 402 heißt nur "der Account zahlt dafür nicht"; welche Grenze das genau ist, sagt der Wortlaut unten. In Frage kommen: ein aufgebrauchtes Kontingent im Tarif, das Ausgabenlimit unter Vercel → Settings → Spend Management, oder eine nicht hinterlegte Zahlungsmethode.${verbatim} Bis dahin laufen Skript und Stimme normal, nur Rendern nicht.`;
   }
   if (message.includes("429") || reason.status === 429) {
     return `Der Snapshot-Schritt wurde von der Sandbox-API ausgebremst (429). Ein erneutes Deployment in ein paar Minuten hilft meistens.${verbatim}`;
