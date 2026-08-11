@@ -29,6 +29,14 @@ const MAX_SANDBOX_MINUTES = Number.parseInt(
 
 export type SweepResult = {
   running: number;
+  /** What is actually alive, so a stuck machine can be recognised as stuck. */
+  inventory: {
+    id: string;
+    status: string;
+    ageMinutes: number;
+    vcpus: number;
+    fromSnapshot: boolean;
+  }[];
   stopped: string[];
   failed: { id: string; error: string }[];
 };
@@ -46,7 +54,12 @@ export async function stopSandbox(sandboxId: string): Promise<boolean> {
 }
 
 export async function sweepSandboxes(): Promise<SweepResult> {
-  const result: SweepResult = { running: 0, stopped: [], failed: [] };
+  const result: SweepResult = {
+    running: 0,
+    inventory: [],
+    stopped: [],
+    failed: [],
+  };
   const cutoff = Date.now() - MAX_SANDBOX_MINUTES * 60_000;
 
   // The list call returns the raw response alongside the parsed body; the
@@ -57,6 +70,14 @@ export async function sweepSandboxes(): Promise<SweepResult> {
     result.running += 1;
 
     const startedAt = sandbox.startedAt ?? sandbox.createdAt;
+    result.inventory.push({
+      id: sandbox.id,
+      status: sandbox.status,
+      ageMinutes: Math.round((Date.now() - startedAt) / 60_000),
+      vcpus: sandbox.vcpus,
+      fromSnapshot: Boolean(sandbox.sourceSnapshotId),
+    });
+
     if (startedAt > cutoff) continue;
 
     try {
