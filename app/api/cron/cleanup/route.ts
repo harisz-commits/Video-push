@@ -1,5 +1,6 @@
 import { del, list } from "@vercel/blob";
 import { errorResponse } from "../../../../lib/guardrails";
+import { sweepSandboxes } from "../../../../lib/sandboxes";
 import { resolveBlobToken } from "../../../../lib/store";
 
 export const runtime = "nodejs";
@@ -62,12 +63,24 @@ export async function GET(req: Request) {
       } while (cursor);
     }
 
+    // Storage is the cheap half of this job. The expensive half is virtual
+    // machines: a render leaves its sandbox running on purpose, and when the
+    // browser that started it never comes back to see it finish, nobody stops
+    // it. Enough of those and the account stops granting sandboxes at all —
+    // which breaks deployments too, since the build needs one for its snapshot.
+    const sandboxes = await sweepSandboxes().catch((err) => ({
+      running: -1,
+      stopped: [],
+      failed: [{ id: "sweep", error: (err as Error).message }],
+    }));
+
     return Response.json({
       ok: true,
       maxAgeDays: MAX_AGE_DAYS,
       scanned,
       deletedCount: deleted.length,
       deleted: deleted.slice(0, 50),
+      sandboxes,
     });
   } catch (err) {
     console.error("[/api/cron/cleanup]", err);

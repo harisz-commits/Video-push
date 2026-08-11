@@ -1,5 +1,6 @@
 import { getRenderProgress } from "@remotion/vercel";
 import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
+import { stopSandbox } from "../../../lib/sandboxes";
 import {
   progressPath,
   readJson,
@@ -84,6 +85,9 @@ export async function GET(req: Request) {
           phase: "Video wird hochgeladen",
         } satisfies RenderProgress);
       case "done":
+        // The render is off the machine and in Blob storage; the machine is
+        // now pure cost. Fire and forget — the answer must not wait on it.
+        void stopSandbox(job.sandboxId);
         return Response.json({
           ...base,
           status: "done",
@@ -93,6 +97,7 @@ export async function GET(req: Request) {
           sizeBytes: p.size,
         } satisfies RenderProgress);
       case "error":
+        void stopSandbox(job.sandboxId);
         return Response.json({
           ...base,
           status: "error",
