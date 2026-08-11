@@ -1,3 +1,4 @@
+import { head } from "@vercel/blob";
 import { blobEnvNames, resolveBlobToken } from "../../../lib/store";
 
 export const runtime = "nodejs";
@@ -16,6 +17,8 @@ export const dynamic = "force-dynamic";
  * before the store was attached keeps running without it.
  */
 export async function GET() {
+  const blob = resolveBlobToken();
+
   return Response.json({
     env: {
       ANTHROPIC_API_KEY: Boolean(process.env.ANTHROPIC_API_KEY),
@@ -27,9 +30,16 @@ export async function GET() {
     // Which variable the Blob layer actually resolved, and every Blob-ish name
     // present. Names are not secrets; values are never reported.
     blob: {
-      resolvedFrom: resolveBlobToken()?.name ?? null,
+      resolvedFrom: blob?.name ?? null,
       candidateNames: blobEnvNames(),
     },
+    // Whether THIS deployment has a render snapshot.
+    //
+    // The snapshot step no longer fails the build, which means a deployment can
+    // now be perfectly healthy and still unable to render. That is a better
+    // trade than blocking every unrelated fix behind it, but it has to be
+    // visible somewhere other than the first failed render.
+    snapshot: await snapshotState(blob?.value),
     settings: {
       ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5",
       ANTHROPIC_EFFORT: process.env.ANTHROPIC_EFFORT ?? "low",
@@ -47,4 +57,24 @@ export async function GET() {
     },
     now: new Date().toISOString(),
   });
+}
+
+async function snapshotState(
+  token: string | undefined,
+): Promise<{ present: boolean; note: string }> {
+  if (!token) {
+    return { present: false, note: "Kein Blob-Store — Rendern nicht möglich." };
+  }
+  try {
+    await head(
+      `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`,
+      { token },
+    );
+    return { present: true, note: "Rendern möglich." };
+  } catch {
+    return {
+      present: false,
+      note: "Für dieses Deployment wurde kein Snapshot erzeugt. Die App läuft, aber Rendern schlägt fehl, bis ein Build den Snapshot-Schritt durchbekommt. Build-Log nach \"[snapshot]\" durchsuchen.",
+    };
+  }
 }

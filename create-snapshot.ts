@@ -119,7 +119,36 @@ async function main(): Promise<void> {
   console.log(`[snapshot] Gespeichert: ${snapshotId}`);
 }
 
+/**
+ * A failed snapshot must not fail the deployment.
+ *
+ * The snapshot is a render-time optimisation: it lets a render restore a
+ * sandbox that already has Chromium and the bundle in it, instead of building
+ * one from scratch. Nothing else in the application needs it. But because this
+ * step ran as the second half of the build command, anything that went wrong
+ * inside it — a sandbox the account would not grant, a transient API error —
+ * took the whole deployment down with it, and every fix to every unrelated part
+ * of the app was stuck behind it.
+ *
+ * So it now ends the same way the first-deploy skip does: loudly, and green.
+ * The deployment lands, the app serves, and /api/render says plainly that the
+ * snapshot is missing rather than the user finding a week-old build in
+ * production and no explanation for it.
+ */
 main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+  console.error(
+    [
+      "[snapshot] ============================================================",
+      "[snapshot] FEHLGESCHLAGEN — dieser Build bleibt trotzdem GRÜN.",
+      `[snapshot] Grund: ${(err as Error)?.message ?? err}`,
+      "[snapshot] Die App wird deployed und läuft. Was NICHT geht: rendern,",
+      "[snapshot] bis dieser Schritt einmal durchläuft. /api/render sagt das.",
+      "[snapshot] Häufigste Ursache: es wurde keine Sandbox gewährt, weil zu",
+      "[snapshot] viele laufen. Vercel → Sandboxes prüfen und stoppen; der",
+      "[snapshot] nächtliche Cron räumt sie ab jetzt selbst weg.",
+      "[snapshot] ============================================================",
+    ].join("\n"),
+  );
+  if (err instanceof Error && err.stack) console.error(err.stack);
+  process.exit(0);
 });
