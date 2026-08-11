@@ -62,7 +62,16 @@ VORGABEN:
   belegter Fakten ist besser als eine lange mit erfundenen.
 - Suche gezielt nach: dem konkreten Ausmaß in Zahlen, einem realen
   historischen Ereignis mit Ort und Jahr, und den Grenzen der naheliegenden
-  Lösung.`;
+  Lösung.
+- SUCHBUDGET: Du hast nur eine begrenzte Zahl an Suchen. Geh sparsam damit um
+  und such gezielt statt breit.
+- WENN DIE SUCHEN AUFGEBRAUCHT SIND: Schreib die Liste aus dem, was du bis
+  dahin gefunden hast. Brich NIEMALS ab und entschuldige dich nicht — eine
+  Liste mit fünf belegten Fakten ist genau das, was gebraucht wird. Ein
+  aufgebrauchtes Suchbudget ist kein Fehler, sondern das erwartete Ende der
+  Recherche.
+- Deine Antwort besteht ausschließlich aus Fakt-Zeilen. Kein einleitender
+  Satz, keine Erklärung, keine Entschuldigung, kein Schlusswort.`;
 
 export function buildResearchPrompt(topic: string): string {
   return `Thema: ${topic}

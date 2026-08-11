@@ -236,7 +236,7 @@ export async function writePhase(args: {
  * numbers a script needs, and the deadline below guarantees the step gives up
  * its remaining searches rather than the rest of the pipeline.
  */
-const MAX_SEARCHES = 6;
+const MAX_SEARCHES = 8;
 const MAX_RESUMES = 3;
 /** Hard ceiling on the research phase, well inside the function's own limit. */
 const RESEARCH_BUDGET_MS = 240_000;
