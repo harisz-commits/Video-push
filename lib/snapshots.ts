@@ -38,7 +38,18 @@ const DEFAULT_KEEP = 1;
 export async function snapshotAlive(snapshotId: string): Promise<boolean> {
   try {
     const snapshot = await Snapshot.get({ snapshotId });
-    return snapshot.status === "created";
+    if (snapshot.status !== "created") return false;
+
+    // Status alone is not aliveness. A snapshot past its expiry still lists
+    // itself as "created" and still refuses to boot — the restore comes back
+    // 410, "Snapshot expired or deleted". Believing the status meant a build
+    // would happily reuse a corpse and skip creating the replacement.
+    const expiresAt = snapshot.expiresAt?.getTime();
+    if (expiresAt === undefined) return true;
+
+    // Margin, because the reuse decision is made minutes before the first
+    // render that depends on it.
+    return expiresAt > Date.now() + 60 * 60_000;
   } catch {
     return false;
   }
@@ -51,7 +62,8 @@ export type PruneResult = {
     status: string;
     ageHours: number;
     sizeBytes: number;
-    expires: boolean;
+    /** When the API says it dies — the field that explains a 410 on restore. */
+    expiresAt: string | null;
   }[];
   kept: string[];
   deleted: string[];
@@ -112,9 +124,8 @@ export async function pruneSnapshots({
       status: s.status,
       ageHours: Math.round((Date.now() - s.createdAt) / 3_600_000),
       sizeBytes: s.sizeBytes ?? 0,
-      // Anything created before this fix has no expiry and would otherwise sit
-      // there for good; worth being able to see that at a glance.
-      expires: s.expiresAt !== undefined,
+      expiresAt:
+        s.expiresAt === undefined ? null : new Date(s.expiresAt).toISOString(),
     });
   }
 

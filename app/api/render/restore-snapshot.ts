@@ -1,4 +1,4 @@
-import { get } from "@vercel/blob";
+import { del, get } from "@vercel/blob";
 import { Sandbox } from "@vercel/sandbox";
 import { BLOB_ACCESS, resolveBlobToken } from "../../../lib/store";
 
@@ -16,6 +16,24 @@ const SANDBOX_LIFETIME = 5 * 60 * 1000;
 const getSnapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
 
+/**
+ * Drop the pointers that would make a build reuse an unusable snapshot.
+ *
+ * Both of them: the one naming what this deployment renders from, and the one
+ * keyed by content that lets a later deployment skip creating its own. Leaving
+ * the second would defeat the whole point — the next build would find it,
+ * believe it, and skip the rebuild that is the actual fix.
+ */
+async function forget(fingerprint: string | undefined): Promise<void> {
+  const token = resolveBlobToken()?.value;
+  if (!token) return;
+  const keys = [getSnapshotBlobKey()];
+  if (fingerprint) keys.push(`snapshot-cache/bundle-${fingerprint}.json`);
+  await del(keys, { token }).catch(() => {
+    // Best effort. A failure here costs a redeploy, not correctness.
+  });
+}
+
 export async function restoreSnapshot() {
   const blob = await get(getSnapshotBlobKey(), {
     access: BLOB_ACCESS,
@@ -31,7 +49,8 @@ export async function restoreSnapshot() {
   }
 
   const response = new Response(blob.stream);
-  const cache: { snapshotId: string } = await response.json();
+  const cache: { snapshotId: string; fingerprint?: string } =
+    await response.json();
   const snapshotId = cache.snapshotId;
 
   if (!snapshotId) {
@@ -50,12 +69,16 @@ export async function restoreSnapshot() {
       timeout: SANDBOX_LIFETIME,
     });
   } catch (err) {
-    // Snapshots expire now — they have to, or the storage fills up and no build
-    // can create one at all. The consequence is that a deployment left alone
-    // for weeks outlives the image it renders from, and the raw API error for
-    // that reads like a bug rather than the reminder it actually is.
+    // A snapshot that will not boot must not be handed to the next build as a
+    // reusable one. Builds decide whether to create a snapshot by asking the
+    // API whether the remembered one is alive, and the API cheerfully reports
+    // a dead snapshot as "created" — so without this, a redeploy would reuse
+    // the corpse and the render would keep failing with no way out but
+    // guessing. Forgetting it here is what makes the next deploy a fix.
+    await forget(cache.fingerprint);
+
     throw new Error(
-      "Der Sandbox-Snapshot dieses Deployments existiert nicht mehr. Snapshots laufen nach einigen Wochen ab, damit der Speicher nicht vollläuft — einmal neu deployen erzeugt ihn wieder. "
+      "Der Sandbox-Snapshot dieses Deployments lässt sich nicht mehr starten. Er ist jetzt vergessen — das nächste Deployment erzeugt einen neuen, danach läuft Rendern wieder. "
         + `(${(err as Error).message.slice(0, 160)})`,
     );
   }

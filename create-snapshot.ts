@@ -29,18 +29,6 @@ function blobEnvNames(): string[] {
     .sort();
 }
 
-/**
- * How long a snapshot lives before Vercel reclaims it.
- *
- * A deployment stops being the live one within hours; two weeks is a wide
- * margin on top of that, and the ceiling on how long an abandoned project can
- * keep occupying snapshot storage.
- */
-const SNAPSHOT_TTL_DAYS = Number.parseInt(
-  process.env.SNAPSHOT_TTL_DAYS ?? "14",
-  10,
-);
-
 const snapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
 
@@ -373,14 +361,24 @@ async function main(): Promise<void> {
   await addBundleToSandbox({ sandbox, bundleDir: ".remotion" });
 
   console.log("[snapshot] Snapshot wird gezogen…");
-  // Expires on its own. `expiration: 0` — the previous value — means never,
-  // which is how the storage filled up: a deployment from months ago was still
-  // holding its image. Fourteen days is far longer than a deployment stays the
-  // live one, and it means a stretch without deploys cleans up by itself
-  // instead of quietly costing storage.
-  const { snapshotId } = await sandbox.snapshot({
-    expiration: SNAPSHOT_TTL_DAYS * 24 * 60 * 60 * 1000,
-  });
+  // No expiry, deliberately — deleting is our job, not the platform's.
+  //
+  // A fourteen-day expiry looked like the tidy answer to storage filling up.
+  // It was not the answer to anything: the storage filled up because nothing
+  // ever deleted the old snapshots, and that is now handled by the prune on
+  // both sides of this call. What the expiry did add was a snapshot that died
+  // roughly two hours after it was created — whatever the account actually
+  // grants, it is not what was asked for — and a dead snapshot fails every
+  // render with 410 until someone deploys again.
+  //
+  // Deleting on our own terms is verifiable; an expiry we do not control is
+  // not. Exactly one snapshot exists at a time either way.
+  const { snapshotId, expiresAt } = await sandbox.snapshot({ expiration: 0 });
+  console.log(
+    `[snapshot] Angelegt: ${snapshotId}, Ablauf laut API: ${
+      expiresAt ? expiresAt.toISOString() : "keiner"
+    }`,
+  );
 
   // Now that the new one exists, the one it replaces has no purpose: this
   // build's deployment is about to become the live one.
