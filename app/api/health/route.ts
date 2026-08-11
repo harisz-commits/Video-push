@@ -59,6 +59,24 @@ export async function GET() {
   });
 }
 
+/**
+ * Turn a Sandbox API status code into something actionable.
+ *
+ * "Status code 402 is not ok" is technically accurate and practically useless:
+ * it sends whoever reads it looking for a bug in the build, when the build is
+ * fine and the account simply will not grant a sandbox. The one that cost a
+ * day of looking in the wrong place gets spelled out.
+ */
+function explainSnapshotFailure(message: string): string {
+  if (message.includes("402")) {
+    return "Der Snapshot-Schritt bekommt vom Vercel-Account keine Sandbox: die API antwortet mit 402 (Payment Required). Das ist kein Fehler im Code — Build, Bundle und Deployment sind in Ordnung. Ursache ist ein Ausgabenlimit oder ein aufgebrauchtes Sandbox-Kontingent. Vercel → Settings → Spend Management prüfen, und ob Sandbox im aktuellen Tarif noch Guthaben hat. Bis dahin laufen Skript und Stimme normal, nur Rendern nicht.";
+  }
+  if (message.includes("429")) {
+    return "Der Snapshot-Schritt wurde von der Sandbox-API ausgebremst (429). Ein erneutes Deployment in ein paar Minuten hilft meistens.";
+  }
+  return `Der Snapshot-Schritt ist fehlgeschlagen: ${message.slice(0, 300)}`;
+}
+
 async function snapshotState(
   token: string | undefined,
 ): Promise<{ present: boolean; note: string }> {
@@ -82,7 +100,7 @@ async function snapshotState(
     return {
       present: false,
       note: reason?.message
-        ? `Der Snapshot-Schritt ist fehlgeschlagen: ${reason.message.slice(0, 300)}`
+        ? explainSnapshotFailure(reason.message)
         : "Für dieses Deployment wurde kein Snapshot erzeugt. Die App läuft, aber Rendern schlägt fehl, bis ein Build den Snapshot-Schritt durchbekommt.",
     };
   }
