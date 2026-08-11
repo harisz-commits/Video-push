@@ -47,8 +47,13 @@ export async function stopSandbox(sandboxId: string): Promise<boolean> {
     const sandbox = await Sandbox.get({ sandboxId });
     await sandbox.stop();
     return true;
-  } catch {
-    // Already stopped, already reclaimed, or never existed. All the same to us.
+  } catch (err) {
+    // Already stopped, already reclaimed, or never existed — all the same to
+    // the caller, which is why this returns rather than throws. It is logged
+    // because a stop that quietly fails costs a running machine, and the last
+    // one of those went unnoticed until it was measured from outside.
+    // eslint-disable-next-line no-console
+    console.error(`[sandbox] Stoppen von ${sandboxId} fehlgeschlagen:`, err);
     return false;
   }
 }

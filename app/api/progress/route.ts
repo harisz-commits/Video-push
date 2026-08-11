@@ -1,4 +1,5 @@
 import { getRenderProgress } from "@remotion/vercel";
+import { waitUntil } from "@vercel/functions";
 import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
 import { stopSandbox } from "../../../lib/sandboxes";
 import {
@@ -86,8 +87,16 @@ export async function GET(req: Request) {
         } satisfies RenderProgress);
       case "done":
         // The render is off the machine and in Blob storage; the machine is
-        // now pure cost. Fire and forget — the answer must not wait on it.
-        void stopSandbox(job.sandboxId);
+        // now pure cost.
+        //
+        // This was `void stopSandbox(...)` — fire and forget — and it never
+        // fired: the response returns, the instance is frozen, and the promise
+        // is dropped before the API call goes out. Measured after an
+        // eight-second render, the sandbox was still running four and a half
+        // minutes later and only stopped when its lease ran out. `waitUntil`
+        // is what keeps the instance alive for work that outlives the answer,
+        // and the answer still does not wait on it.
+        waitUntil(stopSandbox(job.sandboxId));
         return Response.json({
           ...base,
           status: "done",
@@ -97,7 +106,7 @@ export async function GET(req: Request) {
           sizeBytes: p.size,
         } satisfies RenderProgress);
       case "error":
-        void stopSandbox(job.sandboxId);
+        waitUntil(stopSandbox(job.sandboxId));
         return Response.json({
           ...base,
           status: "error",
