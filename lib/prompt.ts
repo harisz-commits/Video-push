@@ -73,7 +73,7 @@ Antworte nur mit dem Text.`;
 
 const SCENE_FIELDS = `Jede Szene hat immer:
 - "type": einer von hook, counter, iconGrid, mapFlow, chain, split, chart,
-  pillars, closer, narrator
+  pillars, closer, narrator, stage
 - "anchorPhrase": eine Phrase von drei bis sechs Wörtern, die ZEICHENGENAU so
   im Voiceover vorkommt. Kopiere sie wörtlich heraus, inklusive Groß- und
   Kleinschreibung und Umlauten. Erfinde sie nicht und formuliere sie nicht um.
@@ -104,6 +104,10 @@ Dazu je nach "type" genau diese Felder, vollständig ausgefüllt:
 - pillars:  "pillars": [Text] zwei bis sechs, "unstableIndex": Index,
             "carries": Text auf der Plattform
 - closer:   "statement": der Schlusssatz
+- stage:    "cast": ein bis fünf Figuren, jede {"action": "...", "label": "..."}.
+            "label" ist optional und kurz (ein bis zwei Wörter).
+            Erlaubte actions: stand, walk, run, point, shake, shrug, fall,
+            cheer. Optional "focusIndex": welche Figur die Szene meint.
 - narrator: "action": was die Figur tut — "point" (zeigt auf die Aussage,
             wenn sie etwas behauptet), "shake" (schüttelt den Kopf bei einer
             Verneinung oder einem Irrtum), "shrug" (zuckt mit den Schultern bei
@@ -122,6 +126,13 @@ const SCENE_RULES = `- Wiederhole denselben Typ nicht zweimal hintereinander.
   eine Frage stellt oder eine Meinung zuspitzt — also da, wo kein Diagramm
   hilft, sondern jemand etwas sagt. Ungefähr jede fünfte bis sechste Szene,
   gleichmäßig verteilt, und niemals zwei hintereinander.
+- stage setzt du dort ein, wo der Text nicht mehr ein System beschreibt,
+  sondern was das System mit MENSCHEN macht: jemand steht vor dem leeren
+  Regal, alle rennen gleichzeitig los, einer bleibt liegen, eine Familie
+  wartet. Zeig das Verhalten, nicht die Zahl. "run" für Panik und Ansturm,
+  "fall" für Zusammenbruch, "stand" für Hilflosigkeit, "cheer" für den
+  kurzen Moment, in dem es gut aussieht, "point" wenn jemand auf etwas
+  aufmerksam macht. Ungefähr jede sechste bis achte Szene.
 - Erlaubte Icon-Namen, nichts anderes: ${ICON_NAMES.join(", ")}.`;
 
 /**

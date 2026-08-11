@@ -602,6 +602,21 @@ function validateScenes(
       case "closer":
         need(Boolean(scene.statement), '"statement"');
         break;
+      case "stage":
+        need(
+          Boolean(scene.cast?.length),
+          '"cast" mit ein bis fünf Figuren',
+        );
+        if (
+          scene.cast &&
+          scene.focusIndex != null &&
+          (scene.focusIndex < 0 || scene.focusIndex >= scene.cast.length)
+        ) {
+          problems.push(
+            `Szene ${i + 1} (stage): focusIndex (${scene.focusIndex}) liegt außerhalb der ${scene.cast.length} Figuren.`,
+          );
+        }
+        break;
       default:
         break;
     }

@@ -8,59 +8,9 @@ import { splitLines } from "../shared/text";
 import { C, TYPE } from "../shared/Tokens";
 import { drive } from "../shared/motion";
 import { isSpeaking, visemeAt } from "../shared/visemes";
+import { poseFor } from "../shared/character/poses";
 
 type NarratorScene = Extract<Scene, { type: "narrator" }>;
-
-type Pose = {
-  armLeft: number;
-  armRight: number;
-  headTurn: number;
-  shrug: number;
-};
-
-/**
- * The four things the narrator can do with its body.
- *
- * Rigged rather than animated, in the spirit of the reference: a small set of
- * readable actions the script picks from, not fluid motion. Each one settles
- * into place shortly after the scene opens and then holds, because a pose that
- * keeps moving competes with the mouth for attention.
- */
-function poseFor(
-  action: NonNullable<NarratorScene["action"]>,
-  frame: number,
-  settled: number,
-  idle: number,
-): Pose {
-  switch (action) {
-    case "point":
-      // Toward the headline, which always sits to the figure's right.
-      return {
-        armLeft: idle * 0.4,
-        armRight: idle + (1 - idle) * settled,
-        headTurn: 4 * settled,
-        shrug: 0,
-      };
-    case "shake":
-      // Slow no. Two full swings, then back to centre.
-      return {
-        armLeft: idle,
-        armRight: idle,
-        headTurn: 7 * settled * Math.sin(frame / 7) * Math.exp(-frame / 90),
-        shrug: 0,
-      };
-    case "shrug":
-      return {
-        armLeft: 0.35 + 0.25 * settled,
-        armRight: 0.35 + 0.25 * settled,
-        headTurn: 0,
-        shrug: settled,
-      };
-    case "talk":
-    default:
-      return { armLeft: idle, armRight: idle * 1.15, headTurn: 0, shrug: 0 };
-  }
-}
 
 /** Blink roughly every four seconds, over four frames. */
 const BLINK_PERIOD = 120;
@@ -123,13 +73,12 @@ export const Narrator: React.FC<
         }}
       >
         <Figure
+          {...pose}
           viseme={viseme}
           blink={blink}
           sway={sway}
-          armLeft={pose.armLeft}
-          armRight={pose.armRight}
-          headTurn={pose.headTurn}
-          shrug={pose.shrug}
+          crop="bust"
+          height={520}
           accent={accent}
         />
       </div>

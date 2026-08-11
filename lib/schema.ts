@@ -29,6 +29,26 @@ export const ICON_NAMES = [
 export const IconName = z.enum(ICON_NAMES);
 export type IconName = z.infer<typeof IconName>;
 
+/**
+ * Everything a drawn person can be asked to do.
+ *
+ * One vocabulary for both the narrator and the figures on a stage, because a
+ * figure is a figure — what differs is the shot it stands in, not the rig.
+ */
+export const FIGURE_ACTIONS = [
+  "talk",
+  "point",
+  "shake",
+  "shrug",
+  "stand",
+  "walk",
+  "run",
+  "fall",
+  "cheer",
+] as const;
+export const FigureAction = z.enum(FIGURE_ACTIONS);
+export type FigureAction = z.infer<typeof FigureAction>;
+
 export const Panel = z.object({
   icon: IconName,
   label: z.string(),
@@ -76,7 +96,7 @@ const sceneBase = {
    * from, in the spirit of the reference — readable actions instead of fluid
    * motion nobody can author at this volume.
    */
-  action: z.enum(["talk", "point", "shake", "shrug"]).optional(),
+  action: FigureAction.optional(),
 };
 
 export const Scene = z.discriminatedUnion("type", [
@@ -159,6 +179,21 @@ export const Scene = z.discriminatedUnion("type", [
     // and the text comes from headline and sub like every other scene.
     type: z.literal("narrator"),
   }),
+  z.object({
+    ...sceneBase,
+    type: z.literal("stage"),
+    cast: z
+      .array(
+        z.object({
+          action: FigureAction,
+          label: z.string().optional(),
+        }),
+      )
+      .min(1)
+      .max(5),
+    /** Which figure the shot is about — drawn in the accent, the rest muted. */
+    focusIndex: z.number().int().nonnegative().optional(),
+  }),
 ]);
 export type Scene = z.infer<typeof Scene>;
 export type SceneType = Scene["type"];
@@ -215,6 +250,7 @@ export const DraftScene = z.object({
     "pillars",
     "closer",
     "narrator",
+    "stage",
   ]),
   anchorPhrase: z.string(),
   // Required on purpose: nearly every scene carries an on-screen headline, and
@@ -224,7 +260,12 @@ export const DraftScene = z.object({
   phase: z.enum(["crisis", "solution"]),
   sub: z.string().optional(),
   sfx: z.enum(["money", "danger", "drop", "reveal"]).optional(),
-  action: z.enum(["talk", "point", "shake", "shrug"]).optional(),
+  action: FigureAction.optional(),
+  // stage
+  cast: z
+    .array(z.object({ action: FigureAction, label: z.string().optional() }))
+    .optional(),
+  focusIndex: z.number().int().optional(),
 
   // hook
   kicker: z.string().optional(),
@@ -374,6 +415,15 @@ export function draftSceneToScene(
           : null;
       case "narrator":
         return { ...base, type: "narrator" as const };
+      case "stage":
+        return draft.cast?.length
+          ? {
+              ...base,
+              type: "stage" as const,
+              cast: draft.cast.slice(0, 5),
+              focusIndex: draft.focusIndex,
+            }
+          : null;
       default:
         return null;
     }

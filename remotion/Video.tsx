@@ -14,8 +14,10 @@ import { MapFlow } from "./scenes/MapFlow";
 import { Narrator } from "./scenes/Narrator";
 import { Pillars } from "./scenes/Pillars";
 import { SplitCompare } from "./scenes/SplitCompare";
+import { Stage } from "./scenes/Stage";
 import { ensureFonts } from "./shared/fonts";
 import { ProjectProvider, useProject } from "./shared/ProjectContext";
+import { portalFor, type Portal } from "./shared/portal";
 import { ACCENT, SceneShell } from "./shared/SceneShell";
 import { Cue, SFX_CUE, Soundtrack } from "./shared/Sound";
 import { C } from "./shared/Tokens";
@@ -55,16 +57,35 @@ const Timeline: React.FC = () => {
         turnFrame={turnIndex >= 0 ? timing.scenes[turnIndex].from : -1}
       />
 
-      {timing.scenes.map((scene, i) => (
-        <Sequence
-          key={scene.id}
-          from={scene.from}
-          durationInFrames={scene.durationInFrames}
-          name={`${String(i + 1).padStart(2, "0")} ${scene.type}`}
-        >
-          <SceneFrame scene={scene} index={i} isPhaseTurn={i === turnIndex} />
-        </Sequence>
-      ))}
+      {timing.scenes.map((scene, i) => {
+        // Two consecutive scenes must agree on the object between them: this
+        // one closes into its own portal, the next opens out of the same one.
+        const previous = timing.scenes[i - 1];
+        return (
+          <Sequence
+            key={scene.id}
+            from={scene.from}
+            durationInFrames={scene.durationInFrames}
+            name={`${String(i + 1).padStart(2, "0")} ${scene.type}`}
+          >
+            <SceneFrame
+              scene={scene}
+              index={i}
+              isPhaseTurn={i === turnIndex}
+              exitPortal={portalFor(
+                scene.type,
+                i,
+                ACCENT[scene.phase ?? "crisis"],
+              )}
+              enterPortal={portalFor(
+                previous?.type ?? scene.type,
+                i - 1,
+                ACCENT[previous?.phase ?? scene.phase ?? "crisis"],
+              )}
+            />
+          </Sequence>
+        );
+      })}
     </AbsoluteFill>
   );
 };
@@ -73,7 +94,9 @@ const SceneFrame: React.FC<{
   scene: ResolvedScene;
   index: number;
   isPhaseTurn: boolean;
-}> = ({ scene, index, isPhaseTurn }) => {
+  exitPortal: Portal;
+  enterPortal: Portal;
+}> = ({ scene, index, isPhaseTurn, exitPortal, enterPortal }) => {
   const frame = useCurrentFrame();
   const phase = scene.phase ?? "crisis";
   const accent = ACCENT[phase];
@@ -86,6 +109,8 @@ const SceneFrame: React.FC<{
       phase={phase}
       isPhaseTurn={isPhaseTurn}
       vignette={scene.type === "hook" || scene.type === "closer"}
+      exitPortal={exitPortal}
+      enterPortal={enterPortal}
     >
       {renderScene(scene, frame, scene.from + frame, accent)}
 
@@ -150,6 +175,8 @@ function renderScene(
           accent={accent}
         />
       );
+    case "stage":
+      return <Stage scene={s} frame={frame} accent={accent} />;
     case "closer":
       return (
         <Closer

@@ -1,6 +1,12 @@
 import React from "react";
-import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
+import {
+  AbsoluteFill,
+  interpolate,
+  useCurrentFrame,
+  useVideoConfig,
+} from "remotion";
 import { Caption } from "./Caption";
+import { coveringRadius, type Portal } from "./portal";
 import { useProject } from "./ProjectContext";
 import { C, SAFE, T } from "./Tokens";
 
@@ -18,8 +24,29 @@ export const ACCENT: Record<Phase, string> = {
 };
 
 /** Frames a scene spends arriving and leaving. */
-const ENTER = 9;
-const EXIT = 7;
+const ENTER = 10;
+const EXIT = 10;
+
+/**
+ * How far the camera pushes into the portal object.
+ *
+ * Large enough that the object is the only thing left in frame at the cut, but
+ * no larger: past roughly two and a half the incoming scene spends its whole
+ * reveal showing empty background between its own elements, and the shot only
+ * becomes readable once the push is already over.
+ */
+const PUSH = 2.3;
+
+/**
+ * Where in the transition the fill takes over.
+ *
+ * The screen is solid colour only across the seam itself: the last fifth of
+ * the outgoing scene and the first fifth of the incoming one, which at thirty
+ * frames a second is about four frames of colour. Long enough to read as
+ * passing through the object, short enough that forty-nine of them are not
+ * forty-nine blackouts.
+ */
+const FILL_FROM = 0.62;
 
 /**
  * Background, grid, motion, transitions and the caption layer.
@@ -47,6 +74,10 @@ export const SceneShell: React.FC<{
   isPhaseTurn?: boolean;
   /** Slight radial lift toward the centre — used by Hook and Closer. */
   vignette?: boolean;
+  /** The object this scene is left through. */
+  exitPortal: Portal;
+  /** The object the previous scene was left through, which this one opens out of. */
+  enterPortal: Portal;
   children: React.ReactNode;
 }> = ({
   from,
@@ -55,9 +86,12 @@ export const SceneShell: React.FC<{
   phase = "crisis",
   isPhaseTurn = false,
   vignette,
+  exitPortal,
+  enterPortal,
   children,
 }) => {
   const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
   const { project } = useProject();
 
   const fadeIn = isPhaseTurn
@@ -88,10 +122,24 @@ export const SceneShell: React.FC<{
   const progress = durationInFrames > 0 ? frame / durationInFrames : 0;
   const drift = 1 + towards * 0.045 * progress;
 
-  // Transitions ride on top of the drift: too big on the way in, pulling away
-  // on the way out.
-  const scale = drift * (1 + 0.07 * (1 - enter)) * (1 - 0.035 * exit);
-  const opacity = enter * (1 - exit);
+  // Transitions ride on top of the drift. The scene arrives already deep
+  // inside the previous scene's portal and backs out of it; on the way out it
+  // pushes into its own.
+  const scale = drift * (1 + (PUSH - 1) * (1 - enter)) * (1 + (PUSH - 1) * exit);
+
+  // The origin travels from the portal the scene opened out of to the one it
+  // will close into. Interpolating it rather than switching means there is no
+  // frame at which the whole picture jumps to a new anchor.
+  const originX = interpolate(
+    durationInFrames > 0 ? frame / durationInFrames : 0,
+    [0, 1],
+    [enterPortal.x, exitPortal.x],
+  );
+  const originY = interpolate(
+    durationInFrames > 0 ? frame / durationInFrames : 0,
+    [0, 1],
+    [enterPortal.y, exitPortal.y],
+  );
 
   return (
     <AbsoluteFill style={{ backgroundColor: previousGround }}>
@@ -124,14 +172,32 @@ export const SceneShell: React.FC<{
         style={{
           padding: SAFE,
           transform: `scale(${scale}) translateY(${-3 * Math.sin(frame / 190)}px)`,
-          transformOrigin: "center",
-          opacity,
+          transformOrigin: `${originX}% ${originY}%`,
         }}
       >
         {children}
       </AbsoluteFill>
 
-      <Wipe frame={frame} accent={ACCENT[phase]} direction={towards} />
+      {/* The object itself, closing over the frame and opening out of it. */}
+      <PortalFill
+        portal={enterPortal}
+        // 1 = covering the frame. The incoming scene starts covered.
+        cover={interpolate(enter, [0, 1 - FILL_FROM], [1, 0], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+        })}
+        width={width}
+        height={height}
+      />
+      <PortalFill
+        portal={exitPortal}
+        cover={interpolate(exit, [FILL_FROM, 1], [0, 1], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+        })}
+        width={width}
+        height={height}
+      />
 
       {project.captions ? (
         <Caption absoluteFrame={from + frame} accent={ACCENT[phase]} />
@@ -187,39 +253,35 @@ const BackgroundDrift: React.FC<{ absoluteFrame: number; phase: Phase }> = ({
 };
 
 /**
- * A bar sweeping through the cut.
+ * The portal object, drawn as a disc that grows to swallow the frame.
  *
- * The seam between two scenes is the one moment the eye is guaranteed to be
- * looking for a change, so it gets something deliberate rather than a jump.
+ * Nothing is drawn at all when it is not covering anything, so forty-nine of
+ * these cost nothing for the ninety per cent of each scene that is not a
+ * transition.
  */
-const Wipe: React.FC<{ frame: number; accent: string; direction: number }> = ({
-  frame,
-  accent,
-  direction,
-}) => {
-  const WIPE = 8;
-  if (frame > WIPE) return null;
+const PortalFill: React.FC<{
+  portal: Portal;
+  cover: number;
+  width: number;
+  height: number;
+}> = ({ portal, cover, width, height }) => {
+  if (cover <= 0) return null;
 
-  const p = interpolate(frame, [0, WIPE], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-  // A narrow band with a bright edge, not a broad gradient — a wide soft sweep
-  // reads as a smear across the frame rather than as an edge passing through it.
-  const x = interpolate(p, [0, 1], [direction > 0 ? -20 : 120, direction > 0 ? 120 : -20]);
+  const radius = coveringRadius(portal, width, height) * cover;
 
   return (
     <AbsoluteFill style={{ overflow: "hidden", pointerEvents: "none" }}>
       <div
         style={{
           position: "absolute",
-          inset: 0,
-          left: `${x}%`,
-          width: "16%",
-          background: `linear-gradient(${
-            direction > 0 ? "90deg" : "270deg"
-          }, transparent, ${accent}18 55%, ${accent}99 88%, ${accent})`,
-          opacity: 0.85 * (1 - p ** 2),
+          left: `${portal.x}%`,
+          top: `${portal.y}%`,
+          width: radius * 2,
+          height: radius * 2,
+          marginLeft: -radius,
+          marginTop: -radius,
+          borderRadius: "50%",
+          backgroundColor: portal.color,
         }}
       />
     </AbsoluteFill>
