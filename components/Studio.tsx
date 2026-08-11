@@ -103,6 +103,15 @@ type ProjectSummary = {
   renderUrl?: string;
 };
 
+type ScriptHistoryEntry = {
+  jobId: string;
+  topic: string;
+  title: string;
+  at: number;
+  words: number;
+  scenes: number;
+};
+
 type ProjectRecord = {
   id: string;
   title: string;
@@ -172,6 +181,7 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
   >("idle");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [history, setHistory] = useState<ScriptHistoryEntry[]>([]);
 
   const timing = useMemo(() => resolveSceneTimings(project), [project]);
   const wordCount = useMemo(
@@ -210,9 +220,57 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
     if (result.ok) setProjects(result.data.projects);
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    const result = await getJson<{ scripts: ScriptHistoryEntry[] }>(
+      "/api/script/history",
+    );
+    if (result.ok) setHistory(result.data.scripts);
+  }, []);
+
   useEffect(() => {
     void refreshProjects();
-  }, [refreshProjects]);
+    void refreshHistory();
+  }, [refreshProjects, refreshHistory]);
+
+  /**
+   * Take a past generation and make a project of it.
+   *
+   * The script is fetched from its job document, which still holds the whole
+   * thing, and dropped into the studio as an unsaved project — the autosave
+   * then writes it exactly as if it had just been generated. Nothing is
+   * regenerated and nothing is paid for twice.
+   */
+  const adoptScript = useCallback(
+    async (jobId: string) => {
+      setProjectError(null);
+      const result = await getJson<{ project?: unknown; research?: string }>(
+        `/api/script?jobId=${encodeURIComponent(jobId)}`,
+      );
+      if (!result.ok) {
+        setProjectError(result.error);
+        return;
+      }
+
+      const parsed = VideoProject.safeParse(result.data.project);
+      if (!parsed.success) {
+        setProjectError("Dieses Skript passt nicht mehr zum Schema.");
+        return;
+      }
+
+      // A fresh project, not an overwrite of whatever is open: adopting is an
+      // additive act, and losing the current project to it would be a trap.
+      lastSaved.current = null;
+      setProjectId(null);
+      rememberProject(null);
+      setProject(parsed.data);
+      setTopic(parsed.data.topic);
+      setSelectedSceneId(parsed.data.scenes[0]?.id ?? null);
+      setScriptDone(true);
+      setRender(null);
+      seek(0);
+    },
+    [seek],
+  );
 
   /**
    * What was last written, so the autosave can tell a real change from a
@@ -249,16 +307,30 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
     [project, projectId, refreshProjects],
   );
 
-  // Autosave, debounced. Nothing is written for the seed placeholder: an empty
-  // project saved on every page load would fill the list with rubbish.
+  /**
+   * The demo dataset, as it looks untouched.
+   *
+   * The autosave rule "save anything with a script in it" is nearly right and
+   * wrong about exactly one project: the seed, which arrives with a full
+   * five-thousand-character voiceover and would therefore be saved as a new
+   * project on every single page load. A list filling up with copies of the
+   * demo is not a list anyone can find their own work in.
+   */
+  const seedJson = useMemo(() => JSON.stringify(seed), [seed]);
+
+  // Autosave, debounced.
   useEffect(() => {
-    const worthKeeping = project.voiceover.trim().length > 0;
-    if (!worthKeeping && !projectId) return;
-    if (lastSaved.current === JSON.stringify(project)) return;
+    const payload = JSON.stringify(project);
+    if (lastSaved.current === payload) return;
+    // Once it has an id it is a real project and every edit belongs to it,
+    // including edits that happen to leave it identical to the demo.
+    if (!projectId && (payload === seedJson || !project.voiceover.trim())) {
+      return;
+    }
 
     const id = window.setTimeout(() => void save(), 1200);
     return () => window.clearTimeout(id);
-  }, [project, projectId, save]);
+  }, [project, projectId, save, seedJson]);
 
   const loadProject = useCallback(
     async (id: string) => {
@@ -729,6 +801,51 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
                 Sobald ein Skript da ist, wird es hier automatisch gespeichert.
                 Skript und Ton überleben dann jeden Reload.
               </Note>
+            ) : null}
+
+            {/*
+              Scripts that were generated before projects existed, or in a
+              session that never saved. They are the whole reason someone looks
+              at this panel and finds nothing: the work was done and paid for,
+              and the only thing missing was a way back to it.
+            */}
+            {history.length > 0 ? (
+              <div style={{ marginTop: 14 }}>
+                <div
+                  className="mono"
+                  style={{ fontSize: 11, color: "#5b6672", marginBottom: 6 }}
+                >
+                  Frühere Skripte ({history.length}) — noch kein Projekt
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  {history.map((h) => (
+                    <button
+                      key={h.jobId}
+                      onClick={() => void adoptScript(h.jobId)}
+                      title="Als neues Projekt übernehmen"
+                      style={{
+                        textAlign: "left",
+                        padding: "8px 10px",
+                        border: "1px solid var(--grid)",
+                        background: "transparent",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600 }}>{h.title}</span>
+                      <br />
+                      <span className="mono" style={{ color: "#5b6672" }}>
+                        {h.words} Wörter · {h.scenes} Szenen · {ago(h.at)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <Note tone="info">
+                  Diese Skripte werden 30 Tage nach ihrer Erzeugung gelöscht.
+                  Übernehmen macht ein Projekt daraus, das bleibt.
+                </Note>
+              </div>
             ) : null}
           </Panel>
 

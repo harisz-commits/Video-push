@@ -126,6 +126,71 @@ export async function listProjects(limit = 100): Promise<ProjectSummary[]> {
 }
 
 /**
+ * Scripts that were generated but never became a project.
+ *
+ * Every generation writes a job document holding the finished script, and for
+ * a long time that was the only place a script existed — the studio read it
+ * into React state and the document was left to the thirty-day sweep. So the
+ * work from before projects existed is not lost, it is merely unreachable:
+ * there is no list, and the id was only ever in one browser's localStorage.
+ *
+ * This finds them, so that history can be adopted rather than regenerated.
+ * Jobs that failed or are still running have nothing to adopt and are skipped.
+ */
+export type ScriptHistoryEntry = {
+  jobId: string;
+  topic: string;
+  title: string;
+  at: number;
+  words: number;
+  scenes: number;
+};
+
+export async function listScriptHistory(
+  limit = 100,
+): Promise<ScriptHistoryEntry[]> {
+  const token = resolveBlobToken()?.value;
+  if (!token) return [];
+
+  const page = await list({ prefix: "jobs/script/", limit, token });
+  const jobs = await Promise.all(
+    page.blobs.map((blob) =>
+      fetch(`${blob.url}?ts=${Date.now()}`, { cache: "no-store" })
+        .then((r) => (r.ok ? (r.json() as Promise<ScriptJobShape>) : null))
+        .catch(() => null),
+    ),
+  );
+
+  const entries: ScriptHistoryEntry[] = [];
+  for (const job of jobs) {
+    if (!job || job.status !== "done") continue;
+    const parsed = VideoProject.safeParse(job.project);
+    if (!parsed.success) continue;
+
+    const voiceover = parsed.data.voiceover.trim();
+    entries.push({
+      jobId: job.jobId,
+      topic: job.topic ?? parsed.data.topic,
+      title: parsed.data.title || job.topic || "Ohne Titel",
+      at: job.updatedAt ?? job.startedAt ?? 0,
+      words: voiceover ? voiceover.split(/\s+/).length : 0,
+      scenes: parsed.data.scenes.length,
+    });
+  }
+
+  return entries.sort((a, b) => b.at - a.at);
+}
+
+type ScriptJobShape = {
+  jobId: string;
+  topic?: string;
+  status?: string;
+  project?: unknown;
+  startedAt?: number;
+  updatedAt?: number;
+};
+
+/**
  * Audio files that a saved project still depends on.
  *
  * The nightly cleanup deletes anything under `audio/` older than thirty days,
