@@ -32,6 +32,43 @@ function blobEnvNames(): string[] {
 const snapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
 
+/**
+ * Where a failure is recorded so the running application can report it.
+ *
+ * The reason this step failed used to exist only in a build log, which meant
+ * the deployed app could say "no snapshot" but never why. Writing it next to
+ * where the snapshot would have gone puts the answer somewhere /api/health can
+ * read it, which is the difference between a diagnosis and a guess.
+ */
+const failureBlobKey = () =>
+  `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.error.json`;
+
+async function recordFailure(err: unknown): Promise<void> {
+  const token = findBlobToken();
+  if (!token) return;
+  try {
+    const { put } = await import("@vercel/blob");
+    await put(
+      failureBlobKey(),
+      JSON.stringify({
+        message: (err as Error)?.message ?? String(err),
+        stack: (err as Error)?.stack?.split("\n").slice(0, 12).join("\n"),
+        at: new Date().toISOString(),
+        commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+      }),
+      {
+        access: process.env.BLOB_ACCESS === "private" ? "private" : "public",
+        contentType: "application/json",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        token,
+      },
+    );
+  } catch {
+    // If even this fails, the build log is all there is. Do not make it worse.
+  }
+}
+
 async function main(): Promise<void> {
   const blobToken = findBlobToken();
   if (!blobToken) {
@@ -135,7 +172,8 @@ async function main(): Promise<void> {
  * snapshot is missing rather than the user finding a week-old build in
  * production and no explanation for it.
  */
-main().catch((err) => {
+main().catch(async (err) => {
+  await recordFailure(err);
   console.error(
     [
       "[snapshot] ============================================================",

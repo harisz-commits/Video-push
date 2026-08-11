@@ -65,16 +65,25 @@ async function snapshotState(
   if (!token) {
     return { present: false, note: "Kein Blob-Store — Rendern nicht möglich." };
   }
+  const id = process.env.VERCEL_DEPLOYMENT_ID ?? "local";
   try {
-    await head(
-      `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`,
-      { token },
-    );
+    await head(`snapshot-cache/${id}.json`, { token });
     return { present: true, note: "Rendern möglich." };
   } catch {
+    // The build writes its reason next to where the snapshot would have gone,
+    // so the answer to "why can't it render" lives here rather than only in a
+    // build log nobody can reach from the running app.
+    const reason = await fetch(
+      `${(await head(`snapshot-cache/${id}.error.json`, { token })).url}?t=${Date.now()}`,
+    )
+      .then((r) => r.json() as Promise<{ message?: string; at?: string }>)
+      .catch(() => null);
+
     return {
       present: false,
-      note: "Für dieses Deployment wurde kein Snapshot erzeugt. Die App läuft, aber Rendern schlägt fehl, bis ein Build den Snapshot-Schritt durchbekommt. Build-Log nach \"[snapshot]\" durchsuchen.",
+      note: reason?.message
+        ? `Der Snapshot-Schritt ist fehlgeschlagen: ${reason.message.slice(0, 300)}`
+        : "Für dieses Deployment wurde kein Snapshot erzeugt. Die App läuft, aber Rendern schlägt fehl, bis ein Build den Snapshot-Schritt durchbekommt.",
     };
   }
 }
