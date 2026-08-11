@@ -19,11 +19,18 @@ import { Sandbox } from "@vercel/sandbox";
 /**
  * How long a sandbox may run before the sweep takes it.
  *
- * Comfortably longer than a full five-minute video takes to render, so an
- * in-flight job is never killed by the cleanup that exists to protect it.
+ * Was forty-five minutes, on the assumption that a sandbox stops itself when
+ * its lease runs out and the sweep only ever has to catch strays. It does not:
+ * one left over from a render was measured still running thirty minutes after
+ * a five-minute lease, and it would have kept going. Nothing stops a sandbox
+ * except being stopped.
+ *
+ * A restored snapshot cannot be granted more than five minutes of lifetime
+ * (see restore-snapshot.ts), so no render can legitimately need a machine for
+ * ten. Anything older than that is abandoned by definition.
  */
 const MAX_SANDBOX_MINUTES = Number.parseInt(
-  process.env.SANDBOX_MAX_MINUTES ?? "45",
+  process.env.SANDBOX_MAX_MINUTES ?? "10",
   10,
 );
 

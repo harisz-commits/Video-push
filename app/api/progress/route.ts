@@ -121,6 +121,12 @@ export async function GET(req: Request) {
         // outlived the sandbox there is nothing left to wait for.
         const stage = (p as { stage?: string }).stage ?? "unbekannt";
         if (expired(job)) {
+          // This branch used to report the render as lost and leave the
+          // machine alone, on the belief that an expired lease had already
+          // taken it. It had not — sandboxes outlive their lease indefinitely
+          // when nothing stops them. Giving up on the render and giving up on
+          // the machine have to happen together.
+          waitUntil(stopSandbox(job.sandboxId));
           return Response.json({
             ...base,
             status: "error",
@@ -143,22 +149,30 @@ export async function GET(req: Request) {
     }
   } catch (err) {
     // A sandbox that has expired or been reclaimed cannot be asked any more.
-    // Saying so beats leaving the studio to spin.
+    // Saying so beats leaving the studio to spin — and if it is in fact still
+    // running, unreachable is still finished as far as this render goes.
     // eslint-disable-next-line no-console
     console.error("[/api/progress]", err);
+    waitUntil(stopSandbox(job.sandboxId));
     return Response.json({
       ...base,
       status: "error",
       progress: 0,
       phase: "Abgebrochen",
       error: expired(job)
-        ? `Die Sandbox lief nach ${Math.round(job.lifetimeMs / 60000)} Minuten ab, bevor das Video fertig war. Das ist die Obergrenze, die dieser Vercel-Account für eine Sandbox erlaubt — ein Video dieser Länge passt nicht hinein. Kürzeres Skript oder ein Render-Host ohne dieses Limit.`
+        ? `Der Render hat die ${Math.round(job.lifetimeMs / 60000)} Minuten überschritten, die eine wiederhergestellte Sandbox laufen darf, und ist abgebrochen worden. Diese Grenze lässt sich nicht verlängern — ein Video dieser Länge passt nicht hinein. Kürzeres Skript oder ein Render-Host ohne dieses Limit.`
         : "Der Render ist nicht mehr erreichbar. Die Sandbox wurde beendet, bevor das Video fertig war. Starte den Render erneut.",
     } satisfies RenderProgress);
   }
 }
 
-/** True once the sandbox has certainly outlived its granted lifetime. */
+/**
+ * True once the render has outlived the lifetime its sandbox was granted.
+ *
+ * Note what this does *not* say: that the sandbox has stopped. It has not —
+ * a sandbox runs until something stops it, lease or no lease. This only means
+ * the render can no longer be expected to finish.
+ */
 function expired(job: RenderJob): boolean {
   return Date.now() - job.startedAt > job.lifetimeMs;
 }
