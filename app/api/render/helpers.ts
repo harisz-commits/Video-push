@@ -1,6 +1,4 @@
 import { execSync } from "child_process";
-import { readdirSync, statSync, unlinkSync } from "fs";
-import { join } from "path";
 
 /**
  * Bundles the Remotion project for the sandbox.
@@ -18,49 +16,6 @@ export function bundleRemotionProject(bundleDir: string): void {
   } catch (e) {
     const stderr = (e as { stderr?: Buffer }).stderr?.toString() ?? "";
     throw new Error(`Remotion bundle failed: ${stderr}`);
-  }
-
-  stripSourceMaps(bundleDir);
-}
-
-/**
- * Delete the source maps before the bundle is shipped to a sandbox.
- *
- * They are over half the bundle by weight — twelve megabytes of the
- * twenty-three — and they are uploaded in a single request together with
- * everything else. Nothing in a headless render sandbox will ever open a
- * source map: there is no debugger attached and no stack trace anybody reads.
- * The `sourceMappingURL` comments left behind in the JavaScript are harmless;
- * a missing map is simply not fetched.
- */
-function stripSourceMaps(bundleDir: string): void {
-  let removed = 0;
-  let bytes = 0;
-
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.name.endsWith(".map")) {
-        bytes += statSync(full).size;
-        unlinkSync(full);
-        removed += 1;
-      }
-    }
-  };
-
-  try {
-    walk(bundleDir);
-  } catch {
-    // A bundle without maps is the goal, not a requirement.
-    return;
-  }
-
-  if (removed > 0) {
-    console.log(
-      `[bundle] ${removed} Source-Maps entfernt (${(bytes / 1e6).toFixed(1)} MB weniger Upload)`,
-    );
   }
 }
 
