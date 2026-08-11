@@ -186,6 +186,14 @@ export type ScriptJob = {
    * problem as an invented one.
    */
   research?: string;
+  /**
+   * Authorises the handover from the research phase to the writing one.
+   *
+   * Minted when the job is created and never sent to a client — the poller
+   * strips it. Without it, /api/script/continue would let anyone re-run the
+   * expensive half of a job that is not theirs.
+   */
+  continueToken?: string;
   error?: string;
   startedAt: number;
   updatedAt: number;
