@@ -22,6 +22,15 @@ type ScriptJobState = {
 const JOB_KEY = "infographics-studio.scriptJob";
 /** Which project this browser had open, so a reload comes back to it. */
 const PROJECT_KEY = "infographics-studio.projectId";
+/** Same idea for a synthesis in flight: it outlives the tab that started it. */
+const VOICE_KEY = "infographics-studio.voiceJob";
+
+type VoiceJobState = {
+  status: "running" | "done" | "error";
+  audioUrl?: string;
+  alignment?: NonNullable<VideoProject["alignment"]>;
+  error?: string;
+};
 const rememberJob = (id: string) => {
   try {
     window.localStorage.setItem(JOB_KEY, id);
@@ -39,6 +48,28 @@ const recallJob = (): string | null => {
 const forgetJob = () => {
   try {
     window.localStorage.removeItem(JOB_KEY);
+  } catch {
+    // Nothing to clean up if storage is unavailable.
+  }
+};
+
+const rememberVoiceJob = (id: string) => {
+  try {
+    window.localStorage.setItem(VOICE_KEY, id);
+  } catch {
+    // Polling still works for this session; only the reload path is lost.
+  }
+};
+const recallVoiceJob = (): string | null => {
+  try {
+    return window.localStorage.getItem(VOICE_KEY);
+  } catch {
+    return null;
+  }
+};
+const forgetVoiceJob = () => {
+  try {
+    window.localStorage.removeItem(VOICE_KEY);
   } catch {
     // Nothing to clean up if storage is unavailable.
   }
@@ -120,6 +151,7 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
 
   const [scriptBusy, setScriptBusy] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceJobId, setVoiceJobId] = useState<string | null>(null);
   const [scriptError, setScriptError] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [scriptDone, setScriptDone] = useState(false);
@@ -424,33 +456,94 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
   }, []);
 
   // ---- 03 Stimme ----------------------------------------------------------
+  //
+  // Started, then polled — the same shape as script generation, and for the
+  // same reason. Holding one request open for the whole synthesis meant the
+  // browser aborted it as soon as the tab went to the background, and an
+  // aborted request looks exactly like an unreachable server from here. The
+  // characters were spent at ElevenLabs regardless; only the answer was lost.
   async function generateVoice() {
     setVoiceBusy(true);
     setVoiceError(null);
-    try {
-      const result = await postJson<{
-        audioUrl: string;
-        alignment: NonNullable<VideoProject["alignment"]>;
-      }>("/api/voice", {
-        projectId: project.id,
-        voiceover: project.voiceover,
-        voiceId: voiceId || undefined,
-      });
+
+    const result = await postJson<{ jobId: string }>("/api/voice", {
+      projectId: project.id,
+      voiceover: project.voiceover,
+      voiceId: voiceId || undefined,
+    });
+    if (!result.ok) {
+      setVoiceError(result.error);
+      setVoiceBusy(false);
+      return;
+    }
+
+    rememberVoiceJob(result.data.jobId);
+    setVoiceJobId(result.data.jobId);
+  }
+
+  const applyVoiceJob = useCallback(
+    (job: VoiceJobState) => {
+      if (job.status === "running") return;
+
+      if (job.status === "done" && job.audioUrl && job.alignment) {
+        setProject((p) => ({
+          ...p,
+          audioUrl: job.audioUrl,
+          alignment: job.alignment,
+        }));
+        setRender(null);
+        seek(0);
+      } else {
+        setVoiceError(job.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
+      }
+
+      forgetVoiceJob();
+      setVoiceJobId(null);
+      setVoiceBusy(false);
+    },
+    [seek],
+  );
+
+  useEffect(() => {
+    if (!voiceJobId) return;
+    setVoiceBusy(true);
+
+    let cancelled = false;
+    const tick = async () => {
+      const result = await getJson<VoiceJobState>(
+        `/api/voice?jobId=${encodeURIComponent(voiceJobId)}`,
+      );
+      if (cancelled) return;
+
       if (!result.ok) {
-        setVoiceError(result.error);
+        // Only a job the server has forgotten is worth giving up on; anything
+        // else is likely a dropped poll, and the next tick costs nothing.
+        if (result.error.includes("keine Sprachausgabe")) {
+          setVoiceError(
+            "Die Sprachausgabe ist nicht mehr auffindbar. Starte sie neu.",
+          );
+          forgetVoiceJob();
+          setVoiceJobId(null);
+          setVoiceBusy(false);
+        }
         return;
       }
-      setProject((p) => ({
-        ...p,
-        audioUrl: result.data.audioUrl,
-        alignment: result.data.alignment,
-      }));
-      setRender(null);
-      seek(0);
-    } finally {
-      setVoiceBusy(false);
-    }
-  }
+      applyVoiceJob(result.data);
+    };
+
+    void tick();
+    const id = window.setInterval(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [voiceJobId, applyVoiceJob]);
+
+  // A synthesis that was running when the tab was closed is still running.
+  useEffect(() => {
+    const stored = recallVoiceJob();
+    if (stored) setVoiceJobId(stored);
+  }, []);
 
   // ---- 04 Rendern ---------------------------------------------------------
   async function startRender() {
@@ -752,6 +845,12 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
                   : "Generieren"}
             </Button>
             {voiceError ? <Note tone="alert">{voiceError}</Note> : null}
+            {voiceBusy ? (
+              <Note tone="info">
+                Läuft auf dem Server. Du kannst den Tab wechseln oder schließen —
+                beim Zurückkommen ist die Stimme da.
+              </Note>
+            ) : null}
             {hasAudio && !voiceError ? (
               <Note tone="live">
                 Tonspur liegt vor — alle Szenenzeiten stammen jetzt aus den

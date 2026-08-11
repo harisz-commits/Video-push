@@ -27,13 +27,8 @@ export async function postJson<T>(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-  } catch {
-    // Only a genuine transport failure reaches this branch.
-    return {
-      ok: false,
-      error:
-        "Keine Verbindung zum Server. Prüfe deine Internetverbindung und versuch es erneut.",
-    };
+  } catch (err) {
+    return { ok: false, error: transportError(err) };
   }
 
   return interpret<T>(response, path);
@@ -43,10 +38,30 @@ export async function getJson<T>(path: string): Promise<ApiResult<T>> {
   let response: Response;
   try {
     response = await fetch(path);
-  } catch {
-    return { ok: false, error: "Keine Verbindung zum Server." };
+  } catch (err) {
+    return { ok: false, error: transportError(err) };
   }
   return interpret<T>(response, path);
+}
+
+/**
+ * Tell a dead network apart from a request the browser itself killed.
+ *
+ * They arrive as the same rejected fetch, and calling both "no connection to
+ * the server" sent people to check their wifi over a request that was
+ * cancelled locally — which is what happens when a tab goes to the background
+ * while something is in flight. Naming it is the difference between a
+ * misleading instruction and an accurate one.
+ */
+function transportError(err: unknown): string {
+  const name = (err as { name?: string } | null)?.name;
+  if (name === "AbortError") {
+    return "Die Anfrage wurde vom Browser abgebrochen — das passiert, wenn der Tab in den Hintergrund geht. Der Server arbeitet weiter; komm zurück und lade die Seite neu.";
+  }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return "Keine Internetverbindung. Sobald du wieder online bist, versuch es erneut.";
+  }
+  return "Keine Verbindung zum Server. Prüfe deine Internetverbindung und versuch es erneut.";
 }
 
 async function interpret<T>(

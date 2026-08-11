@@ -200,3 +200,30 @@ export type ScriptJob = {
 };
 
 export const scriptJobPath = (jobId: string) => `jobs/script/${jobId}.json`;
+
+/**
+ * A voiceover being synthesised, for the same reason a script is.
+ *
+ * Synthesis is not slow enough to need a job for its own sake — it is the
+ * browser that makes one necessary. A request held open across a tab going to
+ * the background gets aborted by the browser, and the studio then reports "no
+ * connection to the server" for a server that is working perfectly. Worse, the
+ * work had already been paid for at ElevenLabs by then and there was no way
+ * back to it.
+ *
+ * Starting the work and asking after it are two short requests, and neither
+ * cares whether the tab is in front.
+ */
+export type VoiceJob = {
+  jobId: string;
+  projectId: string;
+  status: "running" | "done" | "error";
+  audioUrl?: string;
+  alignment?: unknown;
+  characterCount?: number;
+  error?: string;
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const voiceJobPath = (jobId: string) => `jobs/voice/${jobId}.json`;
