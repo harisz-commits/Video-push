@@ -106,7 +106,14 @@ export function summarize(record: ProjectRecord): ProjectSummary {
       p.kind === "quiz"
         ? Boolean(p.audioUrl)
         : Boolean(p.audioUrl && p.alignment),
-    renderUrl: record.lastRender?.outputUrl,
+    // Either source counts. `lastRender` is what the browser used to write
+    // when it happened to be watching; `renders` is what the server files
+    // regardless. Reading only the first is how a project with a perfectly
+    // good video reported having none.
+    renderUrl:
+      [...(record.renders ?? [])]
+        .filter((r) => r.outputUrl)
+        .sort((a, b) => b.at - a.at)[0]?.outputUrl ?? record.lastRender?.outputUrl,
     pendingRenders: (record.renders ?? []).filter((r) => !r.outputUrl).length,
   };
 }
