@@ -531,7 +531,24 @@ function quizBed(opts: { root: number; bpm: number; bright: number }): Buf {
     }
   }
 
-  return normalize(loopSeam(out, extra, BED_RATE), 0.5);
+  // A sustained chord under all of it.
+  //
+  // Without this the bed is nothing but plucks and gaps: it peaked fine and
+  // measured an RMS of 0.05, which is why it disappeared under everything the
+  // moment it was mixed in. Continuous energy is what makes music sit *under*
+  // a video rather than poke through it, and it is the difference between a
+  // loop you notice and a loop you feel.
+  for (const mult of [1, 1.5, 2]) {
+    let phase = 0;
+    for (let i = 0; i < n; i++) {
+      phase += (2 * Math.PI * opts.root * mult) / BED_RATE;
+      // Slow tremolo so the pad breathes instead of sitting there as a drone.
+      const breath = 0.85 + 0.15 * Math.sin((2 * Math.PI * i) / (BED_RATE * 1.7));
+      out[i] += Math.sin(phase) * 0.13 * breath * (mult === 1 ? 1 : 0.6);
+    }
+  }
+
+  return normalize(loopSeam(out, extra, BED_RATE), 0.8);
 }
 
 // ---------------------------------------------------------------------------

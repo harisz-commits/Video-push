@@ -18,11 +18,12 @@ const LEVEL = {
   /**
    * The music.
    *
-   * Doubled from where the infographics bed sat, which was measured at an RMS
-   * an order of magnitude under the voice and reported — correctly — as "far
-   * too quiet to sound like anything".
+   * Higher than the infographics bed's 0.26, and it should be: this format has
+   * no narration for the music to stay out of the way of, and a gameshow bed
+   * that stays out of the way is not doing its job. Set against measurement —
+   * the mix is checked after rendering rather than guessed at.
    */
-  bed: 0.26,
+  bed: 0.45,
   tick: 0.34,
   tickUrgent: 0.5,
   ding: 0.62,
@@ -117,7 +118,13 @@ const SlotSound: React.FC<{
   slot: QuizTiming["slots"][number];
   fps: number;
 }> = ({ slot, fps }) => {
-  const bodyFrom = slot.levelCardFrames;
+  // Every offset below is added to the slot's own start. It was not, and the
+  // result was not subtle: slot-relative frames mounted at the composition
+  // root fired every tick and every ding of all twelve questions inside the
+  // first ten seconds, after which the video ran two minutes on music alone.
+  // Measured before it could be heard — seconds 5 to 9 carried four times the
+  // energy of everything after them.
+  const bodyFrom = slot.from + slot.levelCardFrames;
   const thinkFrom = bodyFrom + slot.enterFrames;
   const revealAt = thinkFrom + slot.thinkFrames;
   const thinkSeconds = slot.thinkFrames / fps;
@@ -152,7 +159,7 @@ const SlotSound: React.FC<{
 
       {/* The wipe into the next question. */}
       <One
-        at={slot.durationInFrames - slot.exitFrames}
+        at={slot.from + slot.durationInFrames - slot.exitFrames}
         file="q-whoosh"
         volume={LEVEL.whoosh}
       />
