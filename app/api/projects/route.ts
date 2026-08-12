@@ -8,7 +8,7 @@ import {
   summarize,
   type ProjectRecord,
 } from "../../../lib/projects";
-import { VideoProject } from "../../../lib/schema";
+import { AnyProject } from "../../../lib/formats";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     return errorResponse("Ungültige Anfrage.", 400);
   }
 
-  const parsed = VideoProject.safeParse(body.project);
+  const parsed = AnyProject.safeParse(body.project);
   if (!parsed.success) {
     return errorResponse(
       "Das Projekt hat nicht die erwartete Form und wurde nicht gespeichert.",

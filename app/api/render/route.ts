@@ -1,8 +1,11 @@
 import { renderMediaOnVercel } from "@remotion/vercel";
-import { resolveSceneTimings } from "../../../lib/align";
-import { COMP_NAME } from "../../../lib/constants";
 import { errorResponse, guard } from "../../../lib/guardrails";
-import { RenderRequest, type VideoProject } from "../../../lib/schema";
+import {
+  AnyProject,
+  compositionFor,
+  renderBlockedReason,
+  totalFramesOf,
+} from "../../../lib/formats";
 import {
   BLOB_ACCESS,
   progressPath,
@@ -30,30 +33,30 @@ export async function POST(req: Request) {
     );
   }
 
-  let project: VideoProject;
+  let project: AnyProject;
   try {
-    project = RenderRequest.parse(await req.json()).project;
+    const body = (await req.json()) as { project?: unknown };
+    project = AnyProject.parse(body.project);
   } catch {
     return errorResponse(
-      "Ungültiges Projekt. Erwartet wird { project: VideoProject }.",
+      "Ungültiges Projekt. Erwartet wird ein Infographics- oder Quiz-Projekt.",
       400,
     );
   }
 
-  // Rendering without audio would produce a silent video on an estimated
-  // timeline — never what anyone wants, and the most expensive way to find out.
-  if (!project.audioUrl || !project.alignment) {
-    return errorResponse(
-      "Für diesen Render fehlt das Voiceover. Erzeuge zuerst die Stimme — die Szenenzeiten kommen aus den Timestamps.",
-      400,
-    );
-  }
+  // What blocks a render differs by format, and only the format knows: an
+  // infographics film without audio renders silently on guessed timings, which
+  // is the most expensive way to discover a missing voiceover. A quiz has no
+  // such dependency — its clock is not the voice — so it is renderable as soon
+  // as it has questions.
+  const blocked = renderBlockedReason(project);
+  if (blocked) return errorResponse(blocked, 400);
 
   const allowed = await guard(req, "render", 2);
   if (!allowed.ok) return errorResponse(allowed.error, allowed.status);
 
   const renderId = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const timing = resolveSceneTimings(project);
+  const totalFrames = totalFramesOf(project);
 
   try {
     const { sandbox, lifetimeMs } = await restoreSnapshot();
@@ -64,7 +67,7 @@ export async function POST(req: Request) {
     const { sandboxId, cmdId } = await renderMediaOnVercel({
       sandbox,
       detached: true,
-      compositionId: COMP_NAME,
+      compositionId: compositionFor(project),
       inputProps: { project },
       vercelBlob: {
         blobToken: blob.value,
@@ -77,7 +80,7 @@ export async function POST(req: Request) {
       renderId,
       sandboxId,
       cmdId,
-      totalFrames: timing.totalFrames,
+      totalFrames,
       startedAt: Date.now(),
       lifetimeMs,
     };
@@ -85,8 +88,8 @@ export async function POST(req: Request) {
 
     return Response.json({
       renderId,
-      totalFrames: timing.totalFrames,
-      durationSeconds: timing.totalFrames / project.fps,
+      totalFrames,
+      durationSeconds: totalFrames / project.fps,
     });
   } catch (err) {
     // eslint-disable-next-line no-console

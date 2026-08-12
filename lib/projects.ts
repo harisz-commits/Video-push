@@ -1,4 +1,5 @@
 import { del, list } from "@vercel/blob";
+import { AnyProject, describeProject, formatOf } from "./formats";
 import { VideoProject } from "./schema";
 import { readJson, resolveBlobToken, writeJson } from "./store";
 
@@ -29,7 +30,7 @@ export type ProjectRecord = {
   createdAt: number;
   updatedAt: number;
   /** Everything the player and the renderer need, exactly as they take it. */
-  project: VideoProject;
+  project: AnyProject;
   /**
    * The facts the script was written from, verbatim.
    *
@@ -47,10 +48,12 @@ export type ProjectSummary = {
   id: string;
   title: string;
   topic: string;
+  /** Which renderer it belongs to, so the list can be read at a glance. */
+  format: "infographics" | "quiz";
   createdAt: number;
   updatedAt: number;
-  words: number;
-  scenes: number;
+  /** Format-specific one-liner: words and scenes, or a question count. */
+  detail: string;
   hasScript: boolean;
   hasAudio: boolean;
   renderUrl?: string;
@@ -67,20 +70,26 @@ export function newProjectId(): string {
 }
 
 export function summarize(record: ProjectRecord): ProjectSummary {
-  const voiceover = record.project.voiceover ?? "";
+  const p = record.project;
   return {
     id: record.id,
     title: record.title,
-    topic: record.project.topic,
+    topic: p.topic,
+    format: formatOf(p),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
-    words: voiceover.trim() ? voiceover.trim().split(/\s+/).length : 0,
-    scenes: record.project.scenes.length,
-    // "Has a script" is not "has a project" — a project starts as an empty
-    // shell the moment a topic is typed, and saying it has a script when it
+    detail: describeProject(p),
+    // "Has content" is not "has a project" — a project starts as an empty
+    // shell the moment a topic is typed, and saying it holds a script when it
     // holds the seed placeholder would be a lie the list repeats every row.
-    hasScript: voiceover.trim().length > 0,
-    hasAudio: Boolean(record.project.audioUrl && record.project.alignment),
+    hasScript:
+      p.kind === "quiz"
+        ? p.questions.length > 0
+        : p.voiceover.trim().length > 0,
+    hasAudio:
+      p.kind === "quiz"
+        ? Boolean(p.audioUrl)
+        : Boolean(p.audioUrl && p.alignment),
     renderUrl: record.lastRender?.outputUrl,
   };
 }

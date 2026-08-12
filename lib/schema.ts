@@ -206,6 +206,15 @@ export const Alignment = z.object({
 export type Alignment = z.infer<typeof Alignment>;
 
 export const VideoProject = z.object({
+  /**
+   * Which renderer this belongs to.
+   *
+   * Defaulted rather than required, because every project saved before the
+   * quiz format existed has no such field and must keep loading. Reading it is
+   * how the render route, the store and the studio tell the two formats apart
+   * without guessing from the shape.
+   */
+  kind: z.literal("infographics").default("infographics"),
   id: z.string(),
   topic: z.string(),
   title: z.string(),
