@@ -227,3 +227,17 @@ export type VoiceJob = {
 };
 
 export const voiceJobPath = (jobId: string) => `jobs/voice/${jobId}.json`;
+
+/** A quiz being written. Same background-job shape as the other two. */
+export type QuizJob = {
+  jobId: string;
+  topic: string;
+  status: "running" | "done" | "error";
+  step?: string;
+  project?: unknown;
+  error?: string;
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const quizJobPath = (jobId: string) => `jobs/quiz/${jobId}.json`;

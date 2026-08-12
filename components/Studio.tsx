@@ -139,7 +139,7 @@ function stageOf(p: ProjectSummary): string {
 }
 import { SceneInspector } from "./SceneInspector";
 import { Timeline } from "./Timeline";
-import { Button, Field, formatTimecode, Note, Panel } from "./ui";
+import { Button, Field, Note, Panel } from "./ui";
 
 type RenderState = {
   renderId: string;
@@ -712,26 +712,10 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
       ? "Es läuft bereits ein Render."
       : null;
 
+  // The outer frame and the format switch belong to StudioShell now; this
+  // component draws one format and nothing about the choice between them.
   return (
-    <div className="studio">
-      <header
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          gap: 14,
-          padding: "14px 20px",
-          borderBottom: "1px solid var(--grid)",
-        }}
-      >
-        <span className="display" style={{ fontSize: 15 }}>
-          Infographics Studio
-        </span>
-        <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
-          {project.width}×{project.height} · {project.fps} fps ·{" "}
-          {formatTimecode(timing.totalFrames / project.fps)}
-        </span>
-      </header>
-
+    <>
       <div className="studio-grid">
         {/* ---------------- Left rail ---------------- */}
         <div className="studio-rail">
@@ -1112,6 +1096,6 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
         onSeek={seek}
         onSelectScene={setSelectedSceneId}
       />
-    </div>
+    </>
   );
 };
