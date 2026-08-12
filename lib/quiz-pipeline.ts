@@ -141,17 +141,29 @@ async function writeQuestions(args: {
 
   for (let attempt = 0; attempt < 3; attempt++) {
     await args.onAttempt?.(attempt);
-    const message = await args.client.messages.create({
-      model: MODEL,
-      // Scaled with the request, and generous. Thinking tokens count against
-      // this ceiling too, so a fixed 8000 was fine for twelve questions and
-      // uncomfortably close for thirty — and a reply cut off at the ceiling
-      // costs the whole batch, not part of it.
-      max_tokens: Math.min(32000, 6000 + args.count * 700),
-      output_config: { effort: EFFORT },
-      system: QUIZ_SYSTEM_PROMPT,
-      messages,
-    });
+    // Streamed, and not by preference: above roughly twenty thousand
+    // max_tokens the SDK refuses a plain request outright, because one that
+    // large could in principle run past ten minutes. Raising the ceiling
+    // without switching to streaming traded a truncated reply for an instant
+    // "Streaming is required" — a worse failure, since it arrives before any
+    // work has been done at all.
+    //
+    // Nothing here consumes the stream as it arrives; `finalMessage()` waits
+    // for the whole thing. The streaming is what makes the request legal, not
+    // what makes it useful.
+    const message = await args.client.messages
+      .stream({
+        model: MODEL,
+        // Scaled with the request. Thinking tokens count against this ceiling
+        // too, so a fixed 8000 was fine for twelve questions and truncated
+        // thirty mid-JSON — and a reply cut off at the ceiling costs the whole
+        // batch, not part of it.
+        max_tokens: Math.min(32000, 6000 + args.count * 700),
+        output_config: { effort: EFFORT },
+        system: QUIZ_SYSTEM_PROMPT,
+        messages,
+      })
+      .finalMessage();
 
     if (message.stop_reason === "refusal") {
       throw new Error(
