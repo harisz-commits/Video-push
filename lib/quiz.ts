@@ -112,10 +112,18 @@ export function resolveQuizTiming(project: QuizProject): QuizTiming {
   let previousLevel: QuizLevel | null = null;
 
   const slots: QuizSlot[] = project.questions.map((question, index) => {
-    // A level card appears only where the difficulty actually changes, so it
-    // reads as progress rather than as a divider between every question.
+    // Only "impossible" gets a card, and only when the question before it was
+    // something else.
+    //
+    // It used to appear at every change of difficulty, which worked while the
+    // questions climbed in order — four cards, four chapters. They are mixed
+    // now, so that same rule would have put a full-screen card in front of
+    // most questions and turned a punctuation mark into wallpaper. Reserved
+    // for the hardest tier, it goes back to meaning something: brace yourself.
     const levelCardFrames =
-      question.level === previousLevel ? 0 : s(BEATS.levelCard);
+      question.level === "impossible" && previousLevel !== "impossible"
+        ? s(BEATS.levelCard)
+        : 0;
     previousLevel = question.level;
 
     const enterFrames = s(BEATS.enter);

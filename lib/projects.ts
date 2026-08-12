@@ -1,4 +1,4 @@
-import { del, list } from "@vercel/blob";
+import { del, head, list } from "@vercel/blob";
 import { AnyProject, describeProject, formatOf } from "./formats";
 import { VideoProject } from "./schema";
 import { readJson, resolveBlobToken, writeJson } from "./store";
@@ -41,6 +41,20 @@ export type ProjectRecord = {
   research?: string;
   /** The last finished render, so a completed video is not re-rendered. */
   lastRender?: ProjectRender;
+  /**
+   * Every render ever started for this project.
+   *
+   * Written when the render starts, not when it finishes, which is the whole
+   * point. A finished render used to reach the project only if the browser was
+   * still open and still polling at the moment it completed — so a phone put
+   * down at 37% produced a video that existed, was paid for, and could not be
+   * found by anyone afterwards.
+   *
+   * Whether one has finished is not stored but asked: the file either exists in
+   * Blob storage or it does not, and that answer is true regardless of who was
+   * watching. See `reconcileRenders`.
+   */
+  renders?: ProjectRender[];
 };
 
 /** What the project list shows, without shipping every scene to draw a row. */
@@ -57,6 +71,8 @@ export type ProjectSummary = {
   hasScript: boolean;
   hasAudio: boolean;
   renderUrl?: string;
+  /** Renders started for this project that have no video yet. */
+  pendingRenders: number;
 };
 
 const PREFIX = "projects/";
@@ -91,11 +107,77 @@ export function summarize(record: ProjectRecord): ProjectSummary {
         ? Boolean(p.audioUrl)
         : Boolean(p.audioUrl && p.alignment),
     renderUrl: record.lastRender?.outputUrl,
+    pendingRenders: (record.renders ?? []).filter((r) => !r.outputUrl).length,
   };
 }
 
 export async function readProject(id: string): Promise<ProjectRecord | null> {
   return readJson<ProjectRecord>(projectPath(id));
+}
+
+/** Where a render's finished video lands. The one place that knows the path. */
+export const renderBlobPath = (renderId: string) => `renders/${renderId}.mp4`;
+
+/**
+ * Ask the storage which of a project's renders actually finished.
+ *
+ * The truth about a render is not a status somebody remembered to write down —
+ * it is whether the file is there. A render whose watcher walked away still
+ * uploaded its video, and this is what finds it again.
+ *
+ * Returns the record with any newly-discovered videos filled in, and whether
+ * anything changed, so the caller can decide whether it is worth a write.
+ */
+export async function reconcileRenders(
+  record: ProjectRecord,
+): Promise<{ record: ProjectRecord; changed: boolean }> {
+  const token = resolveBlobToken()?.value;
+  const pending = (record.renders ?? []).filter((r) => !r.outputUrl);
+  if (!token || pending.length === 0) return { record, changed: false };
+
+  const found = await Promise.all(
+    pending.map(async (render) => {
+      try {
+        const meta = await head(renderBlobPath(render.renderId), { token });
+        return { ...render, outputUrl: meta.url, sizeBytes: meta.size };
+      } catch {
+        // Not there. Either still rendering, or it failed and never will be —
+        // this cannot tell the two apart, and does not need to.
+        return null;
+      }
+    }),
+  );
+
+  const byId = new Map<string, ProjectRender>(
+    found
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      .map((r) => [r.renderId, r]),
+  );
+  if (byId.size === 0) return { record, changed: false };
+
+  const renders = (record.renders ?? []).map((r) => byId.get(r.renderId) ?? r);
+  const newest = [...renders]
+    .filter((r) => r.outputUrl)
+    .sort((a, b) => b.at - a.at)[0];
+
+  return {
+    record: { ...record, renders, lastRender: newest ?? record.lastRender },
+    changed: true,
+  };
+}
+
+/** Note that a render has been started, so it can be found again later. */
+export async function attachRender(
+  projectId: string,
+  render: ProjectRender,
+): Promise<void> {
+  const record = await readProject(projectId);
+  if (!record) return;
+
+  // Newest first, and bounded: a project someone has re-rendered thirty times
+  // does not need thirty rows, and the old ones are swept from storage anyway.
+  const renders = [render, ...(record.renders ?? [])].slice(0, 12);
+  await saveProject({ ...record, renders, updatedAt: Date.now() });
 }
 
 export async function saveProject(record: ProjectRecord): Promise<void> {
@@ -128,10 +210,21 @@ export async function listProjects(limit = 100): Promise<ProjectSummary[]> {
     ),
   );
 
-  return records
-    .filter((r): r is ProjectRecord => Boolean(r?.id && r.project))
-    .map(summarize)
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const live = records.filter((r): r is ProjectRecord => Boolean(r?.id && r.project));
+
+  // Reconciled here too, not only when a project is opened: "has a finished
+  // video" is the one thing someone scans this list for after walking away
+  // from a render, and it would be perverse to make them open each project to
+  // find out. Discoveries are written back so the next read is free.
+  const reconciled = await Promise.all(
+    live.map(async (record) => {
+      const { record: next, changed } = await reconcileRenders(record);
+      if (changed) await saveProject(next).catch(() => undefined);
+      return next;
+    }),
+  );
+
+  return reconciled.map(summarize).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 /**
@@ -208,6 +301,18 @@ type ScriptJobShape = {
  * played and no way to tell why. Anything a project points at is not rubbish.
  */
 export async function audioInUse(): Promise<Set<string>> {
+  return referencedFiles();
+}
+
+/**
+ * Everything under a swept prefix that a saved project still needs.
+ *
+ * Age stopped being a good enough reason to delete once projects started
+ * outliving the session that made them: a saved project points at its
+ * voiceover and at every video it has produced, and sweeping either leaves a
+ * project that will not play, will not render, and cannot explain why.
+ */
+async function referencedFiles(): Promise<Set<string>> {
   const inUse = new Set<string>();
   const token = resolveBlobToken()?.value;
   if (!token) return inUse;
@@ -221,15 +326,21 @@ export async function audioInUse(): Promise<Set<string>> {
     ),
   );
 
-  for (const record of records) {
-    const url = record?.project?.audioUrl;
-    if (!url) continue;
+  const keep = (url: string | undefined) => {
+    if (!url) return;
     // Store the pathname, since that is what a listing gives to compare with.
     try {
       inUse.add(new URL(url).pathname.replace(/^\//, ""));
     } catch {
       // A malformed URL protects nothing; skip it rather than throw.
     }
+  };
+
+  for (const record of records) {
+    if (!record) continue;
+    keep(record.project?.audioUrl);
+    for (const render of record.renders ?? []) keep(render.outputUrl);
+    keep(record.lastRender?.outputUrl);
   }
   return inUse;
 }

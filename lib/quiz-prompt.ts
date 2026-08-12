@@ -29,7 +29,10 @@ DIE FALSCHEN ANTWORTEN:
 - Ähnliche Länge. Die längste Option ist sonst ein Hinweis.
 
 SCHWIERIGKEIT:
-- Die Fragen steigen an: easy → medium → hard → impossible.
+- GEMISCHT, nicht ansteigend. Mal leicht, mal schwer, dann wieder leicht.
+  Eine Treppe von easy nach impossible verrät dem Zuschauer nach der Hälfte,
+  dass es für ihn nicht mehr weitergeht — die Mischung hält ihn drin, weil
+  nach jeder harten Frage wieder eine kommen kann, die er schafft.
 - easy: die meisten Zuschauer wissen es.
 - medium: man muss kurz überlegen.
 - hard: Allgemeinwissen reicht nicht ganz.
@@ -72,11 +75,9 @@ export function buildQuizPrompt(args: {
 
 Schreib ${args.count} Fragen dazu.
 
-Verteilung der Schwierigkeit über die ${args.count} Fragen:
-- das erste Viertel easy
-- das zweite Viertel medium
-- das dritte Viertel hard
-- das letzte Viertel impossible
+Ungefähr gleich viele Fragen je Schwierigkeit, aber GEMISCHT über das ganze
+Video verteilt — nicht nach Schwierigkeit sortiert. Zwei gleich schwere Fragen
+sollen möglichst nicht direkt hintereinander stehen.
 
 Vergib die ids fortlaufend: q1, q2, q3 …${flags}`;
 }

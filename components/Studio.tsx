@@ -117,6 +117,7 @@ type ProjectRecord = {
   title: string;
   project: unknown;
   lastRender?: { renderId: string; outputUrl?: string; sizeBytes?: number };
+  renders?: ProjectRenderRow[];
 };
 
 /** "vor 4 Minuten" — enough to tell a fresh save from a stale one. */
@@ -137,6 +138,7 @@ function stageOf(p: ProjectSummary): string {
   if (p.hasScript) return "Skript fertig";
   return "leer";
 }
+import { RenderList, type ProjectRenderRow } from "./RenderList";
 import { SceneInspector } from "./SceneInspector";
 import { Timeline } from "./Timeline";
 import { Button, Field, Note, Panel } from "./ui";
@@ -171,6 +173,7 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
   const [voiceId, setVoiceId] = useState<string>("");
 
   const [render, setRender] = useState<RenderState | null>(null);
+  const [renders, setRenders] = useState<ProjectRenderRow[]>([]);
   const playerRef = useRef<PlayerRef>(null);
 
   // ---- Projects -----------------------------------------------------------
@@ -363,6 +366,7 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
       setVoiceError(null);
       setSaveState("saved");
       setSavedAt(result.data.lastRender ? Date.now() : null);
+      setRenders(result.data.renders ?? []);
 
       // A finished render is part of the project: showing it again beats
       // re-rendering a video that already exists.
@@ -625,8 +629,11 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
       progress: 0,
       phase: "Wird gestartet",
     });
+    // The project id goes with it, so a finished video is filed against the
+    // project rather than only reaching whoever is still watching.
     const result = await postJson<{ renderId: string }>("/api/render", {
       project,
+      projectId: projectId ?? undefined,
     });
     if (!result.ok) {
       setRender({
@@ -975,6 +982,8 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
             {renderDisabledReason ? (
               <Note tone="info">{renderDisabledReason}</Note>
             ) : null}
+
+            <RenderList renders={renders} activeRenderId={render?.renderId} />
 
             {render && render.status !== "error" ? (
               <>

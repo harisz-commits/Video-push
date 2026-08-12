@@ -56,27 +56,23 @@ const QuizBed: React.FC<{ timing: QuizTiming; fps: number }> = ({
   timing,
   fps,
 }) => {
-  // Consecutive questions at the same difficulty share one continuous stretch
-  // of music, so the bed changes when the level does and at no other time.
-  const runs: { level: QuizLevel; from: number; to: number }[] = [];
-  for (const slot of timing.slots) {
-    const last = runs[runs.length - 1];
-    if (last && last.level === slot.question.level) {
-      last.to = slot.from + slot.durationInFrames;
-    } else {
-      runs.push({
-        level: slot.question.level,
-        from: slot.from,
-        to: slot.from + slot.durationInFrames,
-      });
-    }
-  }
-
-  // The intro belongs to whatever comes first, so the video does not open in
-  // silence and then start.
-  if (runs.length > 0) runs[0].from = 0;
-  const tail = runs[runs.length - 1];
-  if (tail) tail.to = timing.totalFrames;
+  // The music follows position in the video, not the difficulty of whatever
+  // question is on screen.
+  //
+  // It used to follow the question, which was right while the questions climbed
+  // in order and became nonsense once they were mixed: the bed would have
+  // changed tempo and key every few seconds, restarting on each switch. The
+  // escalation the format wants is a property of the video, not of the current
+  // question — so the tempo climbs steadily from start to finish while the
+  // questions jump around on top of it.
+  const stages: QuizLevel[] = ["easy", "medium", "hard", "impossible"];
+  const runs: { level: QuizLevel; from: number; to: number }[] = stages.map(
+    (level, i) => ({
+      level,
+      from: Math.round((timing.totalFrames * i) / stages.length),
+      to: Math.round((timing.totalFrames * (i + 1)) / stages.length),
+    }),
+  );
 
   return (
     <>

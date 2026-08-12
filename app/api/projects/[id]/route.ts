@@ -7,6 +7,8 @@ import {
   deleteProject,
   PROJECT_ID,
   readProject,
+  reconcileRenders,
+  saveProject,
 } from "../../../../lib/projects";
 
 export const runtime = "nodejs";
@@ -24,7 +26,13 @@ export async function GET(req: Request, { params }: Context) {
 
   const record = await readProject(id);
   if (!record) return errorResponse("Dieses Projekt gibt es nicht.", 404);
-  return Response.json(record);
+
+  // Opening a project is exactly when someone wants to know whether the render
+  // they walked away from finished, so this is where we go and look.
+  const { record: fresh, changed } = await reconcileRenders(record);
+  if (changed) await saveProject(fresh).catch(() => undefined);
+
+  return Response.json(fresh);
 }
 
 export async function DELETE(req: Request, { params }: Context) {

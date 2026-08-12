@@ -153,7 +153,7 @@ async function writeQuestions(args: {
     }
 
     const parsed = parseQuestions(raw, args.flags);
-    if (parsed.ok) return balancePositions(parsed.questions);
+    if (parsed.ok) return balancePositions(interleaveLevels(parsed.questions));
 
     if (attempt === 2) {
       throw new Error(
@@ -173,6 +173,57 @@ async function writeQuestions(args: {
   }
 
   throw new Error("Unerreichbar.");
+}
+
+/**
+ * Shuffle the difficulties together instead of climbing through them.
+ *
+ * A quiz sorted easy → impossible tells a viewer, somewhere around the middle,
+ * that the rest is not for them — and they leave. Mixed, every hard question is
+ * followed by one they might get, so there is always a reason to stay for the
+ * next one.
+ *
+ * Done here as well as asked for in the prompt, because "mixed" is an
+ * instruction a model follows loosely and an arrangement anyone can verify. It
+ * takes whatever came back and lays it out so the same difficulty rarely lands
+ * twice in a row, always picking from the level with the most questions left —
+ * which spreads each of them across the whole video rather than clumping.
+ */
+function interleaveLevels(questions: QuizQuestion[]): QuizQuestion[] {
+  const buckets = new Map<string, QuizQuestion[]>();
+  for (const q of questions) {
+    const list = buckets.get(q.level) ?? [];
+    list.push(q);
+    buckets.set(q.level, list);
+  }
+
+  const out: QuizQuestion[] = [];
+  let previous: string | null = null;
+
+  while (out.length < questions.length) {
+    const candidates = [...buckets.entries()].filter(([, list]) => list.length > 0);
+    if (candidates.length === 0) break;
+
+    // Largest remaining pile first, but never the same level twice running
+    // unless it is the only thing left.
+    const usable = candidates.filter(([level]) => level !== previous);
+    const pool = usable.length > 0 ? usable : candidates;
+    pool.sort((a, b) => b[1].length - a[1].length);
+
+    const [level, list] = pool[0];
+    out.push(list.shift()!);
+    previous = level;
+  }
+
+  // An easy one first: the opening question decides whether anybody plays at
+  // all, and losing on question one is the fastest way to lose a viewer.
+  const easiest = out.findIndex((q) => q.level === "easy");
+  if (easiest > 0) {
+    const [first] = out.splice(easiest, 1);
+    out.unshift(first);
+  }
+
+  return out.map((q, i) => ({ ...q, id: `q${i + 1}` }));
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   renderBlockedReason,
   totalFramesOf,
 } from "../../../lib/formats";
+import { attachRender, PROJECT_ID, renderBlobPath } from "../../../lib/projects";
 import {
   BLOB_ACCESS,
   progressPath,
@@ -34,9 +35,16 @@ export async function POST(req: Request) {
   }
 
   let project: AnyProject;
+  let projectId: string | undefined;
   try {
-    const body = (await req.json()) as { project?: unknown };
+    const body = (await req.json()) as { project?: unknown; projectId?: unknown };
     project = AnyProject.parse(body.project);
+    // Optional, and the difference between a video that can be found again and
+    // one that cannot. Taken at the start rather than reported at the end,
+    // because the end is precisely when nobody may be listening.
+    if (typeof body.projectId === "string" && PROJECT_ID.test(body.projectId)) {
+      projectId = body.projectId;
+    }
   } catch {
     return errorResponse(
       "Ungültiges Projekt. Erwartet wird ein Infographics- oder Quiz-Projekt.",
@@ -72,7 +80,7 @@ export async function POST(req: Request) {
       vercelBlob: {
         blobToken: blob.value,
         access: BLOB_ACCESS,
-        blobPath: `renders/${renderId}.mp4`,
+        blobPath: renderBlobPath(renderId),
       },
     });
 
@@ -85,6 +93,14 @@ export async function POST(req: Request) {
       lifetimeMs,
     };
     await writeJson(progressPath(renderId), job);
+
+    // Noted on the project now, while there is certainly somebody here to note
+    // it. Whether it finishes is answered later by looking for the file.
+    if (projectId) {
+      await attachRender(projectId, { renderId, at: Date.now() }).catch(() => {
+        // A render that cannot be filed is still a render worth starting.
+      });
+    }
 
     return Response.json({
       renderId,

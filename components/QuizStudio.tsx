@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { QuizProject, resolveQuizTiming } from "../lib/quiz";
 import { QuizVideo } from "../remotion/quiz/QuizVideo";
 import { getJson, postJson } from "./api";
+import { RenderList, type ProjectRenderRow } from "./RenderList";
 import { Button, Field, formatTimecode, Note, Panel } from "./ui";
 
 const JOB_KEY = "infographics-studio.quizJob";
@@ -34,6 +35,7 @@ type Summary = {
   updatedAt: number;
   detail: string;
   renderUrl?: string;
+  pendingRenders: number;
 };
 
 const remember = (key: string, id: string | null) => {
@@ -85,6 +87,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
   const [render, setRender] = useState<RenderState | null>(null);
+  const [renders, setRenders] = useState<ProjectRenderRow[]>([]);
   const playerRef = useRef<PlayerRef>(null);
   const lastSaved = useRef<string | null>(null);
   const seedJson = useMemo(() => JSON.stringify(seed), [seed]);
@@ -137,9 +140,11 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   }, [project, projectId, save, seedJson]);
 
   const loadProject = useCallback(async (id: string) => {
-    const result = await getJson<{ id: string; project: unknown }>(
-      `/api/projects/${encodeURIComponent(id)}`,
-    );
+    const result = await getJson<{
+      id: string;
+      project: unknown;
+      renders?: ProjectRenderRow[];
+    }>(`/api/projects/${encodeURIComponent(id)}`);
     if (!result.ok) {
       setError(result.error);
       return;
@@ -154,6 +159,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     setProjectId(result.data.id);
     remember(PROJECT_KEY, result.data.id);
     setTopic(parsed.data.topic);
+    setRenders(result.data.renders ?? []);
     setRender(null);
     setError(null);
   }, []);
@@ -240,7 +246,12 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   // ---- Render -------------------------------------------------------------
   async function startRender() {
     setRender({ renderId: "", status: "queued", progress: 0, phase: "Wird gestartet" });
-    const result = await postJson<{ renderId: string }>("/api/render", { project });
+    // The project id travels with the render, so the finished video finds its
+    // way back here even if this tab is long gone by then.
+    const result = await postJson<{ renderId: string }>("/api/render", {
+      project,
+      projectId: projectId ?? undefined,
+    });
     if (!result.ok) {
       setRender({
         renderId: "",
@@ -452,6 +463,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
             Das Quiz braucht keine Tonspur, um zu rendern — seine Zeiten kommen
             aus der Uhr, nicht aus der Stimme.
           </Note>
+          <RenderList renders={renders} activeRenderId={render?.renderId} />
         </Panel>
       </div>
 
