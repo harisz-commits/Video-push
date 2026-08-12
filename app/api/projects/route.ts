@@ -70,9 +70,17 @@ export async function POST(req: Request) {
   const now = Date.now();
 
   try {
-    // Read first so an update keeps what the caller did not send — the
-    // research notes and the last render belong to the project, not to
-    // whichever screen happened to save it.
+    // Read first so an update keeps what the caller did not send. The research
+    // notes, the renders and the last one of them belong to the project, not
+    // to whichever screen happened to save it.
+    //
+    // `renders` was missing from this list when it was added, and the
+    // consequence was not theoretical: the studio autosaves, an autosave sends
+    // only the project, and every one of them silently deleted the record of
+    // every video the project had produced. A video attached by hand vanished
+    // within seconds of being attached.
+    //
+    // Anything added to ProjectRecord later has to be carried forward here too.
     const existing = body.id ? await readProject(body.id) : null;
 
     const record: ProjectRecord = {
@@ -87,6 +95,7 @@ export async function POST(req: Request) {
       updatedAt: now,
       project: parsed.data,
       research: body.research ?? existing?.research,
+      renders: existing?.renders,
       lastRender: body.lastRender ?? existing?.lastRender,
     };
 
