@@ -10,7 +10,6 @@ import type { QuizLevel } from "../../lib/quiz";
  * glance — so these are four clearly different worlds, not four tints.
  */
 export type LevelSkin = {
-  label: string;
   /** The two ends of the background gradient, behind the rays. */
   deep: string;
   lift: string;
@@ -23,7 +22,6 @@ export type LevelSkin = {
 
 export const LEVELS: Record<QuizLevel, LevelSkin> = {
   easy: {
-    label: "EASY",
     deep: "#04302B",
     lift: "#0A5C4E",
     ray: "#0D6B5B",
@@ -31,7 +29,6 @@ export const LEVELS: Record<QuizLevel, LevelSkin> = {
     ink: "#F2FFFB",
   },
   medium: {
-    label: "MEDIUM",
     deep: "#05243F",
     lift: "#0A4373",
     ray: "#0C4E85",
@@ -39,7 +36,6 @@ export const LEVELS: Record<QuizLevel, LevelSkin> = {
     ink: "#F0F8FF",
   },
   hard: {
-    label: "HARD",
     deep: "#3A1704",
     lift: "#7A3208",
     ray: "#8E3B09",
@@ -47,7 +43,6 @@ export const LEVELS: Record<QuizLevel, LevelSkin> = {
     ink: "#FFF6EC",
   },
   impossible: {
-    label: "IMPOSSIBLE",
     deep: "#2E0518",
     lift: "#6B0C33",
     ray: "#7D0E3B",

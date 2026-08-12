@@ -120,7 +120,7 @@ const SlotSound: React.FC<{
   // first ten seconds, after which the video ran two minutes on music alone.
   // Measured before it could be heard — seconds 5 to 9 carried four times the
   // energy of everything after them.
-  const bodyFrom = slot.from + slot.levelCardFrames;
+  const bodyFrom = slot.from;
   const thinkFrom = bodyFrom + slot.enterFrames;
   const revealAt = thinkFrom + slot.thinkFrames;
   const thinkSeconds = slot.thinkFrames / fps;

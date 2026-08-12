@@ -94,7 +94,12 @@ export const QUIZ_FRAME_SYSTEM_PROMPT = `Du schreibst Titel, Einstieg und Schlus
 - "title": maximal 40 Zeichen, eine Herausforderung. "Errätst du diese Flaggen?"
 - "intro": ein bis zwei Sätze, die sofort zur ersten Frage führen. Nennt die
   Anzahl der Fragen und die Bedenkzeit. Keine Begrüßung, keine Vorrede.
-- "outro": ein Satz, der zum Kommentieren auffordert.
+- "outro": der Abspann. Erst Dank fürs Zuschauen, dann die Bitte zu
+  abonnieren, verknüpft mit dem Quiz selbst — wer so weit gekommen ist, hat
+  sich etwas verdient. Zum Beispiel: "Vielen Dank fürs Zuschauen — abonniere
+  den Kanal, wenn du ein wahrer Quizmeister bist!" Ein bis zwei Sätze.
+  Das Wort ABONNIEREN steht ohnehin als Schaltfläche darunter im Bild,
+  also nicht bloß "Abonniere!" schreiben.
 - Du-Form, niemals Sie-Form.
 
 Antworte mit einem JSON-Objekt, sonst nichts:

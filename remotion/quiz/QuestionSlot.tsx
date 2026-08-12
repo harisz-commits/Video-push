@@ -18,18 +18,12 @@ export const QuestionSlot: React.FC<{
   fps: number;
 }> = ({ slot, frame, fps }) => {
   const skin = LEVELS[slot.question.level];
-  const { levelCardFrames, enterFrames, thinkFrames, revealFrames } = slot;
+  const { enterFrames, thinkFrames, revealFrames } = slot;
 
-  // The card only occupies the front of the slot; everything else waits.
-  const bodyFrom = levelCardFrames;
-  const local = frame - bodyFrom;
+  const local = frame;
   const thinkFrom = enterFrames;
   const revealFrom = thinkFrom + thinkFrames;
   const revealed = local >= revealFrom;
-
-  if (frame < levelCardFrames) {
-    return <LevelCard frame={frame} duration={levelCardFrames} level={slot.question.level} />;
-  }
 
   // Slide-in on a spring; the question arrives rather than appears.
   const entry = spring({
@@ -57,18 +51,22 @@ export const QuestionSlot: React.FC<{
       }}
     >
       <div style={{ width: "100%", maxWidth: 1400 }}>
-        {/* Which question, and how hard — the progression, always visible. */}
+        {/*
+          Which question this is — and nothing about how hard it is.
+          The difficulty is in the colour and in the tempo of the music, where
+          a viewer takes it in without reading it. Written out as "EASY" it
+          becomes an English word nobody asked for, and a promise the video
+          cannot keep to whoever gets that question wrong.
+        */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 16,
             marginBottom: 26,
           }}
         >
           <Pill text={`FRAGE ${slot.index + 1}`} color={skin.ink} faint />
-          <Pill text={LEVELS[slot.question.level].label} color={skin.accent} />
         </div>
 
         {slot.question.flag ? (
@@ -291,35 +289,5 @@ const AnswerBox: React.FC<{
         {text}
       </span>
     </div>
-  );
-};
-
-const LevelCard: React.FC<{
-  frame: number;
-  duration: number;
-  level: keyof typeof LEVELS;
-}> = ({ frame, duration, level }) => {
-  const skin = LEVELS[level];
-  const t = frame / Math.max(1, duration);
-  const scale = interpolate(t, [0, 0.25, 0.8, 1], [0.7, 1, 1, 1.15]);
-  const opacity = interpolate(t, [0, 0.15, 0.75, 1], [0, 1, 1, 0]);
-
-  return (
-    <AbsoluteFill style={{ alignItems: "center", justifyContent: "center" }}>
-      <div
-        style={{
-          transform: `scale(${scale})`,
-          opacity,
-          fontFamily: "var(--display, Inter, system-ui, sans-serif)",
-          fontSize: 150,
-          fontWeight: 900,
-          letterSpacing: "-0.03em",
-          color: skin.accent,
-          textShadow: `0 0 60px ${skin.accent}66, 0 10px 40px rgba(0,0,0,0.6)`,
-        }}
-      >
-        {skin.label}
-      </div>
-    </AbsoluteFill>
   );
 };

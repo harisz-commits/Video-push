@@ -6,6 +6,7 @@ import {
   Audio,
   interpolate,
   Sequence,
+  spring,
   useCurrentFrame,
 } from "remotion";
 import { resolveQuizTiming, type QuizProject } from "../../lib/quiz";
@@ -30,10 +31,18 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
 
   // The background belongs to the video, not to a question: it has to survive
   // the wipe between two questions, or every cut would flash black.
+  //
+  // Before the first question and after the last there is no question to ask,
+  // so the intro borrows the first one's colour and the end card keeps the last
+  // one's. Falling back to slot zero everywhere meant the outro of a video that
+  // had just clawed its way to red opened in the green it started in.
   const activeSlot =
     timing.slots.find(
       (s) => frame >= s.from && frame < s.from + s.durationInFrames,
-    ) ?? timing.slots[0];
+    ) ??
+    (frame >= timing.outroFrom
+      ? timing.slots[timing.slots.length - 1]
+      : timing.slots[0]);
   const skin = LEVELS[activeSlot?.question.level ?? "easy"];
 
   return (
@@ -70,7 +79,11 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
           durationInFrames={timing.outroFrames}
           name="Outro"
         >
-          <Outro text={project.outro} frames={timing.outroFrames} />
+          <Outro
+            text={project.outro}
+            frames={timing.outroFrames}
+            fps={project.fps}
+          />
         </Sequence>
       ) : null}
     </AbsoluteFill>
@@ -162,30 +175,109 @@ const Intro: React.FC<{ project: QuizProject; frames: number }> = ({
   );
 };
 
-const Outro: React.FC<{ text: string; frames: number }> = ({ text, frames }) => {
+/**
+ * The end card.
+ *
+ * Was one line held for three seconds, which is enough for a sign-off and not
+ * enough for an ask. The ask is the entire point of the last five seconds of
+ * this format: a viewer who watched thirty questions is as warm as they will
+ * ever be, and the video has to say what it wants from them before they scroll.
+ *
+ * So it arrives in two beats — thanks first, then the request — because two
+ * things landing one after another are read, while two things appearing at once
+ * are skipped.
+ */
+const Outro: React.FC<{ text: string; frames: number; fps: number }> = ({
+  text,
+  frames,
+  fps,
+}) => {
   const frame = useCurrentFrame();
   const t = frame / Math.max(1, frames);
+
+  const thanks = spring({
+    frame,
+    fps,
+    config: { damping: 200, mass: 0.6 },
+    durationInFrames: Math.round(fps * 0.5),
+  });
+  const ask = spring({
+    frame: frame - Math.round(fps * 0.55),
+    fps,
+    config: { damping: 14, mass: 0.7 },
+    durationInFrames: Math.round(fps * 0.7),
+  });
+
+  // The button breathes rather than sits. A still call to action reads as part
+  // of the background; a moving one reads as something to do.
+  const pulse = 1 + Math.sin(frame / 6) * 0.02 * Math.min(1, ask);
+
   return (
     <AbsoluteFill
       style={{
         alignItems: "center",
         justifyContent: "center",
-        padding: "0 160px",
+        padding: "0 140px",
         textAlign: "center",
-        opacity: interpolate(t, [0, 0.15, 0.85, 1], [0, 1, 1, 0]),
+        opacity: interpolate(t, [0, 0.08, 0.94, 1], [0, 1, 1, 0]),
       }}
     >
-      <div
-        style={{
-          fontFamily: "var(--display, Inter, system-ui, sans-serif)",
-          fontSize: 68,
-          fontWeight: 800,
-          color: "#FFFFFF",
-          lineHeight: 1.15,
-          textShadow: "0 10px 44px rgba(0,0,0,0.55)",
-        }}
-      >
-        {text}
+      <div>
+        <div
+          style={{
+            fontFamily: "var(--display, Inter, system-ui, sans-serif)",
+            fontSize: 76,
+            fontWeight: 900,
+            color: "#FFFFFF",
+            lineHeight: 1.12,
+            letterSpacing: "-0.02em",
+            textShadow: "0 10px 44px rgba(0,0,0,0.6)",
+            opacity: thanks,
+            transform: `translateY(${interpolate(thanks, [0, 1], [40, 0])}px)`,
+          }}
+        >
+          {text}
+        </div>
+
+        <div
+          style={{
+            marginTop: 44,
+            display: "flex",
+            justifyContent: "center",
+            opacity: ask,
+            transform: `translateY(${interpolate(ask, [0, 1], [50, 0])}px) scale(${pulse})`,
+          }}
+        >
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 18,
+              background: "#FF0033",
+              color: "#fff",
+              borderRadius: 999,
+              padding: "22px 52px",
+              fontFamily: "var(--display, Inter, system-ui, sans-serif)",
+              fontSize: 46,
+              fontWeight: 900,
+              letterSpacing: "0.02em",
+              boxShadow: "0 20px 60px rgba(255,0,51,0.45)",
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                display: "inline-block",
+                width: 0,
+                height: 0,
+                borderTop: "16px solid transparent",
+                borderBottom: "16px solid transparent",
+                borderLeft: "26px solid #fff",
+              }}
+            />
+            ABONNIEREN
+          </span>
+        </div>
       </div>
     </AbsoluteFill>
   );

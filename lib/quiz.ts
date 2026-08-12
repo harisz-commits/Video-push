@@ -18,6 +18,15 @@ import { z } from "zod";
  * rather than the other way round.
  */
 
+/**
+ * How hard a question is.
+ *
+ * Never written on screen. The words are English, they mean nothing to a
+ * German-speaking viewer mid-question, and labelling a question "EASY" in
+ * front of somebody who then gets it wrong is the one thing this format must
+ * not do. The difficulty is carried entirely by colour and by the tempo of the
+ * music — both of which a viewer reads without being told they are reading it.
+ */
 export const QuizLevel = z.enum(["easy", "medium", "hard", "impossible"]);
 export type QuizLevel = z.infer<typeof QuizLevel>;
 
@@ -70,25 +79,25 @@ export type QuizProject = z.infer<typeof QuizProject>;
 export const BEATS = {
   /** The opening card. Short on purpose: the reference format is in the first question by second five. */
   intro: 4,
-  /** A card announcing a new difficulty, shown when the level changes. */
-  levelCard: 1.6,
   /** Question sliding in before the clock starts. */
   enter: 0.6,
   /** Correct answer green, wrong ones struck out. */
   reveal: 2.4,
   /** The wipe between questions. Overlaps nothing; it is its own beat. */
   exit: 0.35,
-  outro: 3,
+  /**
+   * The end card. Three seconds was enough to say goodbye and not enough to
+   * ask for anything, and the ask is what these seconds are for.
+   */
+  outro: 6,
 } as const;
 
 export type QuizSlot = {
   index: number;
   question: QuizQuestion;
-  /** Frame the whole slot starts at, including its level card if it has one. */
   from: number;
   durationInFrames: number;
   /** Offsets within the slot, in frames, relative to `from`. */
-  levelCardFrames: number;
   enterFrames: number;
   thinkFrames: number;
   revealFrames: number;
@@ -109,36 +118,20 @@ export function resolveQuizTiming(project: QuizProject): QuizTiming {
 
   const introFrames = s(BEATS.intro);
   let cursor = introFrames;
-  let previousLevel: QuizLevel | null = null;
 
   const slots: QuizSlot[] = project.questions.map((question, index) => {
-    // Only "impossible" gets a card, and only when the question before it was
-    // something else.
-    //
-    // It used to appear at every change of difficulty, which worked while the
-    // questions climbed in order — four cards, four chapters. They are mixed
-    // now, so that same rule would have put a full-screen card in front of
-    // most questions and turned a punctuation mark into wallpaper. Reserved
-    // for the hardest tier, it goes back to meaning something: brace yourself.
-    const levelCardFrames =
-      question.level === "impossible" && previousLevel !== "impossible"
-        ? s(BEATS.levelCard)
-        : 0;
-    previousLevel = question.level;
-
     const enterFrames = s(BEATS.enter);
     const thinkFrames = s(question.thinkSeconds);
     const revealFrames = s(BEATS.reveal);
     const exitFrames = s(BEATS.exit);
     const durationInFrames =
-      levelCardFrames + enterFrames + thinkFrames + revealFrames + exitFrames;
+      enterFrames + thinkFrames + revealFrames + exitFrames;
 
     const slot: QuizSlot = {
       index,
       question,
       from: cursor,
       durationInFrames,
-      levelCardFrames,
       enterFrames,
       thinkFrames,
       revealFrames,

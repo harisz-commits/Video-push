@@ -431,7 +431,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
                 key={q.id}
                 onClick={() => {
                   const slot = timing.slots[i];
-                  if (slot) playerRef.current?.seekTo(slot.from + slot.levelCardFrames + 10);
+                  if (slot) playerRef.current?.seekTo(slot.from + 10);
                 }}
                 title="Zu dieser Frage springen"
                 style={{
