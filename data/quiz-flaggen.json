@@ -1,0 +1,181 @@
+{
+  "kind": "quiz",
+  "id": "seed-flaggen",
+  "topic": "Flaggen der Welt",
+  "title": "Errätst du diese Flaggen?",
+  "intro": "Zwölf Flaggen. Fünf Sekunden pro Frage. Wie weit kommst du?",
+  "outro": "Wie viele hattest du? Schreib es in die Kommentare.",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "questions": [
+    {
+      "id": "q1",
+      "level": "easy",
+      "prompt": "Welches Land ist das?",
+      "flag": "jp",
+      "answers": [
+        "China",
+        "Japan",
+        "Südkorea"
+      ],
+      "correctIndex": 1,
+      "thinkSeconds": 5,
+      "hype": "Die ist einfach!"
+    },
+    {
+      "id": "q2",
+      "level": "easy",
+      "prompt": "Welches Land ist das?",
+      "flag": "br",
+      "answers": [
+        "Argentinien",
+        "Brasilien",
+        "Kolumbien"
+      ],
+      "correctIndex": 1,
+      "thinkSeconds": 5,
+      "hype": "Denk nach!"
+    },
+    {
+      "id": "q3",
+      "level": "easy",
+      "prompt": "Welches Land ist das?",
+      "flag": "ca",
+      "answers": [
+        "Kanada",
+        "Schweiz",
+        "Dänemark"
+      ],
+      "correctIndex": 0,
+      "thinkSeconds": 5,
+      "hype": "Schnell!"
+    },
+    {
+      "id": "q4",
+      "level": "medium",
+      "prompt": "Welches Land ist das?",
+      "flag": "pt",
+      "answers": [
+        "Spanien",
+        "Portugal",
+        "Italien"
+      ],
+      "correctIndex": 1,
+      "thinkSeconds": 5,
+      "hype": "Wird schwerer!"
+    },
+    {
+      "id": "q5",
+      "level": "medium",
+      "prompt": "Welches Land ist das?",
+      "flag": "za",
+      "answers": [
+        "Kenia",
+        "Südafrika",
+        "Nigeria"
+      ],
+      "correctIndex": 1,
+      "thinkSeconds": 5,
+      "hype": "Bleib dran!"
+    },
+    {
+      "id": "q6",
+      "level": "medium",
+      "prompt": "Welches Land ist das?",
+      "flag": "kr",
+      "answers": [
+        "Südkorea",
+        "Nordkorea",
+        "Taiwan"
+      ],
+      "correctIndex": 0,
+      "thinkSeconds": 5,
+      "hype": "Konzentration!"
+    },
+    {
+      "id": "q7",
+      "level": "hard",
+      "prompt": "Welches Land ist das?",
+      "flag": "uz",
+      "answers": [
+        "Kasachstan",
+        "Usbekistan",
+        "Turkmenistan"
+      ],
+      "correctIndex": 1,
+      "thinkSeconds": 6,
+      "hype": "Jetzt wird es hart!"
+    },
+    {
+      "id": "q8",
+      "level": "hard",
+      "prompt": "Welches Land ist das?",
+      "flag": "ec",
+      "answers": [
+        "Kolumbien",
+        "Venezuela",
+        "Ecuador"
+      ],
+      "correctIndex": 2,
+      "thinkSeconds": 6,
+      "hype": "Vorsicht, Falle!"
+    },
+    {
+      "id": "q9",
+      "level": "hard",
+      "prompt": "Welches Land ist das?",
+      "flag": "bt",
+      "answers": [
+        "Nepal",
+        "Bhutan",
+        "Myanmar"
+      ],
+      "correctIndex": 1,
+      "thinkSeconds": 6,
+      "hype": "Kaum jemand weiß das."
+    },
+    {
+      "id": "q10",
+      "level": "impossible",
+      "prompt": "Welches Land ist das?",
+      "flag": "km",
+      "answers": [
+        "Komoren",
+        "Malediven",
+        "Seychellen"
+      ],
+      "correctIndex": 0,
+      "thinkSeconds": 7,
+      "hype": "Fast unmöglich!"
+    },
+    {
+      "id": "q11",
+      "level": "impossible",
+      "prompt": "Welches Land ist das?",
+      "flag": "tm",
+      "answers": [
+        "Turkmenistan",
+        "Tadschikistan",
+        "Kirgisistan"
+      ],
+      "correctIndex": 0,
+      "thinkSeconds": 7,
+      "hype": "Letzte Chance!"
+    },
+    {
+      "id": "q12",
+      "level": "impossible",
+      "prompt": "Welches Land ist das?",
+      "flag": "vu",
+      "answers": [
+        "Fidschi",
+        "Vanuatu",
+        "Samoa"
+      ],
+      "correctIndex": 1,
+      "thinkSeconds": 7,
+      "hype": "Die schafft niemand."
+    }
+  ]
+}

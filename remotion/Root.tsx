@@ -1,13 +1,16 @@
 import React from "react";
 import { Composition } from "remotion";
 import europa from "../data/europa.json";
+import quizFlaggen from "../data/quiz-flaggen.json";
 import { resolveSceneTimings } from "../lib/align";
 import type { Scene, VideoProject } from "../lib/schema";
 import { VideoProject as VideoProjectSchema } from "../lib/schema";
 import { Video } from "./Video";
 
-export { COMP_NAME } from "../lib/constants";
-import { COMP_NAME } from "../lib/constants";
+export { COMP_NAME, QUIZ_COMP_NAME } from "../lib/constants";
+import { COMP_NAME, QUIZ_COMP_NAME } from "../lib/constants";
+import { QuizProject as QuizProjectSchema, resolveQuizTiming } from "../lib/quiz";
+import { QuizVideo } from "./quiz/QuizVideo";
 
 const seed: VideoProject = VideoProjectSchema.parse(europa);
 
@@ -41,6 +44,35 @@ export const RemotionRoot: React.FC = () => (
           (props as { project: unknown }).project,
         );
         return metadataFor(parsed);
+      }}
+    />
+
+    {/*
+      The quiz format. Its length is a sum of fixed beats rather than a
+      function of an audio track, which is the whole reason it can guarantee a
+      pace: nothing about how long a question is shown depends on how long
+      somebody took to say it.
+    */}
+    <Composition
+      id={QUIZ_COMP_NAME}
+      component={QuizVideo as React.FC<Record<string, unknown>>}
+      durationInFrames={resolveQuizTiming(QuizProjectSchema.parse(quizFlaggen)).totalFrames}
+      fps={30}
+      width={1920}
+      height={1080}
+      defaultProps={
+        { project: QuizProjectSchema.parse(quizFlaggen) } as unknown as Record<string, unknown>
+      }
+      calculateMetadata={({ props }) => {
+        const parsed = QuizProjectSchema.parse(
+          (props as { project: unknown }).project,
+        );
+        return {
+          durationInFrames: resolveQuizTiming(parsed).totalFrames,
+          fps: parsed.fps,
+          width: parsed.width,
+          height: parsed.height,
+        };
       }}
     />
 
