@@ -86,6 +86,37 @@ export async function GET(req: Request) {
       failed: [{ id: "sweep", error: (err as Error).message }],
     }));
 
+    // Finished videos that no project points at.
+    //
+    // Reported, never deleted. Every render before renders were filed against
+    // their project produced a video that exists in storage and is reachable
+    // from nowhere — and a video nobody can find is indistinguishable from one
+    // that was never made, except that this one was paid for. Listing them is
+    // the only way back to them.
+    const orphans: { pathname: string; url: string; sizeBytes: number; at: string }[] = [];
+    {
+      let cursor: string | undefined;
+      do {
+        const page = await list({
+          prefix: "renders/",
+          cursor,
+          limit: 1000,
+          token: blob.value,
+        });
+        for (const b of page.blobs) {
+          if (!b.pathname.endsWith(".mp4")) continue;
+          if (protectedAudio.has(b.pathname)) continue;
+          orphans.push({
+            pathname: b.pathname,
+            url: b.url,
+            sizeBytes: b.size,
+            at: b.uploadedAt as unknown as string,
+          });
+        }
+        cursor = page.hasMore ? page.cursor : undefined;
+      } while (cursor);
+    }
+
     // Snapshots are the other half of that cost, and the more damaging one: a
     // sandbox stops by itself eventually, a snapshot sits there until deleted.
     // The build prunes them too, but only when there is a build — and a project
@@ -101,7 +132,10 @@ export async function GET(req: Request) {
       scanned,
       deletedCount: deleted.length,
       deleted: deleted.slice(0, 50),
-      protectedAudio: protectedAudio.size,
+      protectedFiles: protectedAudio.size,
+      orphanedVideos: orphans
+        .sort((a, b) => (a.at < b.at ? 1 : -1))
+        .slice(0, 40),
       sandboxes,
       snapshots,
     });
