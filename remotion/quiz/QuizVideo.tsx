@@ -53,7 +53,15 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
         The soundtrack is not optional garnish here. The tick IS the timer, so
         a quiz rendered without it would be missing the mechanic, not the mood.
       */}
-      <QuizSound timing={timing} fps={project.fps} />
+      <QuizSound
+        timing={timing}
+        fps={project.fps}
+        // The music steps back under the end card when something is being said
+        // over it. A gameshow bed at full level and a spoken question are two
+        // things competing for the same three seconds, and the one that has to
+        // win is the one asking the viewer for something.
+        duckFrom={project.outroAudioUrl ? timing.outroFrom : undefined}
+      />
 
       {/* A voiceover, when there is one, sits on top of all of it. */}
       {project.audioUrl ? <Audio src={project.audioUrl} /> : null}
@@ -79,6 +87,14 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
           durationInFrames={timing.outroFrames}
           name="Outro"
         >
+          {/*
+            The spoken line, started with the card rather than with the video,
+            so it lands on the sentence it belongs to no matter how long the
+            questions before it ran.
+          */}
+          {project.outroAudioUrl ? (
+            <Audio src={project.outroAudioUrl} volume={1} />
+          ) : null}
           <Outro
             text={project.outro}
             frames={timing.outroFrames}

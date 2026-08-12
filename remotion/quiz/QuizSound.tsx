@@ -24,6 +24,8 @@ const LEVEL = {
    * the mix is checked after rendering rather than guessed at.
    */
   bed: 0.45,
+  /** Under a spoken line. Still present, no longer arguing with it. */
+  bedDucked: 0.16,
   tick: 0.34,
   tickUrgent: 0.5,
   ding: 0.62,
@@ -33,12 +35,14 @@ const LEVEL = {
 
 const FPS = 30;
 
-export const QuizSound: React.FC<{ timing: QuizTiming; fps: number }> = ({
-  timing,
-  fps,
-}) => (
+export const QuizSound: React.FC<{
+  timing: QuizTiming;
+  fps: number;
+  /** Frame from which the music drops back, because someone is talking. */
+  duckFrom?: number;
+}> = ({ timing, fps, duckFrom }) => (
   <>
-    <QuizBed timing={timing} fps={fps} />
+    <QuizBed timing={timing} fps={fps} duckFrom={duckFrom} />
     {timing.slots.map((slot) => (
       <SlotSound key={slot.question.id} slot={slot} fps={fps} />
     ))}
@@ -52,10 +56,11 @@ export const QuizSound: React.FC<{ timing: QuizTiming; fps: number }> = ({
  * current repetition rather than within the whole span, so any fade restarts
  * on every pass. Placing the repeats by hand is duller and correct.
  */
-const QuizBed: React.FC<{ timing: QuizTiming; fps: number }> = ({
-  timing,
-  fps,
-}) => {
+const QuizBed: React.FC<{
+  timing: QuizTiming;
+  fps: number;
+  duckFrom?: number;
+}> = ({ timing, fps, duckFrom }) => {
   // The music follows position in the video, not the difficulty of whatever
   // question is on screen.
   //
@@ -92,7 +97,15 @@ const QuizBed: React.FC<{ timing: QuizTiming; fps: number }> = ({
             >
               <Audio
                 src={staticFile(`audio/q-bed-${run.level}.wav`)}
-                volume={LEVEL.bed}
+                // A callback rather than a number, so the drop happens at the
+                // right frame even when it falls inside one loop repetition.
+                // The frame handed in is relative to this Sequence, so the
+                // Sequence's own start has to be added back on.
+                volume={(f) =>
+                  duckFrom !== undefined && from + f >= duckFrom
+                    ? LEVEL.bedDucked
+                    : LEVEL.bed
+                }
               />
             </Sequence>
           );

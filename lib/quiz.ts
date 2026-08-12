@@ -61,6 +61,23 @@ export const QuizProject = z.object({
   /** Spoken over the opening card. Five seconds, then straight into question 1. */
   intro: z.string().min(3).max(200),
   outro: z.string().max(200).optional(),
+  /**
+   * What the host says over the end card.
+   *
+   * Its own field rather than the on-screen text read aloud: the card is a
+   * sentence you glance at, the voice is a question asked directly, and the
+   * two want different words. The written line thanks; the spoken one asks
+   * something the viewer can only answer in the comments.
+   */
+  outroSpeech: z.string().max(300).optional(),
+  outroAudioUrl: z.string().url().optional(),
+  /**
+   * How long that recording is.
+   *
+   * Stored because the end card has to be at least as long as the sentence
+   * spoken over it, and nothing at render time can measure an mp3 behind a URL.
+   */
+  outroAudioSeconds: z.number().positive().max(30).optional(),
   questions: z.array(QuizQuestion).min(1).max(60),
   audioUrl: z.string().url().optional(),
   fps: z.literal(30).default(30),
@@ -141,7 +158,12 @@ export function resolveQuizTiming(project: QuizProject): QuizTiming {
     return slot;
   });
 
-  const outroFrames = project.outro ? s(BEATS.outro) : 0;
+  // Long enough for whatever is said over it, with a beat of air at the end so
+  // the last word is not cut off by the fade.
+  const outroSeconds = project.outroAudioSeconds
+    ? Math.max(BEATS.outro, project.outroAudioSeconds + 1.4)
+    : BEATS.outro;
+  const outroFrames = project.outro ? s(outroSeconds) : 0;
 
   return {
     introFrames,

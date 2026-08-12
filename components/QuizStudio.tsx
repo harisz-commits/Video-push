@@ -10,6 +10,16 @@ import { RenderList, type ProjectRenderRow } from "./RenderList";
 import { Button, Field, formatTimecode, Note, Panel } from "./ui";
 
 const JOB_KEY = "infographics-studio.quizJob";
+const VOICE_KEY = "infographics-studio.quizVoiceJob";
+
+/**
+ * What the host says over the end card, unless someone changes it.
+ *
+ * A question, not a statement: "how many did you get" is the one thing a
+ * viewer can only answer by typing, which is the whole reason the line exists.
+ */
+const DEFAULT_OUTRO_SPEECH =
+  "Und wie viele hattest du diesmal richtig? Schreibe es uns in die Kommentare und abonniere unseren Kanal.";
 const PROJECT_KEY = "infographics-studio.quizProjectId";
 
 type QuizJobState = {
@@ -18,6 +28,13 @@ type QuizJobState = {
   project?: unknown;
   error?: string;
   startedAt?: number;
+};
+
+type VoiceJobState = {
+  status: "running" | "done" | "error";
+  audioUrl?: string;
+  alignment?: { endTimesSeconds: number[] };
+  error?: string;
 };
 
 type RenderState = {
@@ -93,6 +110,10 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
 
   const [render, setRender] = useState<RenderState | null>(null);
   const [renders, setRenders] = useState<ProjectRenderRow[]>([]);
+
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceJobId, setVoiceJobId] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const playerRef = useRef<PlayerRef>(null);
   const lastSaved = useRef<string | null>(null);
   const seedJson = useMemo(() => JSON.stringify(seed), [seed]);
@@ -266,6 +287,83 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   useEffect(() => {
     const stored = recall(JOB_KEY);
     if (stored) setJobId(stored);
+  }, []);
+
+  // ---- Outro voice --------------------------------------------------------
+  //
+  // The same background-job shape as everything else expensive here: start it,
+  // poll it, and let the tab go wherever it likes in between.
+  const outroSpeech = project.outroSpeech ?? DEFAULT_OUTRO_SPEECH;
+
+  async function generateOutroVoice() {
+    setVoiceBusy(true);
+    setVoiceError(null);
+    const result = await postJson<{ jobId: string }>("/api/voice", {
+      // Its own id, so an outro take never overwrites a full voiceover — both
+      // are stored under the project they belong to.
+      projectId: `${project.id}-outro`,
+      voiceover: outroSpeech,
+    });
+    if (!result.ok) {
+      setVoiceError(result.error);
+      setVoiceBusy(false);
+      return;
+    }
+    remember(VOICE_KEY, result.data.jobId);
+    setVoiceJobId(result.data.jobId);
+  }
+
+  useEffect(() => {
+    if (!voiceJobId) return;
+    setVoiceBusy(true);
+    let cancelled = false;
+
+    const tick = async () => {
+      const result = await getJson<VoiceJobState>(
+        `/api/voice?jobId=${encodeURIComponent(voiceJobId)}`,
+      );
+      if (cancelled) return;
+      if (!result.ok) {
+        if (result.error.includes("keine Sprachausgabe")) {
+          setVoiceError("Die Aufnahme ist nicht mehr auffindbar. Starte sie neu.");
+          remember(VOICE_KEY, null);
+          setVoiceJobId(null);
+          setVoiceBusy(false);
+        }
+        return;
+      }
+      if (result.data.status === "running") return;
+
+      if (result.data.status === "done" && result.data.audioUrl) {
+        // The recording's own length decides how long the end card runs, so it
+        // is stored beside the URL — nothing at render time can measure an mp3.
+        const ends = result.data.alignment?.endTimesSeconds;
+        const seconds = ends?.length ? ends[ends.length - 1] : undefined;
+        setProject((p) => ({
+          ...p,
+          outroSpeech,
+          outroAudioUrl: result.data.audioUrl,
+          outroAudioSeconds: seconds,
+        }));
+      } else {
+        setVoiceError(result.data.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
+      }
+      remember(VOICE_KEY, null);
+      setVoiceJobId(null);
+      setVoiceBusy(false);
+    };
+
+    void tick();
+    const id = window.setInterval(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [voiceJobId, outroSpeech]);
+
+  useEffect(() => {
+    const stored = recall(VOICE_KEY);
+    if (stored) setVoiceJobId(stored);
   }, []);
 
   // ---- Render -------------------------------------------------------------
@@ -485,7 +583,79 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           </div>
         </Panel>
 
-        <Panel step="03" title="Rendern">
+        <Panel
+          step="03"
+          title="Outro-Stimme"
+          right={
+            <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+              {project.outroAudioUrl
+                ? `${project.outroAudioSeconds?.toFixed(1) ?? "?"} s`
+                : "fehlt"}
+            </span>
+          }
+        >
+          <textarea
+            value={outroSpeech}
+            onChange={(e) => {
+              const next = e.target.value;
+              // Changing the words invalidates the recording of the old ones.
+              setProject((p) => ({
+                ...p,
+                outroSpeech: next,
+                outroAudioUrl: undefined,
+                outroAudioSeconds: undefined,
+              }));
+            }}
+            aria-label="Gesprochenes Outro"
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              border: "1px solid var(--grid)",
+              background: "#fff",
+              fontSize: 13,
+              lineHeight: 1.45,
+              resize: "vertical",
+            }}
+          />
+          <div style={{ height: 8 }} />
+          <Button
+            onClick={() => void generateOutroVoice()}
+            disabled={voiceBusy || outroSpeech.trim().length < 50}
+          >
+            {voiceBusy
+              ? "Stimme wird aufgenommen…"
+              : project.outroAudioUrl
+                ? "Neu aufnehmen"
+                : "Stimme aufnehmen"}
+          </Button>
+          {voiceError ? <Note tone="alert">{voiceError}</Note> : null}
+          {voiceBusy ? (
+            <Note tone="info">
+              Läuft auf dem Server. Tab wechseln ist in Ordnung.
+            </Note>
+          ) : null}
+          {project.outroAudioUrl && !voiceBusy ? (
+            <>
+              <audio
+                src={project.outroAudioUrl}
+                controls
+                style={{ width: "100%", marginTop: 10 }}
+              />
+              <Note tone="live">
+                Liegt über der Endkarte, die Musik tritt dafür zurück. Die Karte
+                ist so lang wie der Satz.
+              </Note>
+            </>
+          ) : (
+            <Note tone="info">
+              Ohne Aufnahme läuft die Endkarte stumm. Der Text hier wird
+              gesprochen — nicht der auf dem Bildschirm.
+            </Note>
+          )}
+        </Panel>
+
+        <Panel step="04" title="Rendern">
           <Button
             onClick={() => void startRender()}
             disabled={
