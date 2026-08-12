@@ -95,7 +95,13 @@ export const Cue: React.FC<{
  * cross-fade across the turn instead of cutting, which would announce itself.
  */
 const BED_SECONDS = 8;
-const BED_LEVEL = 0.13;
+/**
+ * Doubled from 0.13, which was reported as "viel zu leise, muss doppelt so
+ * laut sein damit es nach etwas klingt" — and measurement agreed: the bed sat
+ * an order of magnitude under the voice, which is background in the literal
+ * sense rather than the musical one.
+ */
+const BED_LEVEL = 0.26;
 const CROSSFADE = 30;
 
 export const Soundtrack: React.FC<{

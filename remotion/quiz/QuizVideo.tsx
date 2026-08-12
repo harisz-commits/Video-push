@@ -12,6 +12,7 @@ import { resolveQuizTiming, type QuizProject } from "../../lib/quiz";
 import { ensureFonts } from "../shared/fonts";
 import { LEVELS } from "./levels";
 import { QuestionSlot } from "./QuestionSlot";
+import { QuizSound } from "./QuizSound";
 import { Sunburst } from "./Sunburst";
 
 /**
@@ -39,6 +40,13 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
     <AbsoluteFill style={{ backgroundColor: skin.deep }}>
       <Sunburst frame={frame} skin={skin} />
 
+      {/*
+        The soundtrack is not optional garnish here. The tick IS the timer, so
+        a quiz rendered without it would be missing the mechanic, not the mood.
+      */}
+      <QuizSound timing={timing} fps={project.fps} />
+
+      {/* A voiceover, when there is one, sits on top of all of it. */}
       {project.audioUrl ? <Audio src={project.audioUrl} /> : null}
 
       <Sequence durationInFrames={timing.introFrames} name="Intro">

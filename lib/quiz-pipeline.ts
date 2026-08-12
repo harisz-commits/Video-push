@@ -153,7 +153,7 @@ async function writeQuestions(args: {
     }
 
     const parsed = parseQuestions(raw, args.flags);
-    if (parsed.ok) return parsed.questions;
+    if (parsed.ok) return balancePositions(parsed.questions);
 
     if (attempt === 2) {
       throw new Error(
@@ -173,6 +173,47 @@ async function writeQuestions(args: {
   }
 
   throw new Error("Unerreichbar.");
+}
+
+/**
+ * Move the correct answer so A, B and C each win about a third of the time.
+ *
+ * Asking the model to spread them out mostly works and is not worth relying on
+ * — a real generation came back 7/4/1, which is under any threshold loose
+ * enough to avoid pointless retries and still obvious to anyone watching. It
+ * is also a pure permutation of three strings, so there is no reason to spend
+ * a model round-trip on it: rotating each question's answers into an assigned
+ * slot is exact, free, and cannot fail.
+ *
+ * The assignment is round-robin over a rotating start, so the positions do not
+ * fall into a visible A-B-C-A-B-C rhythm either.
+ */
+function balancePositions(questions: QuizQuestion[]): QuizQuestion[] {
+  // Deterministic from the content, so regenerating the same quiz twice gives
+  // the same video rather than a gratuitously different one.
+  const seedText = questions.map((q) => q.id + q.prompt).join("");
+  let seed = 0;
+  for (let i = 0; i < seedText.length; i++) {
+    seed = (seed * 31 + seedText.charCodeAt(i)) >>> 0;
+  }
+
+  const targets = questions.map((_, i) => (i + (seed % 3)) % 3);
+  // A plain rotation would put the answer in the same place every third
+  // question; nudging every fourth one breaks the pattern without unbalancing.
+  for (let i = 3; i < targets.length; i += 4) {
+    targets[i] = (targets[i] + 1) % 3;
+  }
+
+  return questions.map((q, i) => {
+    const target = targets[i];
+    if (target === q.correctIndex) return q;
+    const answers = [...q.answers];
+    [answers[target], answers[q.correctIndex]] = [
+      answers[q.correctIndex],
+      answers[target],
+    ];
+    return { ...q, answers, correctIndex: target };
+  });
 }
 
 type ParseResult =

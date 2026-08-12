@@ -56,6 +56,27 @@ export const LEVELS: Record<QuizLevel, LevelSkin> = {
   },
 };
 
+/**
+ * How long each level's music loop is, in seconds.
+ *
+ * Derived rather than measured: the bed is sixteen beats, so the length is
+ * 16 × 60 / bpm. Kept next to the palettes because the two climb together —
+ * the tempo rises with the colour, which is the same progression told twice.
+ */
+const BPM: Record<QuizLevel, number> = {
+  easy: 104,
+  medium: 116,
+  hard: 128,
+  impossible: 140,
+};
+
+export const BED_SECONDS: Record<QuizLevel, number> = {
+  easy: (16 * 60) / BPM.easy,
+  medium: (16 * 60) / BPM.medium,
+  hard: (16 * 60) / BPM.hard,
+  impossible: (16 * 60) / BPM.impossible,
+};
+
 /** Green for right, red for wrong — the two colours nobody has to learn. */
 export const RIGHT = "#1FD87A";
 export const WRONG = "#FF4757";

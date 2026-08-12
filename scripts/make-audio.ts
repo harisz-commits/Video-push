@@ -392,6 +392,148 @@ function bed(opts: {
   return normalize(loopSeam(out, extra, BED_RATE), 0.5);
 }
 
+
+// --- Quiz cues -------------------------------------------------------------
+//
+// The quiz format needs a different vocabulary from the infographics one. Its
+// sounds are not there to underline a statement; they are there to tell you
+// what just happened in a game — the clock is running, you were right, you
+// were wrong, here comes the next one — and that has to read in under half a
+// second without anybody explaining it.
+
+/** The reveal when the answer is correct: two notes up, bright and settled. */
+function ding(): Buf {
+  const out = buffer(0.65, SFX_RATE);
+  // A fifth apart and arriving a beat late, because a single tone reads as a
+  // notification while two read as an answer.
+  for (const [freq, at, gain] of [
+    [880, 0, 1],
+    [1318.5, 0.075, 0.85],
+  ] as const) {
+    const start = Math.round(at * SFX_RATE);
+    let phase = 0;
+    for (let i = 0; start + i < out.length; i++) {
+      phase += (2 * Math.PI * freq) / SFX_RATE;
+      out[start + i] +=
+        (Math.sin(phase) + 0.25 * Math.sin(2 * phase)) *
+        env(i, out.length - start, { decay: 0.45, curve: 4 }) *
+        gain;
+    }
+  }
+  return normalize(deClick(out), 0.72);
+}
+
+/** The reveal when it is wrong: a short, flat, downward buzz. */
+function buzz(): Buf {
+  const out = buffer(0.32, SFX_RATE);
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    const f = pitchRamp(i, out.length, 220, 150);
+    phase += (2 * Math.PI * f) / SFX_RATE;
+    // Square-ish, because a clean sine sounds pleasant and this must not.
+    const square = Math.sign(Math.sin(phase)) * 0.5 + Math.sin(phase) * 0.5;
+    out[i] = square * env(i, out.length, { decay: 0.55, curve: 3.5 });
+  }
+  return normalize(lowpass(deClick(out), 0.25), 0.55);
+}
+
+/** The clock, one tick. Drier and higher than the infographics tick. */
+function clockTick(): Buf {
+  const out = buffer(0.05, SFX_RATE);
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    phase += (2 * Math.PI * 3200) / SFX_RATE;
+    out[i] = Math.sin(phase) * env(i, out.length, { decay: 0.16, curve: 12 });
+  }
+  const n = buffer(0.008, SFX_RATE);
+  for (let i = 0; i < n.length; i++) n[i] = rnd() * (1 - i / n.length) ** 2;
+  mix(out, highpass(n, 0.45), 0.5);
+  return normalize(deClick(out, 12), 0.38);
+}
+
+/** The wipe between questions: air moving, no pitch. */
+function whoosh(): Buf {
+  const out = buffer(0.4, SFX_RATE);
+  for (let i = 0; i < out.length; i++) {
+    const t = i / out.length;
+    // Loudest in the middle, so it reads as something passing rather than
+    // starting or stopping.
+    out[i] = rnd() * Math.sin(Math.PI * t) ** 2;
+  }
+  const swept = lowpass(out, (i) => 0.08 + 0.5 * Math.sin(Math.PI * (i / out.length)));
+  return normalize(deClick(highpass(swept, 0.04)), 0.5);
+}
+
+/** The last seconds of the clock: the tick, but urgent. */
+function tickUrgent(): Buf {
+  const out = buffer(0.05, SFX_RATE);
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    phase += (2 * Math.PI * 4200) / SFX_RATE;
+    out[i] = Math.sin(phase) * env(i, out.length, { decay: 0.14, curve: 13 });
+  }
+  return normalize(deClick(out, 12), 0.5);
+}
+
+/**
+ * The gameshow bed.
+ *
+ * Built on a different principle from the infographics beds. Those hold one
+ * unresolved chord because they sit under a narrator making a point; this one
+ * has a walking bass and an off-beat stab, because it sits under a clock and
+ * its job is to make five seconds of waiting feel like five seconds of playing.
+ */
+function quizBed(opts: { root: number; bpm: number; bright: number }): Buf {
+  const beat = (60 / opts.bpm) * BED_RATE;
+  const bars = 4;
+  const beats = bars * 4;
+  const extra = 0.5;
+  const out = buffer((beats * beat) / BED_RATE + extra, BED_RATE);
+  const n = out.length;
+
+  // A major-pentatonic walk: cheerful without being a melody anyone has to
+  // listen to.
+  const steps = [0, 4, 7, 4, 0, 7, 9, 7];
+
+  for (let b = 0; b < beats; b++) {
+    const start = Math.round(b * beat);
+    const semitone = steps[b % steps.length];
+    const freq = opts.root * Math.pow(2, semitone / 12);
+
+    // Bass: short, plucked, on every beat.
+    const bassLen = Math.round(beat * 0.9);
+    let phase = 0;
+    for (let i = 0; i < bassLen && start + i < n; i++) {
+      phase += (2 * Math.PI * freq) / BED_RATE;
+      out[start + i] +=
+        (Math.sin(phase) + 0.3 * Math.sin(2 * phase)) *
+        env(i, bassLen, { decay: 0.28, curve: 5 }) *
+        0.55;
+    }
+
+    // Stab on the off-beat, two octaves up. This is the part that makes it
+    // sound like a game rather than a loop.
+    const offAt = start + Math.round(beat * 0.5);
+    const stabLen = Math.round(beat * 0.4);
+    let sp = 0;
+    for (let i = 0; i < stabLen && offAt + i < n; i++) {
+      sp += (2 * Math.PI * freq * 4) / BED_RATE;
+      out[offAt + i] +=
+        Math.sin(sp) * env(i, stabLen, { decay: 0.22, curve: 7 }) * opts.bright;
+    }
+
+    // A hat on every half beat: the pulse you feel rather than hear.
+    for (const at of [start, offAt]) {
+      const hLen = Math.round(0.02 * BED_RATE);
+      for (let i = 0; i < hLen && at + i < n; i++) {
+        out[at + i] += rnd() * env(i, hLen, { decay: 0.18, curve: 11 }) * 0.12;
+      }
+    }
+  }
+
+  return normalize(loopSeam(out, extra, BED_RATE), 0.5);
+}
+
 // ---------------------------------------------------------------------------
 
 function main(): void {
@@ -406,6 +548,13 @@ function main(): void {
   writeWav("tick.wav", tick(), SFX_RATE);
   writeWav("riser.wav", riser(), SFX_RATE);
   writeWav("transition.wav", transition(), SFX_RATE);
+
+  console.log("[audio] Quiz-Cues:");
+  writeWav("q-ding.wav", ding(), SFX_RATE);
+  writeWav("q-buzz.wav", buzz(), SFX_RATE);
+  writeWav("q-tick.wav", clockTick(), SFX_RATE);
+  writeWav("q-tick-urgent.wav", tickUrgent(), SFX_RATE);
+  writeWav("q-whoosh.wav", whoosh(), SFX_RATE);
 
   console.log("[audio] Beds:");
   writeWav(
@@ -430,6 +579,13 @@ function main(): void {
     }),
     BED_RATE,
   );
+
+  // One bed per difficulty, faster and brighter as it climbs — the same
+  // progression the colours make, in the one channel nobody can look away from.
+  writeWav("q-bed-easy.wav", quizBed({ root: 110, bpm: 104, bright: 0.2 }), BED_RATE);
+  writeWav("q-bed-medium.wav", quizBed({ root: 110, bpm: 116, bright: 0.26 }), BED_RATE);
+  writeWav("q-bed-hard.wav", quizBed({ root: 123.5, bpm: 128, bright: 0.32 }), BED_RATE);
+  writeWav("q-bed-impossible.wav", quizBed({ root: 138.6, bpm: 140, bright: 0.38 }), BED_RATE);
 }
 
 main();
