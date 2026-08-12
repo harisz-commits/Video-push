@@ -138,6 +138,7 @@ function stageOf(p: ProjectSummary): string {
   if (p.hasScript) return "Skript fertig";
   return "leer";
 }
+import { DownloadButton } from "./DownloadButton";
 import { RenderList, type ProjectRenderRow } from "./RenderList";
 import { SceneInspector } from "./SceneInspector";
 import { Timeline } from "./Timeline";
@@ -713,6 +714,25 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
   const selectedScene =
     timing.scenes.find((s) => s.id === selectedSceneId) ?? null;
 
+  /**
+   * The video this project can be downloaded as, if there is one.
+   *
+   * The render in flight wins, because it is the one being watched; otherwise
+   * the newest one storage knows about. Without the fallback the button would
+   * exist only for whoever happened to be present at the finishing line.
+   */
+  const finishedVideo = useMemo(() => {
+    if (render?.status === "done" && render.outputUrl) {
+      return { url: render.outputUrl, sizeBytes: undefined as number | undefined };
+    }
+    const newest = renders
+      .filter((r) => r.outputUrl)
+      .sort((a, b) => b.at - a.at)[0];
+    return newest?.outputUrl
+      ? { url: newest.outputUrl, sizeBytes: newest.sizeBytes }
+      : null;
+  }, [render?.status, render?.outputUrl, renders]);
+
   const renderDisabledReason = !hasAudio
     ? "Der Render braucht die Tonspur: die Szenenzeiten kommen aus den ElevenLabs-Timestamps."
     : render?.status === "rendering" || render?.status === "queued"
@@ -1015,24 +1035,17 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
 
             {render?.error ? <Note tone="alert">{render.error}</Note> : null}
 
-            {render?.outputUrl ? (
-              <a
-                href={render.outputUrl}
-                download
-                style={{
-                  display: "block",
-                  marginTop: 10,
-                  padding: "11px 14px",
-                  border: "1px solid var(--live)",
-                  color: "var(--live)",
-                  textAlign: "center",
-                  textDecoration: "none",
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              >
-                MP4 herunterladen
-              </a>
+            {/*
+              The finished video, whether it finished a moment ago or while
+              nobody was here. Falling back to the project's newest render is
+              what makes closing the tab safe: come back, open the project, and
+              the button is simply there.
+            */}
+            {finishedVideo ? (
+              <DownloadButton
+                url={finishedVideo.url}
+                sizeBytes={finishedVideo.sizeBytes}
+              />
             ) : null}
           </Panel>
         </div>

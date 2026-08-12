@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { QuizProject, resolveQuizTiming } from "../lib/quiz";
 import { QuizVideo } from "../remotion/quiz/QuizVideo";
 import { getJson, postJson } from "./api";
+import { DownloadButton } from "./DownloadButton";
 import { RenderList, type ProjectRenderRow } from "./RenderList";
 import { Button, Field, formatTimecode, Note, Panel } from "./ui";
 
@@ -301,6 +302,24 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [render?.status, render?.outputUrl]);
 
+  /**
+   * The video this project can be downloaded as, if there is one.
+   *
+   * The render in flight wins; otherwise the newest one storage knows about,
+   * which is what makes walking away from a render safe.
+   */
+  const finishedVideo = useMemo(() => {
+    if (render?.status === "done" && render.outputUrl) {
+      return { url: render.outputUrl, sizeBytes: undefined as number | undefined };
+    }
+    const newest = renders
+      .filter((r) => r.outputUrl)
+      .sort((a, b) => b.at - a.at)[0];
+    return newest?.outputUrl
+      ? { url: newest.outputUrl, sizeBytes: newest.sizeBytes }
+      : null;
+  }, [render?.status, render?.outputUrl, renders]);
+
   const levels = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const q of project.questions) counts[q.level] = (counts[q.level] ?? 0) + 1;
@@ -452,12 +471,11 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
               : "Video rendern"}
           </Button>
           {render?.error ? <Note tone="alert">{render.error}</Note> : null}
-          {render?.status === "done" && render.outputUrl ? (
-            <Note tone="live">
-              <a href={render.outputUrl} target="_blank" rel="noreferrer">
-                Video herunterladen
-              </a>
-            </Note>
+          {finishedVideo ? (
+            <DownloadButton
+              url={finishedVideo.url}
+              sizeBytes={finishedVideo.sizeBytes}
+            />
           ) : null}
           <Note tone="info">
             Das Quiz braucht keine Tonspur, um zu rendern — seine Zeiten kommen

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { toDownloadUrl } from "./DownloadButton";
 import { Note } from "./ui";
 
 export type ProjectRenderRow = {
@@ -63,12 +64,16 @@ export const RenderList: React.FC<{
             </span>
             {r.outputUrl ? (
               <a
-                href={r.outputUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={{ fontWeight: 600 }}
+                href={toDownloadUrl(r.outputUrl)}
+                download
+                style={{
+                  fontWeight: 600,
+                  color: "var(--live)",
+                  textDecoration: "none",
+                  whiteSpace: "nowrap",
+                }}
               >
-                Video ansehen
+                ↓ Herunterladen
                 {r.sizeBytes
                   ? ` · ${(r.sizeBytes / 1e6).toFixed(0)} MB`
                   : ""}
