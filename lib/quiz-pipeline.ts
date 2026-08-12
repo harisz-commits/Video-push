@@ -72,6 +72,12 @@ export async function generateQuiz(args: {
       topic: args.topic,
       count: args.count,
       flags,
+      onAttempt: (attempt) =>
+        progress(
+          attempt === 0
+            ? `${args.count} Fragen werden geschrieben`
+            : `Nachbessern (Versuch ${attempt + 1} von 3)`,
+        ).then(() => undefined),
     });
 
     await progress("Titel und Einstieg");
@@ -115,6 +121,8 @@ async function writeQuestions(args: {
   topic: string;
   count: number;
   flags: string[];
+  /** Reports each attempt, so a slow run does not look like a dead one. */
+  onAttempt?: (attempt: number) => Promise<void>;
 }): Promise<QuizQuestion[]> {
   const messages: Anthropic.MessageParam[] = [
     {
@@ -132,9 +140,14 @@ async function writeQuestions(args: {
   ];
 
   for (let attempt = 0; attempt < 3; attempt++) {
+    await args.onAttempt?.(attempt);
     const message = await args.client.messages.create({
       model: MODEL,
-      max_tokens: 8000,
+      // Scaled with the request, and generous. Thinking tokens count against
+      // this ceiling too, so a fixed 8000 was fine for twelve questions and
+      // uncomfortably close for thirty — and a reply cut off at the ceiling
+      // costs the whole batch, not part of it.
+      max_tokens: Math.min(32000, 6000 + args.count * 700),
       output_config: { effort: EFFORT },
       system: QUIZ_SYSTEM_PROMPT,
       messages,
@@ -327,18 +340,17 @@ function parseQuestions(raw: string, flags: string[]): ParseResult {
     problems.push("Es kam keine einzige gültige Frage zurück.");
   }
 
-  // The correct answer sitting in the same slot every time is a giveaway a
-  // viewer notices within three questions, and the model does drift into it.
-  if (questions.length >= 6) {
-    const counts = [0, 0, 0];
-    for (const q of questions) counts[q.correctIndex] += 1;
-    const worst = Math.max(...counts);
-    if (worst > questions.length * 0.6) {
-      problems.push(
-        `Die richtige Antwort steht ${worst} von ${questions.length} Mal an derselben Position. Gleichmäßiger auf A, B und C verteilen.`,
-      );
-    }
-  }
+  // Note what is NOT checked here: which slot the correct answer sits in.
+  //
+  // It used to be, and rejecting a batch over it was a mistake that cost far
+  // more than the fault. `balancePositions` fixes the distribution exactly and
+  // for free, so a complaint about it sent thirty questions back to be
+  // rewritten in order to fix something already handled downstream — three
+  // rounds of that is minutes of work and can outlive the function itself,
+  // which is what "es steht schon lange Fragen werden geschrieben" looks like
+  // from the outside.
+  //
+  // The rule: only reject what cannot be repaired here.
 
   return problems.length === 0
     ? { ok: true, questions }

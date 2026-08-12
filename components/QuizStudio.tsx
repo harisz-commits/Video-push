@@ -17,6 +17,7 @@ type QuizJobState = {
   step?: string;
   project?: unknown;
   error?: string;
+  startedAt?: number;
 };
 
 type RenderState = {
@@ -80,6 +81,9 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
 
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
+  /** When the current generation started, so the wait can be shown as a number. */
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -184,7 +188,20 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     }
     remember(JOB_KEY, result.data.jobId);
     setJobId(result.data.jobId);
+    setStartedAt(Date.now());
   }
+
+  // A generation that takes three minutes and one that died look identical
+  // when the only thing on screen is the word "läuft". Counting makes the
+  // difference visible without anyone having to guess.
+  useEffect(() => {
+    if (!busy || !startedAt) return;
+    const id = window.setInterval(
+      () => setElapsed(Math.round((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(id);
+  }, [busy, startedAt]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -206,6 +223,12 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
         return;
       }
       setStep(result.data.step ?? null);
+      // Resuming a job started in another session, or before a reload: without
+      // this the counter would start from zero and lie about how long it has
+      // been going.
+      if (!startedAt && typeof result.data.startedAt === "number") {
+        setStartedAt(result.data.startedAt);
+      }
       if (result.data.status === "running") return;
 
       if (result.data.status === "done" && result.data.project) {
@@ -228,6 +251,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
       remember(JOB_KEY, null);
       setJobId(null);
       setStep(null);
+      setStartedAt(null);
       setBusy(false);
     };
 
@@ -405,7 +429,11 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           {error ? <Note tone="alert">{error}</Note> : null}
           {busy ? (
             <Note tone="info">
-              Läuft auf dem Server. Tab wechseln oder schließen ist in Ordnung.
+              <span className="mono">
+                {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
+              </span>{" "}
+              — läuft auf dem Server. Tab wechseln oder schließen ist in
+              Ordnung. {count} Fragen brauchen ein bis drei Minuten.
             </Note>
           ) : null}
         </Panel>
