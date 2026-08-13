@@ -7,6 +7,7 @@ import { QuizVideo } from "../remotion/quiz/QuizVideo";
 import { getJson, postJson } from "./api";
 import { DownloadButton } from "./DownloadButton";
 import { RenderList, type ProjectRenderRow } from "./RenderList";
+import { ThumbnailPanel } from "./ThumbnailPanel";
 import { Button, Field, formatTimecode, Note, Panel } from "./ui";
 
 const JOB_KEY = "infographics-studio.quizJob";
@@ -681,6 +682,18 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           </Note>
           <RenderList renders={renders} activeRenderId={render?.renderId} />
         </Panel>
+
+        <ThumbnailPanel
+          step="05"
+          // The quiz's own flags, so the picture is of the thing in the video.
+          flags={project.questions.map((q) => q.flag).filter((f): f is string => Boolean(f))}
+          defaultTitle={project.title}
+          slug={project.title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "")
+            .slice(0, 48)}
+        />
       </div>
 
       <div className="studio-stage">
