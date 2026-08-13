@@ -1,4 +1,5 @@
 import { listLanguages } from "../../../lib/elevenlabs";
+import { germanName } from "../../../lib/language-names";
 import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
 
 export const runtime = "nodejs";
@@ -19,7 +20,14 @@ export async function GET(req: Request) {
   if (!limited.ok) return errorResponse(limited.error, limited.status);
 
   try {
-    return Response.json({ languages: await listLanguages(apiKey) });
+    // Named in German, because the names end up on screen as answer options
+    // in a German video. Sorted after renaming, or the order would follow
+    // words nobody sees.
+    const languages = (await listLanguages(apiKey))
+      .map((l) => ({ id: l.id, name: germanName(l.id, l.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+    return Response.json({ languages });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[/api/languages]", err);
