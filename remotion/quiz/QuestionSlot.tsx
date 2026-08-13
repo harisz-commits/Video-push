@@ -70,12 +70,19 @@ export const QuestionSlot: React.FC<{
           <Pill text={`FRAGE ${slot.index + 1}`} color={skin.ink} faint />
         </div>
 
-        {slot.question.flag ? (
-          <Flag
-            code={slot.question.flag}
+        {/*
+          The question itself: a flag to look at, or a voice to listen to.
+          Never both — a flag beside a spoken sentence would answer the
+          question before it finished being asked.
+        */}
+        {slot.question.audioUrl ? (
+          <Speaker
             frame={local}
+            playing={local >= enterFrames && !revealed}
             big={!showAnswers}
           />
+        ) : slot.question.flag ? (
+          <Flag code={slot.question.flag} frame={local} big={!showAnswers} />
         ) : null}
 
         <h1
@@ -384,6 +391,75 @@ const Solution: React.FC<{
           </span>
         </div>
       ) : null}
+    </div>
+  );
+};
+
+/**
+ * The speaker, for a question that is a recording.
+ *
+ * There is nothing to show — the question is a sound — so this is what a
+ * viewer looks at while listening. It moves for the whole clip, which is both
+ * the point and the reason the format survives having no picture: bars that
+ * react are the difference between "audio is playing" and "the video froze".
+ *
+ * The bar heights are a function of the frame, not of the actual waveform.
+ * Reading the audio would mean decoding it at render time for a decoration
+ * nobody can check against the sound.
+ */
+const Speaker: React.FC<{ frame: number; playing: boolean; big?: boolean }> = ({
+  frame,
+  playing,
+  big,
+}) => {
+  const bars = 13;
+  const height = big ? 300 : 240;
+  const width = big ? 620 : 520;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        marginBottom: 34,
+      }}
+    >
+      <div
+        style={{
+          width,
+          height,
+          borderRadius: 28,
+          background: "rgba(0,0,0,0.30)",
+          border: "4px solid rgba(255,255,255,0.20)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: big ? 14 : 12,
+          boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+        }}
+      >
+        {Array.from({ length: bars }, (_, i) => {
+          // Three frequencies with different periods: no two bars repeat
+          // together, so the group never looks like a marching pattern.
+          const wobble =
+            Math.sin(frame / 4 + i * 0.9) * 0.42 +
+            Math.sin(frame / 7.3 + i * 1.7) * 0.34 +
+            Math.sin(frame / 2.6 + i) * 0.24;
+          const level = playing ? 0.25 + Math.abs(wobble) * 0.75 : 0.08;
+          return (
+            <div
+              key={i}
+              style={{
+                width: big ? 26 : 22,
+                height: Math.max(10, level * (height - 80)),
+                borderRadius: 999,
+                background: "#FFFFFF",
+                opacity: playing ? 0.92 : 0.35,
+              }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 };

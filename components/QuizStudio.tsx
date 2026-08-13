@@ -22,6 +22,29 @@ const VOICE_KEY = "infographics-studio.quizVoiceJob";
 const DEFAULT_OUTRO_SPEECH =
   "Und wie viele hattest du diesmal richtig? Schreibe es uns in die Kommentare und abonniere unseren Kanal.";
 const PROJECT_KEY = "infographics-studio.quizProjectId";
+const MODE_KEY = "infographics-studio.quizMode";
+
+/** Everyday, neutral, and identical in every language — see lib/quiz-language.ts. */
+const DEFAULT_SAMPLE =
+  "Heute ist ein schöner Tag. Ich denke, ich werde spazieren gehen und etwas Zeit an der frischen Luft verbringen.";
+
+type Language = { id: string; name: string };
+
+/**
+ * Seven languages to start from, spread across families.
+ *
+ * A quiz of seven European languages is a quiz about accents; one that reaches
+ * across scripts and families is a quiz about languages. These are the
+ * defaults, not the rule — every one of them is a checkbox.
+ */
+function suggest(all: Language[]): string[] {
+  const wanted = ["de", "fr", "es", "it", "pl", "tr", "ja", "pt", "nl", "sv"];
+  const available = new Set(all.map((l) => l.id));
+  const picked = wanted.filter((id) => available.has(id)).slice(0, 7);
+  // If none of them exist, take whatever the model does offer rather than
+  // showing an empty selection nobody can act on.
+  return picked.length >= 3 ? picked : all.slice(0, 7).map((l) => l.id);
+}
 
 type QuizJobState = {
   status: "running" | "done" | "error";
@@ -112,6 +135,13 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const [render, setRender] = useState<RenderState | null>(null);
   const [renders, setRenders] = useState<ProjectRenderRow[]>([]);
 
+  // Which kind of quiz the panels are set up for. A view state, not project
+  // state: an existing project already knows what it is.
+  const [mode, setMode] = useState<"general" | "language">("general");
+  const [languages, setLanguages] = useState<Language[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [sentence, setSentence] = useState(DEFAULT_SAMPLE);
+
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceJobId, setVoiceJobId] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -132,6 +162,54 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   useEffect(() => {
     void refreshProjects();
   }, [refreshProjects]);
+
+  // Which languages exist is the speaking model's business, so it is asked
+  // rather than assumed.
+  useEffect(() => {
+    void getJson<{ languages: Language[] }>("/api/languages").then((result) => {
+      if (!result.ok) return;
+      setLanguages(result.data.languages);
+      setPicked((current) =>
+        current.length > 0 ? current : suggest(result.data.languages),
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(MODE_KEY);
+      if (stored === "language" || stored === "general") setMode(stored);
+    } catch {
+      // Defaulting to the general quiz is a fine answer.
+    }
+  }, []);
+
+  const changeMode = (next: "general" | "language") => {
+    setMode(next);
+    try {
+      window.localStorage.setItem(MODE_KEY, next);
+    } catch {
+      // The switch still works for this session.
+    }
+  };
+
+  async function generateLanguages() {
+    setBusy(true);
+    setError(null);
+    const chosen = languages.filter((l) => picked.includes(l.id));
+    const result = await postJson<{ jobId: string }>("/api/quiz/language", {
+      languages: chosen,
+      sentence,
+    });
+    if (!result.ok) {
+      setError(result.error);
+      setBusy(false);
+      return;
+    }
+    remember(JOB_KEY, result.data.jobId);
+    setJobId(result.data.jobId);
+    setStartedAt(Date.now());
+  }
 
   const save = useCallback(
     async (extra?: { lastRender?: { renderId: string; outputUrl?: string; at: number } }) => {
@@ -186,6 +264,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     setProjectId(result.data.id);
     remember(PROJECT_KEY, result.data.id);
     setTopic(parsed.data.topic);
+    setMode(parsed.data.mode);
     setRenders(result.data.renders ?? []);
     setRender(null);
     setError(null);
@@ -498,7 +577,175 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           ) : null}
         </Panel>
 
-        <Panel step="01" title="Thema">
+        <Panel step="01" title={mode === "language" ? "Sprachen" : "Thema"}>
+          {/*
+            Two kinds of quiz behind one switch. The general one asks about a
+            topic; the language one asks about a sound, and needs a completely
+            different thing chosen — so the panel below it changes rather than
+            growing a second half that is always half irrelevant.
+          */}
+          <div
+            role="tablist"
+            aria-label="Quiz-Art"
+            style={{
+              display: "flex",
+              gap: 4,
+              padding: 3,
+              border: "1px solid var(--grid)",
+              marginBottom: 12,
+            }}
+          >
+            {(
+              [
+                ["general", "Allgemein"],
+                ["language", "Sprache"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={mode === key}
+                onClick={() => changeMode(key)}
+                style={{
+                  flex: 1,
+                  border: "none",
+                  padding: "8px 10px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  background: mode === key ? "var(--ink)" : "transparent",
+                  color: mode === key ? "var(--field)" : "var(--ink)",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {mode === "language" ? (
+            <>
+              <div
+                className="mono"
+                style={{ fontSize: 11, color: "#5b6672", marginBottom: 6 }}
+              >
+                {picked.length} von {languages.length} Sprachen gewählt
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 2,
+                  maxHeight: 240,
+                  overflowY: "auto",
+                  border: "1px solid var(--grid)",
+                  padding: 8,
+                }}
+              >
+                {languages.map((l) => (
+                  <label
+                    key={l.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 7,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      padding: "3px 2px",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={picked.includes(l.id)}
+                      onChange={(e) =>
+                        setPicked((current) =>
+                          e.target.checked
+                            ? [...current, l.id]
+                            : current.filter((id) => id !== l.id),
+                        )
+                      }
+                    />
+                    {l.name}
+                  </label>
+                ))}
+                {languages.length === 0 ? (
+                  <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                    Keine Sprachen geladen — ELEVENLABS_API_KEY prüfen.
+                  </span>
+                ) : null}
+              </div>
+
+              <div style={{ height: 8 }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <Button
+                  variant="ghost"
+                  onClick={() => setPicked(suggest(languages))}
+                >
+                  Vorschlag
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    // Deliberately a fresh draw each time: the whole appeal of
+                    // "random" is that the next video is not this one again.
+                    setPicked(
+                      [...languages]
+                        .sort(() => Math.random() - 0.5)
+                        .slice(0, 7)
+                        .map((l) => l.id),
+                    )
+                  }
+                >
+                  Zufällig
+                </Button>
+              </div>
+
+              <div style={{ height: 10 }} />
+              <textarea
+                value={sentence}
+                onChange={(e) => setSentence(e.target.value)}
+                aria-label="Gesprochener Satz"
+                rows={3}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: "1px solid var(--grid)",
+                  background: "#fff",
+                  fontSize: 13,
+                  lineHeight: 1.45,
+                  resize: "vertical",
+                }}
+              />
+              <div
+                className="mono"
+                style={{ fontSize: 11, color: "#5b6672", marginTop: 4 }}
+              >
+                Derselbe Satz in jeder Sprache — sonst rät man an der Länge.
+              </div>
+
+              <div style={{ height: 10 }} />
+              <Button
+                onClick={() => void generateLanguages()}
+                disabled={busy || picked.length < 3}
+              >
+                {busy ? (step ?? "Wird erzeugt…") : "Sprach-Quiz erzeugen"}
+              </Button>
+              {error ? <Note tone="alert">{error}</Note> : null}
+              {busy ? (
+                <Note tone="info">
+                  <span className="mono">
+                    {Math.floor(elapsed / 60)}:
+                    {String(elapsed % 60).padStart(2, "0")}
+                  </span>{" "}
+                  — eine Aufnahme pro Sprache, das dauert.
+                </Note>
+              ) : null}
+              <Note tone="info">
+                Kostet ElevenLabs-Zeichen: {picked.length} Aufnahmen à etwa{" "}
+                {sentence.trim().length} Zeichen.
+              </Note>
+            </>
+          ) : (
+          <>
           <Field
             value={topic}
             placeholder="z. B. Flaggen der Welt"
@@ -535,6 +782,8 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
               Ordnung. {count} Fragen brauchen ein bis drei Minuten.
             </Note>
           ) : null}
+          </>
+          )}
         </Panel>
 
         <Panel

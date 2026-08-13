@@ -144,3 +144,45 @@ export async function listVoices(apiKey: string): Promise<Voice[]> {
   };
   return (data.voices ?? []).map((v) => ({ voiceId: v.voice_id, name: v.name }));
 }
+
+export type Language = { id: string; name: string };
+
+/**
+ * The languages the speaking model actually supports.
+ *
+ * Asked rather than hardcoded. A list written into the source is a list that
+ * silently goes stale — the model gains languages, and a quiz that could have
+ * used them never offers them because a constant somewhere says otherwise.
+ */
+export async function listLanguages(
+  apiKey: string,
+  modelId: string = DEFAULT_MODEL_ID,
+): Promise<Language[]> {
+  const response = await fetch(`${API_BASE}/models`, {
+    headers: { "xi-api-key": apiKey },
+  });
+  if (!response.ok) {
+    throw new ElevenLabsError(
+      `ElevenLabs antwortete mit ${response.status} auf die Modell-Liste.`,
+      response.status,
+    );
+  }
+
+  const models = (await response.json()) as {
+    model_id?: string;
+    languages?: { language_id?: string; name?: string }[];
+  }[];
+
+  const model =
+    models.find((m) => m.model_id === modelId) ??
+    // Any multilingual model will do if the configured one is gone; an empty
+    // language list would disable the format entirely for no good reason.
+    models.find((m) => (m.languages?.length ?? 0) > 1);
+
+  return (model?.languages ?? [])
+    .filter((l): l is { language_id: string; name: string } =>
+      Boolean(l.language_id && l.name),
+    )
+    .map((l) => ({ id: l.language_id, name: l.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+}

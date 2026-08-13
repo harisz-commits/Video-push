@@ -40,9 +40,11 @@ export const QuizSound: React.FC<{
   fps: number;
   /** Frame from which the music drops back, because someone is talking. */
   duckFrom?: number;
-}> = ({ timing, fps, duckFrom }) => (
+  /** Keep it back for the whole video — for a quiz made of recordings. */
+  duckAll?: boolean;
+}> = ({ timing, fps, duckFrom, duckAll }) => (
   <>
-    <QuizBed timing={timing} fps={fps} duckFrom={duckFrom} />
+    <QuizBed timing={timing} fps={fps} duckFrom={duckAll ? 0 : duckFrom} />
     {timing.slots.map((slot) => (
       <SlotSound key={slot.question.id} slot={slot} fps={fps} />
     ))}

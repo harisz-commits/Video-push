@@ -50,6 +50,15 @@ export const QuizQuestion = z.object({
   thinkSeconds: z.number().min(2).max(12).default(5),
   /** What the host says while the clock runs. Silence is what kills retention. */
   hype: z.string().max(60).optional(),
+  /**
+   * A recording that IS the question.
+   *
+   * For a language quiz there is nothing to look at — the question is a voice
+   * saying a sentence, and the viewer's job is to name the language. The clip
+   * has to finish before the timer does, so its length is stored with it.
+   */
+  audioUrl: z.string().url().optional(),
+  audioSeconds: z.number().positive().max(30).optional(),
 });
 export type QuizQuestion = z.infer<typeof QuizQuestion>;
 
@@ -91,6 +100,15 @@ export const QuizProject = z.object({
    * boxes they had already narrowed down.
    */
   showAnswers: z.boolean().default(true),
+  /**
+   * Which kind of quiz this is.
+   *
+   * Only the presentation differs: "general" shows a flag or plain text,
+   * "language" shows a speaker while a clip plays and never shows a flag —
+   * a flag beside a spoken sentence would answer the question before it was
+   * asked.
+   */
+  mode: z.enum(["general", "language"]).default("general"),
   questions: z.array(QuizQuestion).min(1).max(60),
   audioUrl: z.string().url().optional(),
   fps: z.literal(30).default(30),
@@ -151,7 +169,14 @@ export function resolveQuizTiming(project: QuizProject): QuizTiming {
 
   const slots: QuizSlot[] = project.questions.map((question, index) => {
     const enterFrames = s(BEATS.enter);
-    const thinkFrames = s(question.thinkSeconds);
+    // A question that is a recording cannot be shorter than the recording.
+    // The clock still rules the format — it just has to wait for the sentence
+    // to finish before it can be allowed to run out.
+    const thinkFrames = s(
+      question.audioSeconds
+        ? Math.max(question.thinkSeconds, question.audioSeconds + 1.6)
+        : question.thinkSeconds,
+    );
     const revealFrames = s(BEATS.reveal);
     const exitFrames = s(BEATS.exit);
     const durationInFrames =

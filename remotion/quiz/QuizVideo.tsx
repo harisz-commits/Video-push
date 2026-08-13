@@ -61,6 +61,9 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
         // things competing for the same three seconds, and the one that has to
         // win is the one asking the viewer for something.
         duckFrom={project.outroAudioUrl ? timing.outroFrom : undefined}
+        // A language quiz is nothing but listening, so the bed sits back for
+        // the whole video rather than at one moment in it.
+        duckAll={project.mode === "language"}
       />
 
       {/* A voiceover, when there is one, sits on top of all of it. */}
@@ -129,6 +132,16 @@ const SlotFrame: React.FC<{
 
   return (
     <AbsoluteFill>
+      {/*
+        The recording that is the question. Started when the card has finished
+        sliding in rather than at the cut, so the first word is not spoken over
+        a moving screen.
+      */}
+      {slot.question.audioUrl ? (
+        <Sequence from={slot.enterFrames} name="♪ Frage">
+          <Audio src={slot.question.audioUrl} volume={1} />
+        </Sequence>
+      ) : null}
       <QuestionSlot
         slot={slot}
         frame={frame}
