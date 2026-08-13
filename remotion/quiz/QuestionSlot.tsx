@@ -16,7 +16,8 @@ export const QuestionSlot: React.FC<{
   slot: QuizSlot;
   frame: number;
   fps: number;
-}> = ({ slot, frame, fps }) => {
+  showAnswers: boolean;
+}> = ({ slot, frame, fps, showAnswers }) => {
   const skin = LEVELS[slot.question.level];
   const { enterFrames, thinkFrames, revealFrames } = slot;
 
@@ -70,7 +71,11 @@ export const QuestionSlot: React.FC<{
         </div>
 
         {slot.question.flag ? (
-          <Flag code={slot.question.flag} frame={local} />
+          <Flag
+            code={slot.question.flag}
+            frame={local}
+            big={!showAnswers}
+          />
         ) : null}
 
         <h1
@@ -91,42 +96,52 @@ export const QuestionSlot: React.FC<{
 
         <TimerBar progress={timerProgress} skin={skin} done={revealed} />
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 22,
-            marginTop: 34,
-          }}
-        >
-          {slot.question.answers.map((answer, i) => (
-            <AnswerBox
-              key={i}
-              letter={LETTERS[i]}
-              text={answer}
-              // Answers land one after another, so even the entry is three
-              // events instead of one.
-              appear={spring({
-                frame: local - i * 3,
-                fps,
-                config: { damping: 200, mass: 0.5 },
-                durationInFrames: enterFrames,
-              })}
-              state={
-                !revealed
-                  ? "waiting"
-                  : i === slot.question.correctIndex
-                    ? "right"
-                    : "wrong"
-              }
-              revealFrame={local - revealFrom}
-              revealFrames={revealFrames}
-              fps={fps}
-              accent={skin.accent}
-              ink={skin.ink}
-            />
-          ))}
-        </div>
+        {showAnswers ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 22,
+              marginTop: 34,
+            }}
+          >
+            {slot.question.answers.map((answer, i) => (
+              <AnswerBox
+                key={i}
+                letter={LETTERS[i]}
+                text={answer}
+                // Answers land one after another, so even the entry is three
+                // events instead of one.
+                appear={spring({
+                  frame: local - i * 3,
+                  fps,
+                  config: { damping: 200, mass: 0.5 },
+                  durationInFrames: enterFrames,
+                })}
+                state={
+                  !revealed
+                    ? "waiting"
+                    : i === slot.question.correctIndex
+                      ? "right"
+                      : "wrong"
+                }
+                revealFrame={local - revealFrom}
+                revealFrames={revealFrames}
+                fps={fps}
+                accent={skin.accent}
+                ink={skin.ink}
+              />
+            ))}
+          </div>
+        ) : (
+          <Solution
+            text={slot.question.answers[slot.question.correctIndex]}
+            revealed={revealed}
+            revealFrame={local - revealFrom}
+            revealFrames={revealFrames}
+            fps={fps}
+          />
+        )}
       </div>
     </AbsoluteFill>
   );
@@ -161,14 +176,20 @@ const Pill: React.FC<{ text: string; color: string; faint?: boolean }> = ({
  * network mid-render, and a quiz that fails because an image host was slow
  * would be the stupidest possible way to lose a video.
  */
-const Flag: React.FC<{ code: string; frame: number }> = ({ code, frame }) => (
+const Flag: React.FC<{ code: string; frame: number; big?: boolean }> = ({
+  code,
+  frame,
+  big,
+}) => (
   <div style={{ display: "flex", justifyContent: "center", marginBottom: 30 }}>
     <img
       src={staticFile(`flags/${code}.svg`)}
       alt=""
       style={{
-        width: 420,
-        height: 315,
+        // Without the three boxes underneath there is room, and the flag is
+        // the question — so it takes the space rather than leaving it empty.
+        width: big ? 560 : 420,
+        height: big ? 420 : 315,
         objectFit: "cover",
         borderRadius: 18,
         border: "6px solid rgba(255,255,255,0.92)",
@@ -288,6 +309,81 @@ const AnswerBox: React.FC<{
       >
         {text}
       </span>
+    </div>
+  );
+};
+
+/**
+ * The answer, when there were no options to tick.
+ *
+ * Held empty while the clock runs — deliberately, because the empty space is
+ * what makes it a recall test rather than a reading test. Then the answer
+ * arrives in it, large enough to be the only thing on screen.
+ */
+const Solution: React.FC<{
+  text: string;
+  revealed: boolean;
+  revealFrame: number;
+  revealFrames: number;
+  fps: number;
+}> = ({ text, revealed, revealFrame, revealFrames, fps }) => {
+  const pop = revealed
+    ? spring({
+        frame: revealFrame,
+        fps,
+        config: { damping: 13, mass: 0.6 },
+        durationInFrames: Math.min(revealFrames, 22),
+      })
+    : 0;
+
+  return (
+    <div
+      style={{
+        marginTop: 40,
+        minHeight: 132,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {revealed ? (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 22,
+            border: `5px solid ${RIGHT}`,
+            borderRadius: 22,
+            background: `rgba(31,216,122,${0.12 + pop * 0.16})`,
+            padding: "24px 54px",
+            transform: `scale(${0.9 + pop * 0.1})`,
+            opacity: pop,
+            boxShadow: `0 0 ${52 * pop}px rgba(31,216,122,${0.5 * pop})`,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "var(--mono, ui-monospace, monospace)",
+              fontSize: 46,
+              fontWeight: 800,
+              color: RIGHT,
+            }}
+          >
+            ✔
+          </span>
+          <span
+            style={{
+              fontFamily: "var(--display, Inter, system-ui, sans-serif)",
+              fontSize: text.length > 20 ? 58 : 72,
+              fontWeight: 800,
+              color: "#FFFFFF",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {text}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 };

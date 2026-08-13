@@ -78,6 +78,19 @@ export const QuizProject = z.object({
    * spoken over it, and nothing at render time can measure an mp3 behind a URL.
    */
   outroAudioSeconds: z.number().positive().max(30).optional(),
+  /**
+   * Whether the three options are shown.
+   *
+   * A presentation choice, not a property of the questions — the wrong answers
+   * stay in the data either way, so this can be flipped on a finished quiz
+   * without regenerating anything.
+   *
+   * With options it is a multiple-choice game and a viewer can play along by
+   * elimination. Without them it is a recall test: harder, faster to read, and
+   * the reveal lands as an answer rather than as a tick next to one of three
+   * boxes they had already narrowed down.
+   */
+  showAnswers: z.boolean().default(true),
   questions: z.array(QuizQuestion).min(1).max(60),
   audioUrl: z.string().url().optional(),
   fps: z.literal(30).default(30),

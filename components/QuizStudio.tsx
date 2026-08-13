@@ -546,6 +546,43 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
             </span>
           }
         >
+          {/*
+            A display switch, not a regeneration. The wrong answers stay in the
+            project either way, so this can be flipped on a finished quiz and
+            flipped back without costing a single model call.
+          */}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 12px",
+              border: "1px solid var(--grid)",
+              marginBottom: 10,
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={project.showAnswers}
+              onChange={(e) => {
+                const showAnswers = e.target.checked;
+                setProject((p) => ({ ...p, showAnswers }));
+              }}
+              style={{ width: 18, height: 18, cursor: "pointer" }}
+            />
+            <span>
+              <strong>Antwortmöglichkeiten zeigen</strong>
+              <br />
+              <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                {project.showAnswers
+                  ? "A · B · C zum Mitraten"
+                  : "nur Frage und Auflösung — schwerer"}
+              </span>
+            </span>
+          </label>
+
           <div className="mono" style={{ fontSize: 11, color: "#5b6672", marginBottom: 10 }}>
             {(["easy", "medium", "hard", "impossible"] as const)
               .filter((l) => levels[l])

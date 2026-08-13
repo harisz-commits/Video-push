@@ -77,7 +77,11 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
           durationInFrames={slot.durationInFrames}
           name={`${String(slot.index + 1).padStart(2, "0")} ${slot.question.level}`}
         >
-          <SlotFrame slot={slot} fps={project.fps} />
+          <SlotFrame
+            slot={slot}
+            fps={project.fps}
+            showAnswers={project.showAnswers}
+          />
         </Sequence>
       ))}
 
@@ -113,10 +117,11 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
  * the outgoing question — a transition drawn between two sequences would have
  * nothing underneath it.
  */
-const SlotFrame: React.FC<{ slot: ReturnType<typeof resolveQuizTiming>["slots"][number]; fps: number }> = ({
-  slot,
-  fps,
-}) => {
+const SlotFrame: React.FC<{
+  slot: ReturnType<typeof resolveQuizTiming>["slots"][number];
+  fps: number;
+  showAnswers: boolean;
+}> = ({ slot, fps, showAnswers }) => {
   const frame = useCurrentFrame();
   const wipeFrom = slot.durationInFrames - slot.exitFrames;
   const wiping = frame >= wipeFrom;
@@ -124,7 +129,12 @@ const SlotFrame: React.FC<{ slot: ReturnType<typeof resolveQuizTiming>["slots"][
 
   return (
     <AbsoluteFill>
-      <QuestionSlot slot={slot} frame={frame} fps={fps} />
+      <QuestionSlot
+        slot={slot}
+        frame={frame}
+        fps={fps}
+        showAnswers={showAnswers}
+      />
       {wiping ? (
         <AbsoluteFill
           style={{
