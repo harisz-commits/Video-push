@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ThumbnailConfig } from "./thumbnail";
 
 /**
  * The contract between every part of the system:
@@ -215,6 +216,8 @@ export const VideoProject = z.object({
    * without guessing from the shape.
    */
   kind: z.literal("infographics").default("infographics"),
+  /** How the thumbnail for this video is set up. See lib/thumbnail.ts. */
+  thumbnail: ThumbnailConfig.optional(),
   id: z.string(),
   topic: z.string(),
   title: z.string(),

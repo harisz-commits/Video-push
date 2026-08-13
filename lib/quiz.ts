@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ThumbnailConfig } from "./thumbnail";
 
 /**
  * The quiz format.
@@ -109,6 +110,8 @@ export const QuizProject = z.object({
    * asked.
    */
   mode: z.enum(["general", "language"]).default("general"),
+  /** How the thumbnail for this video is set up. See lib/thumbnail.ts. */
+  thumbnail: ThumbnailConfig.optional(),
   questions: z.array(QuizQuestion).min(1).max(60),
   audioUrl: z.string().url().optional(),
   fps: z.literal(30).default(30),

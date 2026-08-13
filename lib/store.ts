@@ -241,3 +241,17 @@ export type QuizJob = {
 };
 
 export const quizJobPath = (jobId: string) => `jobs/quiz/${jobId}.json`;
+
+/** A thumbnail background being generated. Same background-job shape as the rest. */
+export type ThumbnailJob = {
+  jobId: string;
+  status: "running" | "done" | "error";
+  imageUrl?: string;
+  prompt?: string;
+  error?: string;
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const thumbnailJobPath = (jobId: string) =>
+  `jobs/thumbnail/${jobId}.json`;

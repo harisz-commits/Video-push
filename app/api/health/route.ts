@@ -24,6 +24,9 @@ export async function GET() {
       ANTHROPIC_API_KEY: Boolean(process.env.ANTHROPIC_API_KEY),
       ELEVENLABS_API_KEY: Boolean(process.env.ELEVENLABS_API_KEY),
       ELEVENLABS_VOICE_ID: Boolean(process.env.ELEVENLABS_VOICE_ID),
+      // Only the thumbnail's background image needs this. Everything else —
+      // including the rest of the thumbnail — works without it.
+      GEMINI_API_KEY: Boolean(process.env.GEMINI_API_KEY),
       BLOB_READ_WRITE_TOKEN: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
       STUDIO_PASSWORD: Boolean(process.env.STUDIO_PASSWORD),
     },

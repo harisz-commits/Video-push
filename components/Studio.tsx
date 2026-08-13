@@ -141,6 +141,7 @@ function stageOf(p: ProjectSummary): string {
 import { DownloadButton } from "./DownloadButton";
 import { RenderList, type ProjectRenderRow } from "./RenderList";
 import { SceneInspector } from "./SceneInspector";
+import { ThumbnailPanel } from "./ThumbnailPanel";
 import { Timeline } from "./Timeline";
 import { Button, Field, Note, Panel } from "./ui";
 
@@ -1048,6 +1049,26 @@ export const Studio: React.FC<{ seed: VideoProject }> = ({ seed }) => {
               />
             ) : null}
           </Panel>
+
+          {/*
+            No flags here — this format has none. The panel falls back to its
+            flat colour, and the generated background is the picture.
+          */}
+          <ThumbnailPanel
+            step="05"
+            flags={[]}
+            defaultTitle={project.title || project.topic}
+            topic={project.topic}
+            slug={(project.title || project.topic)
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-|-$/g, "")
+              .slice(0, 48)}
+            config={project.thumbnail}
+            onChange={(thumbnail) =>
+              setProject((current) => ({ ...current, thumbnail }))
+            }
+          />
         </div>
 
         {/* ---------------- Stage ---------------- */}

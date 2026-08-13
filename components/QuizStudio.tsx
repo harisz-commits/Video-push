@@ -974,11 +974,16 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           // The quiz's own flags, so the picture is of the thing in the video.
           flags={project.questions.map((q) => q.flag).filter((f): f is string => Boolean(f))}
           defaultTitle={project.title}
+          topic={project.topic}
           slug={project.title
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-|-$/g, "")
             .slice(0, 48)}
+          config={project.thumbnail}
+          onChange={(thumbnail) =>
+            setProject((current) => ({ ...current, thumbnail }))
+          }
         />
       </div>
 
