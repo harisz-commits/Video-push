@@ -99,7 +99,7 @@ export async function generateLanguageQuiz(args: {
         // otherwise would only colour the screen at random.
         level: "medium",
         prompt: "Welche Sprache ist das?",
-        answers: options(language, args.languages),
+        answers: options(index, args.languages),
         correctIndex: 0,
         thinkSeconds: 5,
         hype: "Hör genau hin!",
@@ -158,21 +158,25 @@ export async function generateLanguageQuiz(args: {
  * which makes elimination a real strategy instead of a guess between one
  * familiar name and two they have never seen.
  */
-function options(correct: LanguagePick, pool: LanguagePick[]): string[] {
-  const others = pool.filter((l) => l.id !== correct.id).map((l) => l.name);
-  // Deterministic from the language id, so regenerating the same quiz does not
-  // reshuffle the distractors for no reason.
-  let seed = 0;
-  for (const ch of correct.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+function options(index: number, pool: LanguagePick[]): string[] {
+  const n = pool.length;
+  const correct = pool[index];
+  // Two fixed strides around the ring. Every language then appears as a
+  // distractor exactly twice across the video, where drawing them by a hash of
+  // the id had one language turning up beside five of seven questions and
+  // another beside none — which quietly tells a viewer which names are filler.
+  const others = [pool[(index + 1) % n], pool[(index + 3) % n]]
+    .filter((l) => l && l.id !== correct.id)
+    .map((l) => l.name);
 
-  const picked: string[] = [];
-  for (let i = 0; i < 2 && others.length > 0; i++) {
-    const at = (seed + i * 7) % others.length;
-    picked.push(others.splice(at, 1)[0]);
+  while (others.length < 2) {
+    const spare = pool.find(
+      (l) => l.id !== correct.id && !others.includes(l.name),
+    );
+    others.push(spare?.name ?? "Unbekannt");
   }
-  while (picked.length < 2) picked.push("Unbekannt");
 
-  return [correct.name, ...picked];
+  return [correct.name, ...others.slice(0, 2)];
 }
 
 /** Spread the correct answer across the three slots. Same trick as the general quiz. */
