@@ -98,7 +98,7 @@ export async function generateImage({
   const framing = (layout && FRAMING[layout]) ?? FRAMING.split;
   const aspectRatio = (layout && ASPECT[layout]) ?? ASPECT.split;
 
-  const ask = (withAspect: boolean) =>
+  const ask = (options: { withAspect: boolean; withText: boolean }) =>
     fetch(`${ENDPOINT}/${encodeURIComponent(MODEL)}:generateContent`, {
       method: "POST",
       headers: {
@@ -108,64 +108,79 @@ export async function generateImage({
       body: JSON.stringify({
         contents: [{ parts: [{ text: `${prompt}\n\n${STYLE} ${framing}` }] }],
         generationConfig: {
-          responseModalities: ["IMAGE"],
-          ...(withAspect ? { imageConfig: { aspectRatio } } : {}),
+          // Some models in this family will not emit an image unless they are
+          // also allowed to talk. Asked for IMAGE alone they answer with an
+          // empty candidate and finishReason NO_IMAGE — a 200 with nothing in
+          // it, which reads like a bug in this code and is not one.
+          responseModalities: options.withText ? ["TEXT", "IMAGE"] : ["IMAGE"],
+          ...(options.withAspect ? { imageConfig: { aspectRatio } } : {}),
         },
       }),
       signal,
     });
+
+  let withAspect = true;
 
   // Aspect ratios arrived after the image models did, and an older or
   // differently-named model rejects the whole request over the unknown field.
   // A rejected request costs nothing, so the fallback is simply to ask again
   // without it and let the prompt do the framing — which is what it did
   // before this existed. Every other error is passed straight through.
-  let response = await ask(true);
+  let response = await ask({ withAspect, withText: false });
   if (response.status === 400) {
     const complaint = await response.clone().text().catch(() => "");
     if (/imageConfig|aspect/i.test(complaint)) {
-      response = await ask(false);
+      withAspect = false;
+      response = await ask({ withAspect, withText: false });
     }
+  }
+
+  let body = await parse(response);
+
+  // Nothing drawn, nothing refused: ask once more with text allowed. Once,
+  // deliberately — a loop here is a loop that spends money.
+  //
+  // Only on a response that succeeded. A rejected key produces no image part
+  // either, and asking the same rejected key a second time is a wasted call
+  // whose answer is already known.
+  if (response.ok && !body.blocked && !imagePart(body.json)) {
+    response = await ask({ withAspect, withText: true });
+    body = await parse(response);
   }
 
   if (!response.ok) {
     // The body carries the actual complaint — a wrong model name, a key
     // without the API enabled, a quota. Reporting only the status number sent
     // a day into the wrong place once already.
-    const detail = await response.text().catch(() => "");
-    // The model name belongs in the message: the most likely reason a first
-    // attempt fails is a model id that has been renamed or retired, and
+    //
+    // The model name belongs in the message too: the most likely reason a
+    // first attempt fails is a model id that has been renamed or retired, and
     // "Gemini antwortete mit 404" alone does not point at it.
     throw new GeminiError(
-      `Gemini (${MODEL}) antwortete mit ${response.status}. ${summarize(detail)}`,
+      `Gemini (${MODEL}) antwortete mit ${response.status}. ${summarize(body.raw)}`,
       response.status,
     );
   }
 
-  const body = (await response.json()) as {
-    candidates?: {
-      content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] };
-      finishReason?: string;
-    }[];
-    promptFeedback?: { blockReason?: string };
-  };
-
-  const blocked = body.promptFeedback?.blockReason;
-  if (blocked) {
+  if (body.blocked) {
     throw new GeminiError(
-      `Gemini hat den Bildwunsch abgelehnt (${blocked}). Formuliere ihn anders.`,
+      `Gemini hat den Bildwunsch abgelehnt (${body.blocked}). Formuliere ihn anders.`,
       400,
     );
   }
 
-  const part = body.candidates
-    ?.flatMap((c) => c.content?.parts ?? [])
-    .find((p) => p.inlineData?.data);
+  const part = imagePart(body.json);
 
   if (!part?.inlineData?.data) {
-    const reason = body.candidates?.[0]?.finishReason;
+    const reason = body.json?.candidates?.[0]?.finishReason;
+    // When a model declines to draw something it usually says why in a text
+    // part, and that sentence is the entire diagnosis. Throwing only
+    // "kein Bild (NO_IMAGE)" hides the one useful thing in the response.
+    const said = spoken(body.json);
     throw new GeminiError(
-      `Gemini hat kein Bild zurückgegeben${reason ? ` (${reason})` : ""}.`,
+      `Gemini hat kein Bild zurückgegeben${reason ? ` (${reason})` : ""}.${
+        said ? ` Das Modell sagt: „${said}"` : ""
+      }`,
       502,
     );
   }
@@ -174,6 +189,52 @@ export async function generateImage({
     data: Buffer.from(part.inlineData.data, "base64"),
     mimeType: part.inlineData.mimeType ?? "image/png",
   };
+}
+
+type GeminiBody = {
+  candidates?: {
+    content?: {
+      parts?: {
+        text?: string;
+        inlineData?: { data?: string; mimeType?: string };
+      }[];
+    };
+    finishReason?: string;
+  }[];
+  promptFeedback?: { blockReason?: string };
+};
+
+/** The response, kept both parsed and raw — errors need the raw text. */
+async function parse(response: Response): Promise<{
+  json: GeminiBody | null;
+  raw: string;
+  blocked?: string;
+}> {
+  const raw = await response.text().catch(() => "");
+  let json: GeminiBody | null = null;
+  try {
+    json = JSON.parse(raw) as GeminiBody;
+  } catch {
+    // A non-JSON body is a gateway or proxy talking, not the API.
+  }
+  return { json, raw, blocked: json?.promptFeedback?.blockReason };
+}
+
+function imagePart(body: GeminiBody | null) {
+  return body?.candidates
+    ?.flatMap((c) => c.content?.parts ?? [])
+    .find((p) => p.inlineData?.data);
+}
+
+/** Whatever the model wrote instead of drawing. */
+function spoken(body: GeminiBody | null): string {
+  return (body?.candidates ?? [])
+    .flatMap((c) => c.content?.parts ?? [])
+    .map((p) => p.text)
+    .filter((t): t is string => Boolean(t))
+    .join(" ")
+    .trim()
+    .slice(0, 220);
 }
 
 /** Pull the message out of Google's error envelope, or fall back to raw text. */
