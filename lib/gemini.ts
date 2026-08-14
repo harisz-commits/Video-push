@@ -14,16 +14,28 @@
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 
-/** Overridable, because model names move and a wrong one should be one env var away from fixed. */
-const MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
+/**
+ * Overridable, because model names move and a wrong one should be one env var
+ * away from fixed rather than one deployment.
+ *
+ * The default is the cheapest image model Google sells: about 3.9 cents a
+ * picture, no free tier on any of them. The newer Nano-Banana-2 family costs
+ * the same to a few cents more and can be switched to with GEMINI_IMAGE_MODEL
+ * alone — gemini-3.1-flash-lite-image, gemini-3.1-flash-image,
+ * gemini-3-pro-image — without touching this file.
+ */
+export const MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
 
 export class GeminiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
+  // A plain field rather than a constructor parameter property, so this module
+  // runs under `node --experimental-strip-types` and its request shape can be
+  // tested against a stubbed fetch without a build step or an API key.
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = "GeminiError";
+    this.status = status;
   }
 }
 
@@ -56,6 +68,22 @@ const FRAMING: Record<string, string> = {
     "The image will be cropped to a wide, short letterbox strip, so keep the subject centred vertically and do not rely on the top or bottom of the frame.",
 };
 
+/**
+ * The shape to ask the model for, so less of the picture is thrown away.
+ *
+ * The canvas crops to fill. A square picture in the wide bottom strip loses
+ * two thirds of its height — paid for, generated, discarded. Asking for the
+ * right shape costs the same as asking for the wrong one.
+ *
+ * 21:9 rather than the strip's true 3.2:1 because 21:9 is the widest the API
+ * offers; the rest is trimmed off the sides, where nothing important is.
+ */
+const ASPECT: Record<string, string> = {
+  full: "16:9",
+  split: "1:1",
+  bottom: "21:9",
+};
+
 export async function generateImage({
   prompt,
   apiKey,
@@ -68,9 +96,10 @@ export async function generateImage({
   signal?: AbortSignal;
 }): Promise<{ data: Buffer; mimeType: string }> {
   const framing = (layout && FRAMING[layout]) ?? FRAMING.split;
-  const response = await fetch(
-    `${ENDPOINT}/${encodeURIComponent(MODEL)}:generateContent`,
-    {
+  const aspectRatio = (layout && ASPECT[layout]) ?? ASPECT.split;
+
+  const ask = (withAspect: boolean) =>
+    fetch(`${ENDPOINT}/${encodeURIComponent(MODEL)}:generateContent`, {
       method: "POST",
       headers: {
         "x-goog-api-key": apiKey,
@@ -78,19 +107,37 @@ export async function generateImage({
       },
       body: JSON.stringify({
         contents: [{ parts: [{ text: `${prompt}\n\n${STYLE} ${framing}` }] }],
-        generationConfig: { responseModalities: ["IMAGE"] },
+        generationConfig: {
+          responseModalities: ["IMAGE"],
+          ...(withAspect ? { imageConfig: { aspectRatio } } : {}),
+        },
       }),
       signal,
-    },
-  );
+    });
+
+  // Aspect ratios arrived after the image models did, and an older or
+  // differently-named model rejects the whole request over the unknown field.
+  // A rejected request costs nothing, so the fallback is simply to ask again
+  // without it and let the prompt do the framing — which is what it did
+  // before this existed. Every other error is passed straight through.
+  let response = await ask(true);
+  if (response.status === 400) {
+    const complaint = await response.clone().text().catch(() => "");
+    if (/imageConfig|aspect/i.test(complaint)) {
+      response = await ask(false);
+    }
+  }
 
   if (!response.ok) {
     // The body carries the actual complaint — a wrong model name, a key
     // without the API enabled, a quota. Reporting only the status number sent
     // a day into the wrong place once already.
     const detail = await response.text().catch(() => "");
+    // The model name belongs in the message: the most likely reason a first
+    // attempt fails is a model id that has been renamed or retired, and
+    // "Gemini antwortete mit 404" alone does not point at it.
     throw new GeminiError(
-      `Gemini antwortete mit ${response.status}. ${summarize(detail)}`,
+      `Gemini (${MODEL}) antwortete mit ${response.status}. ${summarize(detail)}`,
       response.status,
     );
   }
