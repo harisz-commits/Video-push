@@ -50,6 +50,11 @@ const STYLE = [
   "Photorealistic, bright, high contrast, vivid saturated colours.",
   "Simple clear subject, uncluttered composition.",
   "Studio lighting, sharp focus, shot on a wide lens.",
+  // Without this the model returns a cut-out object floating on white, which
+  // is a fine product shot and a bad background: on the split layout it puts a
+  // blank white panel next to the coloured half and the thumbnail reads as
+  // unfinished. This is a background, and a background has to reach the edges.
+  "This is a full-bleed background image: the scene fills the entire frame edge to edge, with a rich coloured or textured environment behind the subject. Never an isolated object on a plain white or empty studio backdrop.",
   "Absolutely no text, no letters, no numbers, no watermarks, no logos, no borders, no user interface elements.",
 ].join(" ");
 
