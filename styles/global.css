@@ -37,6 +37,77 @@
   font-display: swap;
 }
 
+/*
+ * Headline faces for the thumbnail, and nothing else in the studio.
+ *
+ * Bundled rather than linked to Google: the canvas has to be able to draw them
+ * with no network at all, and a linked stylesheet is one more thing that can
+ * be slow at exactly the wrong moment. All four are OFL-licensed.
+ *
+ * font-display: block, not swap — a thumbnail drawn in the fallback face and
+ * then silently redrawn is a thumbnail somebody downloads in the wrong font.
+ */
+@font-face {
+  font-family: "Anton";
+  src: url("/fonts/Anton-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Anton";
+  src: url("/fonts/Anton-400-latin-ext.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "ArchivoBlack";
+  src: url("/fonts/ArchivoBlack-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "ArchivoBlack";
+  src: url("/fonts/ArchivoBlack-400-latin-ext.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Bangers";
+  src: url("/fonts/Bangers-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Bangers";
+  src: url("/fonts/Bangers-400-latin-ext.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Montserrat";
+  src: url("/fonts/Montserrat-900-latin.woff2") format("woff2");
+  font-weight: 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Montserrat";
+  src: url("/fonts/Montserrat-900-latin-ext.woff2") format("woff2");
+  font-weight: 900;
+  font-display: block;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* The studio is a measuring table: cool paper, dark ink, exactly one warm accent. */
 :root {
   --field: #edeff2;

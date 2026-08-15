@@ -16,6 +16,31 @@ export const ThumbnailConfig = z.object({
   skin: z.number().int().min(0).max(9).optional(),
   /** Which line carries the highlighter bar; -1 for none. */
   marked: z.number().int().min(-1).max(3).optional(),
+  /** Headline face. See FONTS in components/ThumbnailPanel.tsx. */
+  font: z.string().max(40).optional(),
+  /**
+   * Size, as a multiple of what the auto-fit worked out.
+   *
+   * A multiplier rather than a pixel size: the text still has to wrap into the
+   * column it was given, so an absolute size would be a promise the layout
+   * cannot keep. Above 1 the headline grows until it runs out of room, then
+   * stops.
+   */
+  scale: z.number().min(0.5).max(1.6).optional(),
+  /**
+   * Extra weight, in tenths of the cap height.
+   *
+   * Every one of these faces ships in a single weight, so "bolder" cannot be
+   * a font-weight. It is a same-coloured stroke laid under the fill, which
+   * fattens the letterforms exactly the way a heavier cut would.
+   */
+  fatten: z.number().min(0).max(10).optional(),
+  /** Rotation of the whole headline block, in degrees. */
+  tilt: z.number().min(-15).max(15).optional(),
+  /** How the marked line is marked. */
+  markStyle: z.enum(["bar", "underline", "box", "none"]).optional(),
+  /** Overrides the palette's highlighter colour. */
+  markColor: z.string().max(24).optional(),
   layout: z.enum(["split", "full", "bottom"]).optional(),
   /** The hand-drawn arrow pointing at the subject. */
   arrow: z.boolean().optional(),

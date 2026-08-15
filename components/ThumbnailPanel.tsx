@@ -22,6 +22,16 @@ import { Button, Note, Panel } from "./ui";
 const W = 1280;
 const H = 720;
 
+/**
+ * Line spacing, as a multiple of the font size.
+ *
+ * Wider than a headline usually wants because German is full of umlauts, and
+ * the dots on a Ü sit above the cap height. At tighter leading the highlighter
+ * bar behind one line ends a few pixels from the dots of the next, which reads
+ * as a mistake at the size anybody actually sees a thumbnail.
+ */
+const LEADING = 1.22;
+
 type Skin = { name: string; bg: string; ink: string; mark: string };
 
 /**
@@ -43,6 +53,59 @@ const LAYOUTS = [
   { id: "bottom", label: "Bild oben, Text unten" },
 ] as const;
 type Layout = (typeof LAYOUTS)[number]["id"];
+
+/**
+ * The headline faces, all bundled with the app.
+ *
+ * Each ships in one weight, which is why there is no weight control: "bolder"
+ * here is a stroke laid under the fill (see `fatten`), and that works on every
+ * face rather than only on the ones with a heavier cut available.
+ *
+ * `weight` is the weight the file actually is. Naming it wrong makes the
+ * browser synthesise a fake bold on top of an already-black face, which turns
+ * counters into ink at thumbnail size.
+ */
+const FONTS = [
+  { id: "ArchivoExpanded", weight: 700, label: "Archivo Expanded — breit" },
+  { id: "ArchivoBlack", weight: 400, label: "Archivo Black — sehr fett" },
+  { id: "Anton", weight: 400, label: "Anton — schmal, hoch" },
+  { id: "Montserrat", weight: 900, label: "Montserrat Black — rund" },
+  { id: "Bangers", weight: 400, label: "Bangers — Comic" },
+] as const;
+
+const MARK_STYLES = [
+  { id: "bar", label: "Balken hinter der Zeile" },
+  { id: "underline", label: "Unterstrich" },
+  { id: "box", label: "Kasten um die Zeile" },
+  { id: "none", label: "keine Markierung" },
+] as const;
+type MarkStyle = (typeof MARK_STYLES)[number]["id"];
+
+function fontOf(id: string | undefined) {
+  return FONTS.find((f) => f.id === id) ?? FONTS[0];
+}
+
+/**
+ * Everything already fetched, kept for the life of the page.
+ *
+ * Dragging a slider redraws on every frame, and a redraw that re-fetches nine
+ * flags is a redraw you can watch happen. The pictures never change under a
+ * given URL, so fetching one twice is pure waste — and the flicker it caused
+ * (canvas cleared, then blank until the files came back) looked exactly like
+ * a bug.
+ */
+const imageCache = new Map<string, Promise<HTMLImageElement | null>>();
+
+function cachedImage(
+  key: string,
+  load: () => Promise<HTMLImageElement | null>,
+) {
+  const hit = imageCache.get(key);
+  if (hit) return hit;
+  const pending = load();
+  imageCache.set(key, pending);
+  return pending;
+}
 
 async function loadImage(src: string): Promise<HTMLImageElement | null> {
   try {
@@ -68,17 +131,24 @@ async function loadImage(src: string): Promise<HTMLImageElement | null> {
  * and a browser handed an SVG with no intrinsic size may draw nothing at all.
  */
 async function loadFlag(code: string): Promise<HTMLImageElement | null> {
-  try {
-    const res = await fetch(`/flags/${code}.svg`);
-    if (!res.ok) return null;
-    const svg = (await res.text()).replace("<svg", '<svg width="640" height="480"');
-    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-    const img = await loadImage(url);
-    URL.revokeObjectURL(url);
-    return img;
-  } catch {
-    return null;
-  }
+  return cachedImage(`flag:${code}`, async () => {
+    try {
+      const res = await fetch(`/flags/${code}.svg`);
+      if (!res.ok) return null;
+      const svg = (await res.text()).replace(
+        "<svg",
+        '<svg width="640" height="480"',
+      );
+      const url = URL.createObjectURL(
+        new Blob([svg], { type: "image/svg+xml" }),
+      );
+      const img = await loadImage(url);
+      URL.revokeObjectURL(url);
+      return img;
+    } catch {
+      return null;
+    }
+  });
 }
 
 /**
@@ -96,7 +166,8 @@ function formatCents(cents: number): string {
 function headlineFrom(title: string): string {
   const words = title.toUpperCase().replace(/\s+/g, " ").trim().split(" ");
   const out: string[] = [];
-  for (let i = 0; i < words.length; i += 3) out.push(words.slice(i, i + 3).join(" "));
+  for (let i = 0; i < words.length; i += 3)
+    out.push(words.slice(i, i + 3).join(" "));
   return out.slice(0, 4).join("\n");
 }
 
@@ -138,6 +209,52 @@ function drawArrow(ctx: CanvasRenderingContext2D, colour: string) {
   ctx.restore();
 }
 
+/**
+ * A labelled slider that shows its value.
+ *
+ * The number is not decoration: these three controls are the difference
+ * between a headline that fits and one that runs off the edge, and "somewhere
+ * near the middle" is not a setting anybody can come back to tomorrow.
+ */
+const Slider: React.FC<{
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (value: number) => string;
+  onChange: (value: number) => void;
+}> = ({ label, value, min, max, step, format, onChange }) => (
+  <label
+    style={{
+      display: "grid",
+      gridTemplateColumns: "58px 1fr 56px",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 8,
+      fontSize: 12,
+    }}
+  >
+    <span>{label}</span>
+    <input
+      type="range"
+      value={value}
+      min={min}
+      max={max}
+      step={step}
+      onChange={(e) => onChange(Number(e.target.value))}
+      aria-label={label}
+      style={{ width: "100%" }}
+    />
+    <span
+      className="mono"
+      style={{ fontSize: 11, color: "#5b6672", textAlign: "right" }}
+    >
+      {format(value)}
+    </span>
+  </label>
+);
+
 type JobState = {
   status: "running" | "done" | "error";
   imageUrl?: string;
@@ -164,20 +281,34 @@ export const ThumbnailPanel: React.FC<{
 
   const lines = config?.lines ?? headlineFrom(defaultTitle);
   const skinIndex = config?.skin ?? 0;
+  const skin = SKINS[skinIndex] ?? SKINS[0];
   const marked = config?.marked ?? 1;
   const layout: Layout = (config?.layout as Layout) ?? "split";
   const arrow = config?.arrow ?? false;
   const outline = config?.outline ?? true;
   const imageUrl = config?.imageUrl;
   const imagePrompt =
-    config?.imagePrompt ?? `${topic || defaultTitle}, als Titelbild für ein Video`;
+    config?.imagePrompt ??
+    `${topic || defaultTitle}, als Titelbild für ein Video`;
   const model = resolveModel(config?.model);
+  const font = fontOf(config?.font);
+  const scale = config?.scale ?? 1;
+  const fatten = config?.fatten ?? 0;
+  const tilt = config?.tilt ?? 0;
+  const markStyle: MarkStyle = (config?.markStyle as MarkStyle) ?? "bar";
+  const markColor = config?.markColor;
 
   const set = (patch: Partial<ThumbnailConfig>) =>
     onChange({
       lines,
       skin: skinIndex,
       marked,
+      font: font.id,
+      scale,
+      fatten,
+      tilt,
+      markStyle,
+      markColor,
       layout,
       arrow,
       outline,
@@ -193,6 +324,16 @@ export const ThumbnailPanel: React.FC<{
   // was typed while it was being drawn.
   const setRef = useRef(set);
   setRef.current = set;
+
+  /**
+   * Which draw is the current one.
+   *
+   * Drawing is asynchronous — fonts, flags, a photograph — so a slider being
+   * dragged starts a new draw before the last has finished, and without this
+   * whichever one happens to finish last wins. That is how a stale headline
+   * ends up painted over a fresh one.
+   */
+  const drawToken = useRef(0);
 
   // ---- Generation ---------------------------------------------------------
   async function generate() {
@@ -245,14 +386,29 @@ export const ThumbnailPanel: React.FC<{
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const skin = SKINS[skinIndex] ?? SKINS[0];
-    await document.fonts.ready.catch(() => undefined);
+    const token = ++drawToken.current;
 
+    // A face used only on a canvas is never requested by the page, so waiting
+    // for document.fonts.ready proves nothing about it — the first draw would
+    // measure and paint in the fallback, and the download would carry the
+    // wrong font. Asking for it by name is what actually fetches it.
+    await document.fonts
+      .load(`${font.weight} 100px ${font.id}`)
+      .catch(() => undefined);
+    await document.fonts.ready.catch(() => undefined);
+    if (token !== drawToken.current) return;
+
+    // Everything below paints. Nothing above it does — the canvas is not
+    // cleared until this draw is certain it is still the current one, so a
+    // superseded draw never leaves the picture blank on its way out.
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = skin.bg;
     ctx.fillRect(0, 0, W, H);
 
-    const photo = imageUrl ? await loadImage(imageUrl) : null;
+    const photo = imageUrl
+      ? await cachedImage(`photo:${imageUrl}`, () => loadImage(imageUrl))
+      : null;
+    if (token !== drawToken.current) return;
 
     // Where the words go and where the picture goes, per layout.
     let column = W - 128;
@@ -262,13 +418,13 @@ export const ThumbnailPanel: React.FC<{
     if (photo) {
       if (layout === "full") {
         // Cover, not stretch: an image squeezed to 16:9 looks like a mistake.
-        const scale = Math.max(W / photo.width, H / photo.height);
+        const cover = Math.max(W / photo.width, H / photo.height);
         ctx.drawImage(
           photo,
-          (W - photo.width * scale) / 2,
-          (H - photo.height * scale) / 2,
-          photo.width * scale,
-          photo.height * scale,
+          (W - photo.width * cover) / 2,
+          (H - photo.height * cover) / 2,
+          photo.width * cover,
+          photo.height * cover,
         );
         // Darkened on the left so white text has something to sit on.
         const shade = ctx.createLinearGradient(0, 0, W * 0.85, 0);
@@ -279,17 +435,17 @@ export const ThumbnailPanel: React.FC<{
         column = 620;
       } else if (layout === "bottom") {
         const h = Math.round(H * 0.56);
-        const scale = Math.max(W / photo.width, h / photo.height);
+        const cover = Math.max(W / photo.width, h / photo.height);
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, 0, W, h);
         ctx.clip();
         ctx.drawImage(
           photo,
-          (W - photo.width * scale) / 2,
-          (h - photo.height * scale) / 2,
-          photo.width * scale,
-          photo.height * scale,
+          (W - photo.width * cover) / 2,
+          (h - photo.height * cover) / 2,
+          photo.width * cover,
+          photo.height * cover,
         );
         ctx.restore();
         textTop = h;
@@ -298,17 +454,17 @@ export const ThumbnailPanel: React.FC<{
       } else {
         const x = Math.round(W * 0.46);
         const w = W - x;
-        const scale = Math.max(w / photo.width, H / photo.height);
+        const cover = Math.max(w / photo.width, H / photo.height);
         ctx.save();
         ctx.beginPath();
         ctx.rect(x, 0, w, H);
         ctx.clip();
         ctx.drawImage(
           photo,
-          x + (w - photo.width * scale) / 2,
-          (H - photo.height * scale) / 2,
-          photo.width * scale,
-          photo.height * scale,
+          x + (w - photo.width * cover) / 2,
+          (H - photo.height * cover) / 2,
+          photo.width * cover,
+          photo.height * cover,
         );
         ctx.restore();
         column = x - 128;
@@ -323,7 +479,9 @@ export const ThumbnailPanel: React.FC<{
       const glow = ctx.createRadialGradient(260, 180, 40, 260, 180, 900);
       glow.addColorStop(
         0,
-        skin.ink === "#FFFFFF" ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.55)",
+        skin.ink === "#FFFFFF"
+          ? "rgba(255,255,255,0.14)"
+          : "rgba(255,255,255,0.55)",
       );
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, W, H);
@@ -331,6 +489,7 @@ export const ThumbnailPanel: React.FC<{
       const loaded = (
         await Promise.all(flags.filter(Boolean).slice(0, 9).map(loadFlag))
       ).filter((i): i is HTMLImageElement => i !== null);
+      if (token !== drawToken.current) return;
 
       if (loaded.length > 0) {
         const cols = loaded.length <= 4 ? 2 : 3;
@@ -346,7 +505,7 @@ export const ThumbnailPanel: React.FC<{
           const y = originY + Math.floor(i / cols) * (ch + gap);
           ctx.save();
           ctx.translate(x + cw / 2, y + ch / 2);
-          ctx.rotate((((i % 2 === 0 ? -1 : 1) * 2.5) * Math.PI) / 180);
+          ctx.rotate(((i % 2 === 0 ? -1 : 1) * 2.5 * Math.PI) / 180);
           ctx.shadowColor = "rgba(0,0,0,0.35)";
           ctx.shadowBlur = 22;
           ctx.shadowOffsetY = 8;
@@ -372,16 +531,29 @@ export const ThumbnailPanel: React.FC<{
     // through the picture: it trusted a single measurement, and a measurement
     // that comes back wrong has nothing to correct it.
     const left = 64;
-    const paragraphs = lines.split("\n").map((l) => l.trim()).filter(Boolean);
+    const paragraphs = lines
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    const faceAt = (size: number) =>
+      `${font.weight} ${size}px ${font.id}, system-ui, sans-serif`;
+
+    // Half the fattening stroke sticks out past each end of the line, and
+    // measureText does not know about it — it measures glyphs, not the stroke
+    // laid around them. Unaccounted for, a heavily fattened headline runs into
+    // the picture it was carefully wrapped to avoid.
+    const bleedAt = (size: number) => (fatten * size * 0.01) / 2;
 
     const wrapAt = (size: number): string[] => {
-      ctx.font = `700 ${size}px ArchivoExpanded, system-ui, sans-serif`;
+      ctx.font = faceAt(size);
+      const room = column - bleedAt(size) * 2;
       const out: string[] = [];
       for (const paragraph of paragraphs) {
         let line = "";
         for (const word of paragraph.split(/\s+/)) {
           const candidate = line ? `${line} ${word}` : word;
-          if (line && ctx.measureText(candidate).width > column) {
+          if (line && ctx.measureText(candidate).width > room) {
             out.push(line);
             line = word;
           } else {
@@ -393,20 +565,24 @@ export const ThumbnailPanel: React.FC<{
       return out;
     };
 
-    let size = 104;
+    // The scale multiplies the ceiling the auto-fit starts from, not its
+    // result. Applied afterwards it would push the headline straight back out
+    // of the column the wrap had just fitted it into.
+    let size = Math.round(104 * scale);
     let text = wrapAt(size);
     const maxBlock = textHeight - 80;
     while (
       size > 28 &&
       (text.length > 4 ||
-        text.length * size * 1.16 > maxBlock ||
-        Math.max(...text.map((l) => ctx.measureText(l).width), 0) > column)
+        text.length * size * LEADING > maxBlock ||
+        Math.max(...text.map((l) => ctx.measureText(l).width), 0) >
+          column - bleedAt(size) * 2)
     ) {
       size -= 2;
       text = wrapAt(size);
     }
 
-    const lineHeight = size * 1.16;
+    const lineHeight = size * LEADING;
     let y = textTop + (textHeight - text.length * lineHeight) / 2 + size * 0.8;
     // White ink is for text that actually lies on the photograph, which is only
     // the "full" layout. In the other two the words sit on the flat colour
@@ -414,21 +590,71 @@ export const ThumbnailPanel: React.FC<{
     // held up by its outline alone.
     const overPhoto = Boolean(photo) && layout === "full";
     const ink = overPhoto ? "#FFFFFF" : skin.ink;
+    const mark = markColor || skin.mark;
+
+    // The tilt turns the block, not each line: rotating lines one by one would
+    // fan them out, and the reference thumbnails tilt the whole headline as if
+    // the sticker had been stuck on crooked. Pivoted on the middle of the
+    // block so a tilt does not also drag the text across the picture.
+    const blockMiddle = y + ((text.length - 1) * lineHeight) / 2 - size * 0.3;
+    ctx.save();
+    if (tilt) {
+      ctx.translate(left, blockMiddle);
+      ctx.rotate((tilt * Math.PI) / 180);
+      ctx.translate(-left, -blockMiddle);
+    }
 
     text.forEach((line, i) => {
-      ctx.font = `700 ${size}px ArchivoExpanded, system-ui, sans-serif`;
-      const w = ctx.measureText(line).width;
+      ctx.font = faceAt(size);
+      const metrics = ctx.measureText(line);
+      const w = metrics.width;
 
-      const highlighted = i === marked;
+      // Measured, not guessed from the font size. These five faces put their
+      // capitals at very different heights within the same em — a bar tuned by
+      // eye on one of them sits halfway down the letters on another.
+      const ascent = metrics.actualBoundingBoxAscent || size * 0.72;
+      const descent = metrics.actualBoundingBoxDescent || size * 0.06;
+      // The padding has to clear the fattening stroke too, or a heavy headline
+      // hangs over the ends of its own highlighter.
+      const pad = size * 0.1 + bleedAt(size);
+
+      const highlighted = i === marked && markStyle !== "none";
       if (highlighted) {
-        ctx.fillStyle = skin.mark;
-        ctx.fillRect(left - 10, y - size * 0.78, w + 20, size * 1.02);
+        ctx.fillStyle = mark;
+        ctx.strokeStyle = mark;
+        if (markStyle === "bar") {
+          ctx.fillRect(
+            left - pad,
+            y - ascent - pad * 0.6,
+            w + pad * 2,
+            ascent + descent + pad * 1.2,
+          );
+        } else if (markStyle === "underline") {
+          // Below the deepest descender rather than through it, and thick
+          // enough to read at postage-stamp size — a hairline rule disappears.
+          ctx.fillRect(
+            left - pad * 0.4,
+            y + descent + size * 0.06,
+            w + pad * 0.8,
+            Math.max(6, size * 0.11),
+          );
+        } else {
+          ctx.lineWidth = Math.max(4, size * 0.07);
+          ctx.strokeRect(
+            left - pad * 1.4,
+            y - ascent - pad,
+            w + pad * 2.8,
+            ascent + descent + pad * 2,
+          );
+        }
       }
 
-      // Every highlighter in the palette is a bright colour, so the line lying
-      // on one is dark whatever the rest of the headline does. White on yellow
-      // is the one combination this format must never produce.
-      const lineInk = highlighted ? "#101418" : ink;
+      // Only the bar puts the line ON the colour. Every highlighter here is
+      // bright, so text lying on one is dark whatever the rest of the headline
+      // does — white on yellow is the one combination this must never produce.
+      // An underline or a box leaves the line on the background, where it
+      // keeps the headline's own colour.
+      const lineInk = highlighted && markStyle === "bar" ? "#101418" : ink;
 
       if (outline) {
         // Drawn under the fill, not around it: a stroke on top eats into the
@@ -439,7 +665,18 @@ export const ThumbnailPanel: React.FC<{
         // ran together into one bright blob.
         ctx.strokeStyle =
           lineInk === "#FFFFFF" ? "rgba(0,0,0,0.85)" : "rgba(255,255,255,0.9)";
-        ctx.lineWidth = Math.max(6, size * 0.12);
+        ctx.lineWidth = Math.max(6, size * 0.12) + fatten * size * 0.01;
+        ctx.strokeText(line, left, y);
+      }
+
+      // "Bolder", for faces that ship in exactly one weight. A stroke in the
+      // fill's own colour thickens the letterforms the way a heavier cut
+      // would; asking the browser for font-weight 900 on a single-weight file
+      // gets a synthesised smear instead.
+      if (fatten > 0) {
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = lineInk;
+        ctx.lineWidth = fatten * size * 0.01;
         ctx.strokeText(line, left, y);
       }
 
@@ -447,11 +684,27 @@ export const ThumbnailPanel: React.FC<{
       ctx.fillText(line, left, y);
       y += lineHeight;
     });
+    ctx.restore();
 
-    if (arrow) drawArrow(ctx, skin.mark);
+    if (arrow) drawArrow(ctx, mark);
 
     setReady(true);
-  }, [flags, lines, skinIndex, marked, layout, arrow, outline, imageUrl]);
+  }, [
+    flags,
+    lines,
+    skin,
+    marked,
+    layout,
+    arrow,
+    outline,
+    imageUrl,
+    font,
+    scale,
+    fatten,
+    tilt,
+    markStyle,
+    markColor,
+  ]);
 
   useEffect(() => {
     void draw();
@@ -513,9 +766,54 @@ export const ThumbnailPanel: React.FC<{
         rows={3}
         style={{ ...field, lineHeight: 1.5, resize: "vertical" }}
       />
-      <div className="mono" style={{ fontSize: 11, color: "#5b6672", marginTop: 4 }}>
-        Eine Zeile pro Umbruch. Die Schrift schrumpft und bricht um, bis sie passt.
+      <div
+        className="mono"
+        style={{ fontSize: 11, color: "#5b6672", marginTop: 4 }}
+      >
+        Eine Zeile pro Umbruch. Die Schrift schrumpft und bricht um, bis sie
+        passt.
       </div>
+
+      <select
+        value={font.id}
+        onChange={(e) => set({ font: e.target.value })}
+        aria-label="Schriftart"
+        style={{ ...field, marginTop: 10 }}
+      >
+        {FONTS.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+
+      <Slider
+        label="Größe"
+        value={scale}
+        min={0.5}
+        max={1.6}
+        step={0.05}
+        format={(v) => `${Math.round(v * 100)} %`}
+        onChange={(v) => set({ scale: v })}
+      />
+      <Slider
+        label="Dicke"
+        value={fatten}
+        min={0}
+        max={10}
+        step={0.5}
+        format={(v) => (v === 0 ? "normal" : `+${v.toFixed(1)}`)}
+        onChange={(v) => set({ fatten: v })}
+      />
+      <Slider
+        label="Neigung"
+        value={tilt}
+        min={-15}
+        max={15}
+        step={0.5}
+        format={(v) => `${v > 0 ? "+" : ""}${v.toFixed(1)}°`}
+        onChange={(v) => set({ tilt: v })}
+      />
 
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <select
@@ -536,13 +834,72 @@ export const ThumbnailPanel: React.FC<{
           aria-label="Hervorgehobene Zeile"
           style={{ ...field, flex: 1 }}
         >
-          <option value={-1}>ohne Markierung</option>
+          <option value={-1}>keine Zeile markiert</option>
           {[0, 1, 2, 3].map((i) => (
             <option key={i} value={i}>
               Zeile {i + 1} markiert
             </option>
           ))}
         </select>
+      </div>
+
+      {/* ---- The marking ---- */}
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <select
+          value={markStyle}
+          onChange={(e) => set({ markStyle: e.target.value as MarkStyle })}
+          aria-label="Art der Markierung"
+          style={{ ...field, flex: 1 }}
+        >
+          {MARK_STYLES.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        <label
+          title="Farbe der Markierung"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            border: "1px solid var(--grid)",
+            background: "#fff",
+            padding: "0 10px",
+            fontSize: 12,
+          }}
+        >
+          <input
+            type="color"
+            value={markColor || skin.mark}
+            onChange={(e) => set({ markColor: e.target.value })}
+            aria-label="Farbe der Markierung"
+            style={{
+              width: 28,
+              height: 24,
+              border: "none",
+              background: "none",
+              padding: 0,
+            }}
+          />
+          {markColor ? (
+            <button
+              type="button"
+              onClick={() => set({ markColor: undefined })}
+              title="zurück zur Farbe der Farbwelt"
+              style={{
+                border: "none",
+                background: "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              ×
+            </button>
+          ) : (
+            "Farbe"
+          )}
+        </label>
       </div>
 
       <div style={{ height: 8 }} />
@@ -560,7 +917,14 @@ export const ThumbnailPanel: React.FC<{
       </select>
 
       <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 12 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
+        >
           <input
             type="checkbox"
             checked={outline}
@@ -568,7 +932,14 @@ export const ThumbnailPanel: React.FC<{
           />
           Textkontur
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
+        >
           <input
             type="checkbox"
             checked={arrow}
@@ -586,8 +957,12 @@ export const ThumbnailPanel: React.FC<{
           borderTop: "1px solid var(--grid)",
         }}
       >
-        <div className="mono" style={{ fontSize: 11, color: "#5b6672", marginBottom: 6 }}>
-          Hintergrundbild {imageUrl ? "— erzeugt" : "— keins, Flaggen werden gezeigt"}
+        <div
+          className="mono"
+          style={{ fontSize: 11, color: "#5b6672", marginBottom: 6 }}
+        >
+          Hintergrundbild{" "}
+          {imageUrl ? "— erzeugt" : "— keins, Flaggen werden gezeigt"}
         </div>
         <textarea
           value={imagePrompt}
@@ -620,17 +995,24 @@ export const ThumbnailPanel: React.FC<{
           className="mono"
           style={{ fontSize: 11, color: "#5b6672", marginTop: 4 }}
         >
-          {model.note} Ein Klick auf „{imageUrl ? "Neues Bild" : "Bild erzeugen"}
-          " kostet ca. {formatCents(model.cents)}; sonst entstehen keine
-          Bildkosten.
+          {model.note} Ein Klick auf „
+          {imageUrl ? "Neues Bild" : "Bild erzeugen"}" kostet ca.{" "}
+          {formatCents(model.cents)}; sonst entstehen keine Bildkosten.
         </div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <Button onClick={() => void generate()} disabled={busy}>
-            {busy ? "Bild wird erzeugt…" : imageUrl ? "Neues Bild" : "Bild erzeugen"}
+            {busy
+              ? "Bild wird erzeugt…"
+              : imageUrl
+                ? "Neues Bild"
+                : "Bild erzeugen"}
           </Button>
           {imageUrl ? (
-            <Button variant="ghost" onClick={() => set({ imageUrl: undefined })}>
+            <Button
+              variant="ghost"
+              onClick={() => set({ imageUrl: undefined })}
+            >
               Entfernen
             </Button>
           ) : null}
