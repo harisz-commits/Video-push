@@ -28,12 +28,15 @@ type ElevenResponse = {
 };
 
 export class ElevenLabsError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
+  // A plain field rather than a constructor parameter property, so modules
+  // that import this one can be exercised under `node --experimental-strip-types`
+  // without a build step.
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = "ElevenLabsError";
+    this.status = status;
   }
 }
 

@@ -19,8 +19,15 @@ export async function POST(req: Request) {
 
   let topic: string;
   let count: number;
+  let narrate = false;
+  let narrateAnswers = false;
   try {
-    const body = (await req.json()) as { topic?: unknown; count?: unknown };
+    const body = (await req.json()) as {
+      topic?: unknown;
+      count?: unknown;
+      narrate?: unknown;
+      narrateAnswers?: unknown;
+    };
     if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
       throw new Error("topic");
     }
@@ -28,7 +35,9 @@ export async function POST(req: Request) {
     // Twelve is the default because it is about two minutes of video — long
     // enough to build a difficulty curve, short enough that one bad question
     // does not cost a five-minute render.
-    count = Math.min(30, Math.max(4, Number(body.count) || 12));
+    count = Math.min(50, Math.max(4, Number(body.count) || 12));
+    narrate = body.narrate === true;
+    narrateAnswers = body.narrateAnswers === true;
   } catch {
     return errorResponse(
       "Ungültige Anfrage. Erwartet wird { topic: string, count?: number }.",
@@ -38,6 +47,18 @@ export async function POST(req: Request) {
 
   const allowed = await guard(req, "script", 4);
   if (!allowed.ok) return errorResponse(allowed.error, allowed.status);
+
+  // Refused up front rather than half way through: finding out that the voice
+  // was never configured after fifty questions have been written and paid for
+  // helps nobody.
+  const elevenKey = process.env.ELEVENLABS_API_KEY;
+  const voiceId = process.env.ELEVENLABS_VOICE_ID;
+  if (narrate && !(elevenKey && voiceId)) {
+    return errorResponse(
+      "Vorlesen braucht ELEVENLABS_API_KEY und ELEVENLABS_VOICE_ID. Ohne die beiden lässt sich das Quiz nur stumm erzeugen.",
+      500,
+    );
+  }
 
   const jobId = `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const startedAt = Date.now();
@@ -50,7 +71,19 @@ export async function POST(req: Request) {
     updatedAt: startedAt,
   } satisfies QuizJob);
 
-  waitUntil(generateQuiz({ jobId, topic, count, apiKey, startedAt }));
+  waitUntil(
+    generateQuiz({
+      jobId,
+      topic,
+      count,
+      apiKey,
+      narrate:
+        narrate && elevenKey && voiceId
+          ? { withAnswers: narrateAnswers, voiceId, elevenKey }
+          : undefined,
+      startedAt,
+    }),
+  );
 
   return Response.json({ jobId });
 }

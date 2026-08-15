@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { readdirSync } from "fs";
 import { join } from "path";
+import { narrateQuestions, narrationCost } from "./quiz-narration";
 import { QuizProject, QuizQuestion } from "./quiz";
 import {
   buildQuizPrompt,
@@ -24,6 +25,16 @@ import { quizJobPath, writeJson, type QuizJob } from "./store";
  */
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
+
+/**
+ * When narration must stop starting new recordings.
+ *
+ * The route is allowed 300 seconds and writing fifty questions already takes
+ * a good part of that. Leaving forty seconds of headroom means the job always
+ * gets to write its result — a quiz with some questions unread is usable, a
+ * function killed mid-write leaves nothing at all.
+ */
+const NARRATION_DEADLINE_MS = 260_000;
 const EFFORT = (process.env.ANTHROPIC_EFFORT as "low" | "medium" | "high") ?? "medium";
 
 /**
@@ -50,10 +61,20 @@ export async function generateQuiz(args: {
   topic: string;
   count: number;
   apiKey: string;
+  /**
+   * Read the questions aloud.
+   *
+   * Off unless asked for, and asked for at generation time rather than later,
+   * because it is the one step here that spends a budget with a monthly
+   * ceiling rather than a per-call price.
+   */
+  narrate?: { withAnswers: boolean; voiceId: string; elevenKey: string };
   startedAt: number;
 }): Promise<void> {
   const client = new Anthropic({ apiKey: args.apiKey });
   const flags = availableFlags();
+  /** Set when narration failed but the quiz itself is fine. */
+  let narrationError: string | undefined;
 
   const progress = (step: string) =>
     writeJson(quizJobPath(args.jobId), {
@@ -83,6 +104,43 @@ export async function generateQuiz(args: {
     await progress("Titel und Einstieg");
     const frame = await writeFrame({ client, topic: args.topic, count: questions.length });
 
+    // Last, and only if asked. The questions are the expensive half in model
+    // tokens and this is the expensive half in voice credits, so a failure
+    // here must not throw away work that is already finished and paid for.
+    let spoken = questions;
+    if (args.narrate) {
+      const plan = narrationCost(questions, {
+        withAnswers: args.narrate.withAnswers,
+      });
+      try {
+        const result = await narrateQuestions({
+          jobId: args.jobId,
+          questions,
+          withAnswers: args.narrate.withAnswers,
+          voiceId: args.narrate.voiceId,
+          apiKey: args.narrate.elevenKey,
+          deadline: args.startedAt + NARRATION_DEADLINE_MS,
+          onProgress: (done, total) =>
+            progress(
+              `Fragen werden vorgelesen: Aufnahme ${done} von ${total}` +
+                (total < questions.length
+                  ? ` (${questions.length} Fragen, ${total} verschiedene Texte)`
+                  : ""),
+            ).then(() => undefined),
+        });
+        spoken = result.questions;
+        if (result.skipped > 0) {
+          narrationError = `Die Zeit reichte nicht für alle Aufnahmen: ${result.clips} von ${result.clips + result.skipped} Texten wurden vorgelesen, der Rest bleibt stumm. Das Video rendert trotzdem — nur diese Fragen laufen ohne Stimme.`;
+        }
+      } catch (err) {
+        // A quiz without narration is a quiz. Losing thirty written questions
+        // because the voice ran out of credits is not a trade worth making, so
+        // the failure is carried into the finished project as a note rather
+        // than thrown.
+        narrationError = `Die Fragen konnten nicht vorgelesen werden (${(err as Error).message.slice(0, 160)}). Das Quiz ist fertig, nur ohne Stimme — geschätzt hätte es ${plan.characters.toLocaleString("de-DE")} Zeichen gekostet.`;
+      }
+    }
+
     const project = QuizProject.parse({
       kind: "quiz",
       id: `quiz-${args.jobId}`,
@@ -90,7 +148,7 @@ export async function generateQuiz(args: {
       title: frame.title,
       intro: frame.intro,
       outro: frame.outro,
-      questions,
+      questions: spoken,
       fps: 30,
       width: 1920,
       height: 1080,
@@ -101,6 +159,9 @@ export async function generateQuiz(args: {
       topic: args.topic,
       status: "done",
       project,
+      // A done job that still has something to say. The studio shows it as a
+      // warning beside a finished quiz rather than as a failure.
+      warning: narrationError,
       startedAt: args.startedAt,
       updatedAt: Date.now(),
     } satisfies QuizJob);

@@ -236,6 +236,14 @@ export type QuizJob = {
   step?: string;
   project?: unknown;
   error?: string;
+  /**
+   * Something went wrong that did not cost the quiz.
+   *
+   * Narration is the case: it runs after the questions are written and paid
+   * for, so a voice failure must not discard them. The job is done, the
+   * warning says what is missing.
+   */
+  warning?: string;
   startedAt: number;
   updatedAt: number;
 };

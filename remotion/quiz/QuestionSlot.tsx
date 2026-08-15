@@ -17,7 +17,16 @@ export const QuestionSlot: React.FC<{
   frame: number;
   fps: number;
   showAnswers: boolean;
-}> = ({ slot, frame, fps, showAnswers }) => {
+  /**
+   * Whether the recording IS the question.
+   *
+   * A language quiz has nothing to look at, so a speaker takes the place of
+   * the flag. A read-aloud general quiz has a recording too, but it only says
+   * what is already on screen — showing a speaker there would hide the flag
+   * the question is actually about.
+   */
+  listening: boolean;
+}> = ({ slot, frame, fps, showAnswers, listening }) => {
   const skin = LEVELS[slot.question.level];
   const { enterFrames, thinkFrames, revealFrames } = slot;
 
@@ -75,7 +84,7 @@ export const QuestionSlot: React.FC<{
           Never both — a flag beside a spoken sentence would answer the
           question before it finished being asked.
         */}
-        {slot.question.audioUrl ? (
+        {listening && slot.question.audioUrl ? (
           <Speaker
             frame={local}
             playing={local >= enterFrames && !revealed}

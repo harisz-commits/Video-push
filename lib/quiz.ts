@@ -170,6 +170,20 @@ export function resolveQuizTiming(project: QuizProject): QuizTiming {
   const introFrames = s(BEATS.intro);
   let cursor = introFrames;
 
+  /**
+   * How long the clock keeps running after a recording has finished.
+   *
+   * Two different situations wearing the same shape. In a language quiz the
+   * clip IS the question: the viewer has been working on it since the first
+   * syllable, so this is only the beat that stops the timer expiring on the
+   * last word.
+   *
+   * A read-aloud question is the opposite. The words are on screen as well,
+   * but anyone listening rather than reading has only just heard the question
+   * when the clip ends, and 1.6 seconds is not enough to answer anything.
+   */
+  const airSeconds = project.mode === "language" ? 1.6 : 2.5;
+
   const slots: QuizSlot[] = project.questions.map((question, index) => {
     const enterFrames = s(BEATS.enter);
     // A question that is a recording cannot be shorter than the recording.
@@ -177,7 +191,7 @@ export function resolveQuizTiming(project: QuizProject): QuizTiming {
     // to finish before it can be allowed to run out.
     const thinkFrames = s(
       question.audioSeconds
-        ? Math.max(question.thinkSeconds, question.audioSeconds + 1.6)
+        ? Math.max(question.thinkSeconds, question.audioSeconds + airSeconds)
         : question.thinkSeconds,
     );
     const revealFrames = s(BEATS.reveal);

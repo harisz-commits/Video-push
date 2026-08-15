@@ -51,6 +51,8 @@ type QuizJobState = {
   step?: string;
   project?: unknown;
   error?: string;
+  /** Finished, but something optional did not — narration, usually. */
+  warning?: string;
   startedAt?: number;
 };
 
@@ -119,14 +121,29 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const [project, setProject] = useState<QuizProject>(seed);
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(12);
+  const [narrate, setNarrate] = useState(false);
+  const [narrateAnswers, setNarrateAnswers] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
+  /** Set when a quiz finished but something optional did not. */
+  const [warning, setWarning] = useState<string | null>(null);
   /** When the current generation started, so the wait can be shown as a number. */
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * A rough upper bound on what narration will cost, before any question
+   * exists to measure.
+   *
+   * Deliberately the pessimistic figure. Identical prompts are recorded once,
+   * which in a flag quiz collapses fifty questions into a single clip — but
+   * that saving depends on questions nobody has written yet, and a number that
+   * turns out too low is worse than one that turns out too high.
+   */
+  const narrationEstimate = count * (narrateAnswers ? 96 : 60);
 
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Summary[]>([]);
@@ -281,7 +298,13 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   async function generate() {
     setBusy(true);
     setError(null);
-    const result = await postJson<{ jobId: string }>("/api/quiz", { topic, count });
+    setWarning(null);
+    const result = await postJson<{ jobId: string }>("/api/quiz", {
+      topic,
+      count,
+      narrate,
+      narrateAnswers,
+    });
     if (!result.ok) {
       setError(result.error);
       setBusy(false);
@@ -324,6 +347,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
         return;
       }
       setStep(result.data.step ?? null);
+      setWarning(result.data.warning ?? null);
       // Resuming a job started in another session, or before a reload: without
       // this the counter would start from zero and lie about how long it has
       // been going.
@@ -762,17 +786,70 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           <input
             type="range"
             min={4}
-            max={30}
+            max={50}
             value={count}
             onChange={(e) => setCount(Number(e.target.value))}
             style={{ width: "100%" }}
             aria-label="Anzahl Fragen"
           />
+
+          {/*
+            Reading the questions aloud.
+
+            Set before generating rather than after, because it is the one
+            option here that spends a budget with a monthly ceiling instead of
+            a per-call price — and the estimate belongs next to the switch, not
+            in a note somewhere further down.
+          */}
+          <div style={{ marginTop: 12, fontSize: 12 }}>
+            <label
+              style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+            >
+              <input
+                type="checkbox"
+                checked={narrate}
+                onChange={(e) => setNarrate(e.target.checked)}
+              />
+              Fragen vorlesen
+            </label>
+            {narrate ? (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  cursor: "pointer",
+                  marginTop: 6,
+                  marginLeft: 22,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={narrateAnswers}
+                  onChange={(e) => setNarrateAnswers(e.target.checked)}
+                />
+                Antwortmöglichkeiten mitlesen
+              </label>
+            ) : null}
+          </div>
+          {narrate ? (
+            <div
+              className="mono"
+              style={{ fontSize: 11, color: "#5b6672", marginTop: 6 }}
+            >
+              Kostet grob {narrationEstimate.toLocaleString("de-DE")} Zeichen
+              vom ElevenLabs-Kontingent. Gleiche Fragetexte werden nur einmal
+              aufgenommen — bei „Welches Land ist das?" also einmal für das
+              ganze Video.
+            </div>
+          ) : null}
+
           <div style={{ height: 10 }} />
           <Button onClick={() => void generate()} disabled={busy || topic.trim().length < 3}>
             {busy ? (step ?? "Fragen werden geschrieben…") : "Quiz erzeugen"}
           </Button>
           {error ? <Note tone="alert">{error}</Note> : null}
+          {warning ? <Note tone="alert">{warning}</Note> : null}
           {busy ? (
             <Note tone="info">
               <span className="mono">

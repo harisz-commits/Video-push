@@ -84,6 +84,7 @@ export const QuizVideo: React.FC<{ project: QuizProject }> = ({ project }) => {
             slot={slot}
             fps={project.fps}
             showAnswers={project.showAnswers}
+            listening={project.mode === "language"}
           />
         </Sequence>
       ))}
@@ -124,7 +125,8 @@ const SlotFrame: React.FC<{
   slot: ReturnType<typeof resolveQuizTiming>["slots"][number];
   fps: number;
   showAnswers: boolean;
-}> = ({ slot, fps, showAnswers }) => {
+  listening: boolean;
+}> = ({ slot, fps, showAnswers, listening }) => {
   const frame = useCurrentFrame();
   const wipeFrom = slot.durationInFrames - slot.exitFrames;
   const wiping = frame >= wipeFrom;
@@ -147,6 +149,7 @@ const SlotFrame: React.FC<{
         frame={frame}
         fps={fps}
         showAnswers={showAnswers}
+        listening={listening}
       />
       {wiping ? (
         <AbsoluteFill
