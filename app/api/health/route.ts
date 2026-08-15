@@ -1,5 +1,5 @@
 import { head } from "@vercel/blob";
-import { MODEL as GEMINI_IMAGE_MODEL } from "../../../lib/gemini";
+import { DEFAULT_MODEL } from "../../../lib/gemini";
 import { blobEnvNames, resolveBlobToken } from "../../../lib/store";
 
 export const runtime = "nodejs";
@@ -50,9 +50,10 @@ export async function GET() {
       DAILY_SCRIPT_LIMIT: process.env.DAILY_SCRIPT_LIMIT ?? "40",
       DAILY_VOICE_LIMIT: process.env.DAILY_VOICE_LIMIT ?? "20",
       DAILY_RENDER_LIMIT: process.env.DAILY_RENDER_LIMIT ?? "10",
-      // Which model a thumbnail image will actually be asked of, so a renamed
-      // or retired id is visible here rather than only in a failed generation.
-      GEMINI_IMAGE_MODEL: GEMINI_IMAGE_MODEL,
+      // Which model a thumbnail image is asked of when nobody picked one in
+      // the studio, so a renamed or retired id is visible here rather than
+      // only in a failed generation.
+      GEMINI_IMAGE_MODEL: DEFAULT_MODEL.id,
     },
     // Identifies which build is answering, so a stale deployment is obvious.
     deployment: {

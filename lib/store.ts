@@ -248,6 +248,8 @@ export type ThumbnailJob = {
   status: "running" | "done" | "error";
   imageUrl?: string;
   prompt?: string;
+  /** The model id that actually drew it, for the studio to report. */
+  model?: string;
   error?: string;
   startedAt: number;
   updatedAt: number;

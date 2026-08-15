@@ -15,16 +15,17 @@
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 
 /**
- * Overridable, because model names move and a wrong one should be one env var
- * away from fixed rather than one deployment.
- *
- * The default is the cheapest image model Google sells: about 3.9 cents a
- * picture, no free tier on any of them. The newer Nano-Banana-2 family costs
- * the same to a few cents more and can be switched to with GEMINI_IMAGE_MODEL
- * alone — gemini-3.1-flash-lite-image, gemini-3.1-flash-image,
- * gemini-3-pro-image — without touching this file.
+ * The catalogue lives in its own module so the studio can draw the list of
+ * models, and their prices, without pulling this generator into the browser.
  */
-export const MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
+export {
+  IMAGE_MODELS,
+  DEFAULT_MODEL,
+  resolveModel,
+  type ImageModel,
+} from "./image-models";
+
+import { DEFAULT_MODEL, type ImageModel } from "./image-models";
 
 export class GeminiError extends Error {
   // A plain field rather than a constructor parameter property, so this module
@@ -93,107 +94,142 @@ export async function generateImage({
   prompt,
   apiKey,
   layout,
+  model,
   signal,
 }: {
   prompt: string;
   apiKey: string;
   layout?: string;
+  model?: ImageModel;
   signal?: AbortSignal;
-}): Promise<{ data: Buffer; mimeType: string }> {
-  const framing = (layout && FRAMING[layout]) ?? FRAMING.split;
-  const aspectRatio = (layout && ASPECT[layout]) ?? ASPECT.split;
+}): Promise<{ data: Buffer; mimeType: string; model: string }> {
+  const chosen = model ?? DEFAULT_MODEL;
 
-  const ask = (options: { withAspect: boolean; withText: boolean }) =>
-    fetch(`${ENDPOINT}/${encodeURIComponent(MODEL)}:generateContent`, {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `${prompt}\n\n${STYLE} ${framing}` }] }],
-        generationConfig: {
-          // Some models in this family will not emit an image unless they are
-          // also allowed to talk. Asked for IMAGE alone they answer with an
-          // empty candidate and finishReason NO_IMAGE — a 200 with nothing in
-          // it, which reads like a bug in this code and is not one.
-          responseModalities: options.withText ? ["TEXT", "IMAGE"] : ["IMAGE"],
-          ...(options.withAspect ? { imageConfig: { aspectRatio } } : {}),
-        },
-      }),
-      signal,
-    });
+  // Every spelling of this model's id, newest first. A 404 costs nothing, so
+  // trying the next one is free; running out of them is a real error.
+  const ids = [chosen.id, ...(chosen.alt ?? [])];
+  let lastError: GeminiError | null = null;
 
-  let withAspect = true;
-
-  // Aspect ratios arrived after the image models did, and an older or
-  // differently-named model rejects the whole request over the unknown field.
-  // A rejected request costs nothing, so the fallback is simply to ask again
-  // without it and let the prompt do the framing — which is what it did
-  // before this existed. Every other error is passed straight through.
-  let response = await ask({ withAspect, withText: false });
-  if (response.status === 400) {
-    const complaint = await response.clone().text().catch(() => "");
-    if (/imageConfig|aspect/i.test(complaint)) {
-      withAspect = false;
-      response = await ask({ withAspect, withText: false });
+  for (const id of ids) {
+    try {
+      return { ...(await draw(id)), model: id };
+    } catch (err) {
+      const unknownModel =
+        err instanceof GeminiError &&
+        (err.status === 404 || /not found|not supported/i.test(err.message));
+      if (!unknownModel) throw err;
+      lastError = err as GeminiError;
     }
   }
 
-  let body = await parse(response);
+  throw (
+    lastError ??
+    new GeminiError(`Kein Modell unter ${ids.join(", ")} erreichbar.`, 404)
+  );
 
-  // Nothing drawn, nothing refused: ask once more with text allowed. Once,
-  // deliberately — a loop here is a loop that spends money.
-  //
-  // Only on a response that succeeded. A rejected key produces no image part
-  // either, and asking the same rejected key a second time is a wasted call
-  // whose answer is already known.
-  if (response.ok && !body.blocked && !imagePart(body.json)) {
-    response = await ask({ withAspect, withText: true });
-    body = await parse(response);
-  }
+  async function draw(
+    modelId: string,
+  ): Promise<{ data: Buffer; mimeType: string }> {
+    const framing = (layout && FRAMING[layout]) ?? FRAMING.split;
+    const aspectRatio = (layout && ASPECT[layout]) ?? ASPECT.split;
 
-  if (!response.ok) {
-    // The body carries the actual complaint — a wrong model name, a key
-    // without the API enabled, a quota. Reporting only the status number sent
-    // a day into the wrong place once already.
+    const ask = (options: { withAspect: boolean; withText: boolean }) =>
+      fetch(`${ENDPOINT}/${encodeURIComponent(modelId)}:generateContent`, {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `${prompt}\n\n${STYLE} ${framing}` }] }],
+          generationConfig: {
+            // Some models in this family will not emit an image unless they are
+            // also allowed to talk. Asked for IMAGE alone they answer with an
+            // empty candidate and finishReason NO_IMAGE — a 200 with nothing in
+            // it, which reads like a bug in this code and is not one.
+            responseModalities: options.withText
+              ? ["TEXT", "IMAGE"]
+              : ["IMAGE"],
+            ...(options.withAspect ? { imageConfig: { aspectRatio } } : {}),
+          },
+        }),
+        signal,
+      });
+
+    let withAspect = true;
+
+    // Aspect ratios arrived after the image models did, and an older or
+    // differently-named model rejects the whole request over the unknown field.
+    // A rejected request costs nothing, so the fallback is simply to ask again
+    // without it and let the prompt do the framing — which is what it did
+    // before this existed. Every other error is passed straight through.
+    let response = await ask({ withAspect, withText: false });
+    if (response.status === 400) {
+      const complaint = await response
+        .clone()
+        .text()
+        .catch(() => "");
+      if (/imageConfig|aspect/i.test(complaint)) {
+        withAspect = false;
+        response = await ask({ withAspect, withText: false });
+      }
+    }
+
+    let body = await parse(response);
+
+    // Nothing drawn, nothing refused: ask once more with text allowed. Once,
+    // deliberately — a loop here is a loop that spends money.
     //
-    // The model name belongs in the message too: the most likely reason a
-    // first attempt fails is a model id that has been renamed or retired, and
-    // "Gemini antwortete mit 404" alone does not point at it.
-    throw new GeminiError(
-      `Gemini (${MODEL}) antwortete mit ${response.status}. ${summarize(body.raw)}`,
-      response.status,
-    );
+    // Only on a response that succeeded. A rejected key produces no image part
+    // either, and asking the same rejected key a second time is a wasted call
+    // whose answer is already known.
+    if (response.ok && !body.blocked && !imagePart(body.json)) {
+      response = await ask({ withAspect, withText: true });
+      body = await parse(response);
+    }
+
+    if (!response.ok) {
+      // The body carries the actual complaint — a wrong model name, a key
+      // without the API enabled, a quota. Reporting only the status number sent
+      // a day into the wrong place once already.
+      //
+      // The model name belongs in the message too: the most likely reason a
+      // first attempt fails is a model id that has been renamed or retired, and
+      // "Gemini antwortete mit 404" alone does not point at it.
+      throw new GeminiError(
+        `Gemini (${modelId}) antwortete mit ${response.status}. ${summarize(body.raw)}`,
+        response.status,
+      );
+    }
+
+    if (body.blocked) {
+      throw new GeminiError(
+        `Gemini hat den Bildwunsch abgelehnt (${body.blocked}). Formuliere ihn anders.`,
+        400,
+      );
+    }
+
+    const part = imagePart(body.json);
+
+    if (!part?.inlineData?.data) {
+      const reason = body.json?.candidates?.[0]?.finishReason;
+      // When a model declines to draw something it usually says why in a text
+      // part, and that sentence is the entire diagnosis. Throwing only
+      // "kein Bild (NO_IMAGE)" hides the one useful thing in the response.
+      const said = spoken(body.json);
+      throw new GeminiError(
+        `Gemini hat kein Bild zurückgegeben${reason ? ` (${reason})` : ""}.${
+          said ? ` Das Modell sagt: „${said}"` : ""
+        }`,
+        502,
+      );
+    }
+
+    return {
+      data: Buffer.from(part.inlineData.data, "base64"),
+      mimeType: part.inlineData.mimeType ?? "image/png",
+    };
   }
-
-  if (body.blocked) {
-    throw new GeminiError(
-      `Gemini hat den Bildwunsch abgelehnt (${body.blocked}). Formuliere ihn anders.`,
-      400,
-    );
-  }
-
-  const part = imagePart(body.json);
-
-  if (!part?.inlineData?.data) {
-    const reason = body.json?.candidates?.[0]?.finishReason;
-    // When a model declines to draw something it usually says why in a text
-    // part, and that sentence is the entire diagnosis. Throwing only
-    // "kein Bild (NO_IMAGE)" hides the one useful thing in the response.
-    const said = spoken(body.json);
-    throw new GeminiError(
-      `Gemini hat kein Bild zurückgegeben${reason ? ` (${reason})` : ""}.${
-        said ? ` Das Modell sagt: „${said}"` : ""
-      }`,
-      502,
-    );
-  }
-
-  return {
-    data: Buffer.from(part.inlineData.data, "base64"),
-    mimeType: part.inlineData.mimeType ?? "image/png",
-  };
 }
 
 type GeminiBody = {

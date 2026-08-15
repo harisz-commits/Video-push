@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { IMAGE_MODELS, resolveModel } from "../lib/image-models";
 import type { ThumbnailConfig } from "../lib/thumbnail";
 import { getJson, postJson } from "./api";
 import { Button, Note, Panel } from "./ui";
@@ -78,6 +79,17 @@ async function loadFlag(code: string): Promise<HTMLImageElement | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * A price, in US cents, the way a German reader expects to see one.
+ *
+ * US cents rather than converted euros: Google bills in dollars, and a euro
+ * figure printed here would be wrong the moment the rate moved — quietly, and
+ * in a place nobody would think to check.
+ */
+function formatCents(cents: number): string {
+  return `${cents.toFixed(1).replace(".", ",")} US-Cent`;
 }
 
 /** Three words a line, upper case — a headline is read in a glance. */
@@ -159,6 +171,7 @@ export const ThumbnailPanel: React.FC<{
   const imageUrl = config?.imageUrl;
   const imagePrompt =
     config?.imagePrompt ?? `${topic || defaultTitle}, als Titelbild für ein Video`;
+  const model = resolveModel(config?.model);
 
   const set = (patch: Partial<ThumbnailConfig>) =>
     onChange({
@@ -170,6 +183,7 @@ export const ThumbnailPanel: React.FC<{
       outline,
       imageUrl,
       imagePrompt,
+      model: model.id,
       ...patch,
     });
 
@@ -188,6 +202,7 @@ export const ThumbnailPanel: React.FC<{
       prompt: imagePrompt,
       // The canvas crops to fill, so the model is told which crop is coming.
       layout,
+      model: model.id,
     });
     if (!result.ok) {
       setError(result.error);
@@ -581,6 +596,35 @@ export const ThumbnailPanel: React.FC<{
           rows={2}
           style={{ ...field, lineHeight: 1.45, resize: "vertical" }}
         />
+
+        {/*
+          The model, with what it costs standing next to it.
+
+          The price is on every option rather than in a footnote because this
+          is the one control in the studio that spends money per click, and the
+          difference between the cheapest and the dearest is fourfold.
+        */}
+        <select
+          value={model.id}
+          onChange={(e) => set({ model: e.target.value })}
+          aria-label="Bildmodell"
+          style={{ ...field, marginTop: 8 }}
+        >
+          {IMAGE_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} — ca. {formatCents(m.cents)} pro Bild
+            </option>
+          ))}
+        </select>
+        <div
+          className="mono"
+          style={{ fontSize: 11, color: "#5b6672", marginTop: 4 }}
+        >
+          {model.note} Ein Klick auf „{imageUrl ? "Neues Bild" : "Bild erzeugen"}
+          " kostet ca. {formatCents(model.cents)}; sonst entstehen keine
+          Bildkosten.
+        </div>
+
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <Button onClick={() => void generate()} disabled={busy}>
             {busy ? "Bild wird erzeugt…" : imageUrl ? "Neues Bild" : "Bild erzeugen"}

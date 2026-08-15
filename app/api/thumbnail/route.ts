@@ -1,5 +1,10 @@
 import { waitUntil } from "@vercel/functions";
-import { generateImage, GeminiError } from "../../../lib/gemini";
+import {
+  generateImage,
+  GeminiError,
+  resolveModel,
+  type ImageModel,
+} from "../../../lib/gemini";
 import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
 import {
   readJson,
@@ -31,8 +36,13 @@ export async function POST(req: Request) {
 
   let prompt: string;
   let layout: string | undefined;
+  let model: ImageModel;
   try {
-    const body = (await req.json()) as { prompt?: unknown; layout?: unknown };
+    const body = (await req.json()) as {
+      prompt?: unknown;
+      layout?: unknown;
+      model?: unknown;
+    };
     if (typeof body.prompt !== "string" || body.prompt.trim().length < 8) {
       throw new Error("prompt");
     }
@@ -40,6 +50,12 @@ export async function POST(req: Request) {
     // Decides the framing asked for, not what is drawn — an unknown value
     // simply falls back to the safest crop rather than failing the request.
     layout = typeof body.layout === "string" ? body.layout : undefined;
+    // Resolved against the closed list rather than passed through. This page
+    // is public, and an id taken on trust would let anyone bill this account
+    // for the most expensive thing Google sells.
+    model = resolveModel(
+      typeof body.model === "string" ? body.model : undefined,
+    );
   } catch {
     return errorResponse(
       "Ungültige Anfrage. Erwartet wird { prompt: string }.",
@@ -62,7 +78,7 @@ export async function POST(req: Request) {
     updatedAt: startedAt,
   } satisfies ThumbnailJob);
 
-  waitUntil(run({ jobId, prompt, layout, apiKey, startedAt }));
+  waitUntil(run({ jobId, prompt, layout, model, apiKey, startedAt }));
 
   return Response.json({ jobId });
 }
@@ -71,13 +87,15 @@ async function run(args: {
   jobId: string;
   prompt: string;
   layout?: string;
+  model: ImageModel;
   apiKey: string;
   startedAt: number;
 }): Promise<void> {
   try {
-    const { data, mimeType } = await generateImage({
+    const { data, mimeType, model } = await generateImage({
       prompt: args.prompt,
       layout: args.layout,
+      model: args.model,
       apiKey: args.apiKey,
     });
 
@@ -93,6 +111,10 @@ async function run(args: {
       status: "done",
       imageUrl: url,
       prompt: args.prompt,
+      // Which id actually produced the picture, which is not always the one
+      // that was asked for — an id that has moved falls through to the next
+      // spelling, and the studio should report what was really billed.
+      model,
       startedAt: args.startedAt,
       updatedAt: Date.now(),
     } satisfies ThumbnailJob);

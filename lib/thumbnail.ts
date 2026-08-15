@@ -25,5 +25,13 @@ export const ThumbnailConfig = z.object({
   imageUrl: z.string().url().optional(),
   /** What was asked for, so it can be adjusted rather than rewritten. */
   imagePrompt: z.string().max(600).optional(),
+  /**
+   * Which image model to use. See IMAGE_MODELS in lib/gemini.ts.
+   *
+   * A plain string rather than an enum: the list of models changes faster than
+   * saved projects do, and an id that has since been retired should cost a
+   * different picture, not make an old project fail to load.
+   */
+  model: z.string().max(64).optional(),
 });
 export type ThumbnailConfig = z.infer<typeof ThumbnailConfig>;
