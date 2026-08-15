@@ -44,6 +44,13 @@ export async function GET() {
     // trade than blocking every unrelated fix behind it, but it has to be
     // visible somewhere other than the first failed render.
     snapshot: await snapshotState(blob?.value),
+    // What the voice budget actually is, from ElevenLabs itself.
+    //
+    // Every question about whether a feature is affordable — reading the
+    // questions aloud, a longer outro, a second voice — is really a question
+    // about how many characters are left this month, and that number was only
+    // ever visible by logging into someone else's dashboard.
+    voice: await voiceQuota(),
     settings: {
       ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5",
       ANTHROPIC_EFFORT: process.env.ANTHROPIC_EFFORT ?? "low",
@@ -99,6 +106,44 @@ function explainSnapshotFailure(reason: SnapshotFailure): string {
     return `Der Snapshot-Schritt wurde von der Sandbox-API ausgebremst (429). Ein erneutes Deployment in ein paar Minuten hilft meistens.${verbatim}`;
   }
   return `Der Snapshot-Schritt ist fehlgeschlagen: ${message.slice(0, 300)}${verbatim}`;
+}
+
+/**
+ * The ElevenLabs allowance, as ElevenLabs sees it.
+ *
+ * Read-only and free — it is the subscription endpoint, not synthesis. Failure
+ * is reported rather than thrown: a voice quota nobody can read is a nuisance,
+ * a health endpoint that 500s because of it is a much bigger one.
+ */
+async function voiceQuota(): Promise<Record<string, unknown> | null> {
+  const key = process.env.ELEVENLABS_API_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
+      headers: { "xi-api-key": key },
+      cache: "no-store",
+    });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    const body = (await res.json()) as {
+      tier?: string;
+      character_count?: number;
+      character_limit?: number;
+      next_character_count_reset_unix?: number;
+    };
+    const used = body.character_count ?? 0;
+    const limit = body.character_limit ?? 0;
+    return {
+      tier: body.tier ?? null,
+      used,
+      limit,
+      remaining: Math.max(0, limit - used),
+      resetsAt: body.next_character_count_reset_unix
+        ? new Date(body.next_character_count_reset_unix * 1000).toISOString()
+        : null,
+    };
+  } catch (err) {
+    return { error: (err as Error).message.slice(0, 120) };
+  }
 }
 
 type SnapshotFailure = {
