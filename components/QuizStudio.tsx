@@ -21,6 +21,18 @@ const JOB_KEY = "infographics-studio.quizJob";
 const VOICE_KEY = "infographics-studio.quizVoiceJob";
 
 /**
+ * How many polls in a row may fail before the studio says so.
+ *
+ * Not zero: a deploy swaps the function out from under an open tab, and a
+ * single failed poll during those few seconds is normal and recovers by
+ * itself. Not unlimited either, which is what this used to be — every error
+ * but "no such job" was dropped on the floor, so a dead server looked exactly
+ * like a slow one and the button said "Fragen werden geschrieben…" until
+ * somebody reloaded. Three tries is nine seconds of patience.
+ */
+const TOLERATED_POLL_FAILURES = 3;
+
+/**
  * What the host says over the end card, unless someone changes it.
  *
  * A question, not a statement: "how many did you get" is the one thing a
@@ -411,11 +423,26 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
       editKind === "narrate" ? "/api/quiz/narrate" : "/api/quiz/requestion";
     let cancelled = false;
 
+    let failures = 0;
+
     const tick = async () => {
       const result = await getJson<QuizEditState>(
         `${path}?jobId=${encodeURIComponent(editJobId)}`,
       );
-      if (cancelled || !result.ok) return;
+      if (cancelled) return;
+      if (!result.ok) {
+        // Same rule as the generation poller: ride out a blip, report a wall.
+        failures += 1;
+        if (failures > TOLERATED_POLL_FAILURES) {
+          setEditError(result.error);
+          setEditJobId(null);
+          setEditKind(null);
+          setEditBusy(false);
+          setEditStep(null);
+        }
+        return;
+      }
+      failures = 0;
       setEditStep(result.data.step ?? null);
       if (result.data.status === "running") return;
 
@@ -461,6 +488,8 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     if (!jobId) return;
     setBusy(true);
     let cancelled = false;
+    /** Consecutive failed polls. See TOLERATED_POLL_FAILURES. */
+    let failures = 0;
 
     const tick = async () => {
       const result = await getJson<QuizJobState>(
@@ -473,9 +502,22 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           remember(JOB_KEY, null);
           setJobId(null);
           setBusy(false);
+          return;
+        }
+        // Anything else used to be swallowed here — a 500, a timeout, a lost
+        // connection. The poll simply returned and tried again, so the button
+        // kept saying "Fragen werden geschrieben…" with nothing on screen and
+        // no way out. A blip is still worth riding out; a wall is not.
+        failures += 1;
+        if (failures > TOLERATED_POLL_FAILURES) {
+          setError(
+            `${result.error} Der Auftrag läuft auf dem Server womöglich weiter — lade die Seite neu, um wieder mitzuhören.`,
+          );
+          setBusy(false);
         }
         return;
       }
+      failures = 0;
       setStep(result.data.step ?? null);
       setWarning(result.data.warning ?? null);
       if (result.data.cost) setCost(result.data.cost);
@@ -1003,13 +1045,48 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
             </Note>
           ) : null}
           {busy ? (
-            <Note tone="info">
-              <span className="mono">
-                {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
-              </span>{" "}
-              — läuft auf dem Server. Tab wechseln oder schließen ist in
-              Ordnung. {count} Fragen brauchen ein bis drei Minuten.
-            </Note>
+            <>
+              <Note tone="info">
+                <span className="mono">
+                  {Math.floor(elapsed / 60)}:
+                  {String(elapsed % 60).padStart(2, "0")}
+                </span>{" "}
+                — läuft auf dem Server. Tab wechseln oder schließen ist in
+                Ordnung. {count} Fragen brauchen ein bis drei Minuten.
+              </Note>
+              {/*
+                A way out, once the wait stops looking like a wait.
+
+                The studio remembers the running job across reloads, which is
+                what makes closing the tab safe — and also what made a job that
+                never finished impossible to shake off without clearing browser
+                storage by hand. This forgets it. Nothing is cancelled on the
+                server; it has already been paid for either way.
+              */}
+              {elapsed > 45 ? (
+                <button
+                  onClick={() => {
+                    remember(JOB_KEY, null);
+                    setJobId(null);
+                    setBusy(false);
+                    setStep(null);
+                    setStartedAt(null);
+                  }}
+                  style={{
+                    marginTop: 8,
+                    padding: 0,
+                    border: "none",
+                    background: "none",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    color: "#5b6672",
+                    textDecoration: "underline",
+                  }}
+                >
+                  Warten aufgeben
+                </button>
+              ) : null}
+            </>
           ) : null}
           </>
           )}
