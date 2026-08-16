@@ -77,6 +77,8 @@ type QuizJobState = {
   step?: string;
   project?: unknown;
   cost?: QuizCost;
+  /** How many earlier questions this run was told not to repeat. */
+  avoided?: number;
   error?: string;
   /** Finished, but something optional did not — narration, usually. */
   warning?: string;
@@ -174,6 +176,8 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const textModel = resolveTextModel(modelId);
   /** What the last finished generation actually cost. */
   const [cost, setCost] = useState<QuizCost | null>(null);
+  /** How many earlier questions the last run was told to avoid. */
+  const [avoided, setAvoided] = useState<number | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
@@ -365,6 +369,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     setError(null);
     setWarning(null);
     setCost(null);
+    setAvoided(null);
     const result = await postJson<{ jobId: string }>("/api/quiz", {
       topic,
       count,
@@ -521,6 +526,9 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
       setStep(result.data.step ?? null);
       setWarning(result.data.warning ?? null);
       if (result.data.cost) setCost(result.data.cost);
+      if (typeof result.data.avoided === "number") {
+        setAvoided(result.data.avoided);
+      }
       // Resuming a job started in another session, or before a reload: without
       // this the counter would start from zero and lie about how long it has
       // been going.
@@ -1042,6 +1050,14 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
                 {cost.outputTokens.toLocaleString("de-DE")} raus
               </span>{" "}
               — gemessen, nicht geschätzt.
+              {avoided !== null ? (
+                <>
+                  {" "}
+                  {avoided > 0
+                    ? `${avoided} Fragen aus früheren Quiz waren ausgeschlossen.`
+                    : "Es gab noch keine früheren Fragen zum Ausschließen."}
+                </>
+              ) : null}
             </Note>
           ) : null}
           {busy ? (

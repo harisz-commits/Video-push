@@ -252,6 +252,14 @@ export type QuizJob = {
     outputTokens: number;
     cents: number;
   };
+  /**
+   * How many earlier questions this run was told to avoid.
+   *
+   * Reported because the memory is otherwise invisible: a quiz with fresh
+   * questions and a quiz that got lucky look identical, and this number is the
+   * only thing that says which one happened.
+   */
+  avoided?: number;
   startedAt: number;
   updatedAt: number;
 };

@@ -28,6 +28,14 @@ export async function rewriteQuestions(args: {
   /** Positions to replace. */
   replace: number[];
   availableFlags?: string[];
+  /**
+   * Questions from every other saved quiz.
+   *
+   * Same reason as the full generator: without it a replacement avoids the
+   * twenty-nine questions beside it and walks straight into one from last
+   * week's video. See lib/quiz-history.ts.
+   */
+  asked?: string[];
 }): Promise<QuizQuestion[]> {
   const model = args.model ?? resolveTextModel();
   const wanted = args.replace.length;
@@ -39,9 +47,23 @@ export async function rewriteQuestions(args: {
     .map((i, n) => `${n + 1}. Schwierigkeit "${args.questions[i].level}"`)
     .join("\n");
 
-  const avoid = args.questions
+  // The quiz itself with its answers, then everything asked in every other
+  // quiz. The answers are only worth the tokens for the current quiz, where a
+  // replacement that asks a different question about the same fact is the
+  // failure being guarded against.
+  const inThisQuiz = args.questions
     .map((q) => `- ${q.prompt} (Antwort: ${q.answers[q.correctIndex]})`)
     .join("\n");
+
+  const known = new Set(args.questions.map((q) => q.prompt));
+  const elsewhere = (args.asked ?? [])
+    .filter((p) => !known.has(p))
+    .map((p) => `- ${p}`)
+    .join("\n");
+
+  const avoid = elsewhere
+    ? `${inThisQuiz}\n\nUnd diese Fragen gab es in früheren Quiz:\n${elsewhere}`
+    : inThisQuiz;
 
   const flags = args.availableFlags?.length
     ? `\n\nVerfügbare Flaggen-Codes (nur diese verwenden):\n${args.availableFlags.join(" ")}`

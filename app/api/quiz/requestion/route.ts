@@ -3,6 +3,7 @@ import { errorResponse, guard } from "../../../../lib/guardrails";
 import { keyFor, keyNameFor } from "../../../../lib/llm";
 import { QuizQuestion } from "../../../../lib/quiz";
 import { availableFlags } from "../../../../lib/quiz-pipeline";
+import { askedQuestions } from "../../../../lib/quiz-history";
 import { rewriteQuestions } from "../../../../lib/quiz-requestion";
 import { resolveTextModel, type TextModel } from "../../../../lib/text-models";
 import {
@@ -89,12 +90,20 @@ export async function POST(req: Request) {
   waitUntil(
     (async () => {
       try {
+        // Best effort, like in the generator: losing the memory costs variety,
+        // failing to read it would cost the rewrite.
+        const history = await askedQuestions().catch(() => ({
+          prompts: [] as string[],
+          total: 0,
+        }));
+
         const next = await rewriteQuestions({
           apiKey,
           model,
           topic,
           questions,
           replace,
+          asked: history.prompts,
           availableFlags: questions.some((q) => q.flag)
             ? availableFlags()
             : undefined,

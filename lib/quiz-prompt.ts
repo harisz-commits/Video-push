@@ -66,9 +66,35 @@ export function buildQuizPrompt(args: {
   count: number;
   /** Which flag codes exist locally, when the topic calls for flags. */
   availableFlags?: string[];
+  /**
+   * Questions from every quiz already saved.
+   *
+   * Without this the model gets a byte-for-byte identical prompt on every run
+   * and answers it the same way — which is why "Allgemeinwissen" kept
+   * producing the spider's legs and the seven continents. See lib/quiz-history.
+   */
+  asked?: string[];
+  /** Subject areas to spread a vague topic across. See drawAreas(). */
+  areas?: string[];
 }): string {
   const flags = args.availableFlags?.length
     ? `\n\nVerfügbare Flaggen-Codes (nur diese verwenden):\n${args.availableFlags.join(" ")}`
+    : "";
+
+  // Stated as a hard rule rather than a preference, because "möglichst nicht"
+  // is read as "if convenient" and the whole point is that the convenient
+  // question is the one that keeps coming back.
+  const asked = args.asked?.length
+    ? `\n\nDIESE FRAGEN GAB ES SCHON. Keine davon darf noch einmal vorkommen —
+auch nicht anders formuliert, und auch keine, die dieselbe Sache abfragt:
+${args.asked.map((p) => `- ${p}`).join("\n")}`
+    : "";
+
+  const areas = args.areas?.length
+    ? `\n\nVerteile die Fragen über diese Gebiete, ungefähr gleichmäßig:
+${args.areas.map((a) => `- ${a}`).join("\n")}
+Innerhalb eines Gebiets nimm nicht die naheliegendste Frage. Bei "Anatomie"
+ist die Zahl der Knochen im Körper die naheliegendste — such die übernächste.`
     : "";
 
   return `Thema: ${args.topic}
@@ -77,7 +103,7 @@ Schreib ${args.count} Fragen dazu.
 
 Ungefähr gleich viele Fragen je Schwierigkeit, aber GEMISCHT über das ganze
 Video verteilt — nicht nach Schwierigkeit sortiert. Zwei gleich schwere Fragen
-sollen möglichst nicht direkt hintereinander stehen.
+sollen möglichst nicht direkt hintereinander stehen.${areas}${asked}
 
 Vergib die ids fortlaufend: q1, q2, q3 …${flags}`;
 }

@@ -2,6 +2,7 @@ import { readdirSync } from "fs";
 import { join } from "path";
 import { complete, type Turn } from "./llm";
 import { QuizProject, QuizQuestion } from "./quiz";
+import { askedQuestions, drawAreas, isBroad } from "./quiz-history";
 import {
   buildQuizPrompt,
   QUIZ_FRAME_SYSTEM_PROMPT,
@@ -68,6 +69,18 @@ export async function generateQuiz(args: {
     } satisfies QuizJob).catch(() => undefined);
 
   try {
+    // What has been asked before, so it does not get asked again. Best effort
+    // on purpose: a quiz without the memory is a quiz, a quiz that failed
+    // because storage was slow is nothing.
+    await progress("Frühere Quiz werden gelesen");
+    const history = await askedQuestions().catch(() => ({
+      prompts: [] as string[],
+      total: 0,
+    }));
+
+    // Areas only for a topic vague enough to have them. See isBroad().
+    const areas = isBroad(args.topic) ? drawAreas() : undefined;
+
     await progress("Fragen werden geschrieben");
     const questions = await writeQuestions({
       model,
@@ -76,6 +89,8 @@ export async function generateQuiz(args: {
       topic: args.topic,
       count: args.count,
       flags,
+      asked: history.prompts,
+      areas,
       onAttempt: (attempt) =>
         progress(
           attempt === 0
@@ -134,6 +149,7 @@ export async function generateQuiz(args: {
         outputTokens: spent.output,
         cents: Number(costCents(model, spent).toFixed(3)),
       },
+      avoided: history.prompts.length,
       startedAt: args.startedAt,
       updatedAt: Date.now(),
     } satisfies QuizJob);
@@ -156,6 +172,10 @@ async function writeQuestions(args: {
   topic: string;
   count: number;
   flags: string[];
+  /** Questions from every quiz already saved. See lib/quiz-history.ts. */
+  asked: string[];
+  /** Subject areas, when the topic is vague enough to need them. */
+  areas?: string[];
   /** Reports each attempt, so a slow run does not look like a dead one. */
   onAttempt?: (attempt: number) => Promise<void>;
 }): Promise<QuizQuestion[]> {
@@ -165,6 +185,8 @@ async function writeQuestions(args: {
       content: buildQuizPrompt({
         topic: args.topic,
         count: args.count,
+        asked: args.asked,
+        areas: args.areas,
         // Only worth sending when the topic plausibly wants flags; the list is
         // 271 codes and costs tokens on every call that will never use it.
         availableFlags: /flagg|länder|country|flag/i.test(args.topic)
