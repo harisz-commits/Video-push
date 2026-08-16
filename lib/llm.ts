@@ -111,92 +111,113 @@ async function google(args: {
   messages: Turn[];
   maxTokens: number;
 }): Promise<Completion> {
-  const response = await fetch(
-    `${GOOGLE_ENDPOINT}/${encodeURIComponent(args.model.id)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": args.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: args.system }] },
-        contents: args.messages.map((m) => ({
-          // Google calls the assistant "model"; everything else about the
-          // conversation shape is the same.
-          role: m.role === "assistant" ? "model" : "user",
-          parts: [{ text: m.content }],
-        })),
-        generationConfig: {
-          maxOutputTokens: args.maxTokens,
-          // Asking for JSON directly rather than hoping for it. The parser
-          // tolerates prose around the object either way, but a model that has
-          // been told the shape wanders out of it far less often.
-          responseMimeType: "application/json",
+  // Every spelling of this model's id, in order. Google both renames models
+  // and retires older ones for new accounts — "no longer available to new
+  // users" is a 404, not a deprecation warning — so a rejected id falls
+  // through to the next rather than becoming a dead entry in a dropdown. A
+  // 404 costs nothing; every other status is a real error and stops here.
+  const ids = [args.model.id, ...(args.model.alt ?? [])];
+  let lastError: LlmError | null = null;
+
+  for (const id of ids) {
+    try {
+      return await ask(id);
+    } catch (err) {
+      if (!(err instanceof LlmError) || err.status !== 404) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError ?? new LlmError(`Kein Modell unter ${ids.join(", ")}.`, 404);
+
+  async function ask(modelId: string): Promise<Completion> {
+    const response = await fetch(
+      `${GOOGLE_ENDPOINT}/${encodeURIComponent(modelId)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": args.apiKey,
+          "Content-Type": "application/json",
         },
-      }),
-    },
-  );
-
-  const raw = await response.text().catch(() => "");
-  if (!response.ok) {
-    throw new LlmError(
-      `Google (${args.model.id}) antwortete mit ${response.status}. ${summarize(raw)}`,
-      response.status,
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: args.system }] },
+          contents: args.messages.map((m) => ({
+            // Google calls the assistant "model"; everything else about the
+            // conversation shape is the same.
+            role: m.role === "assistant" ? "model" : "user",
+            parts: [{ text: m.content }],
+          })),
+          generationConfig: {
+            maxOutputTokens: args.maxTokens,
+            // Asking for JSON directly rather than hoping for it. The parser
+            // tolerates prose around the object either way, but a model that has
+            // been told the shape wanders out of it far less often.
+            responseMimeType: "application/json",
+          },
+        }),
+      },
     );
-  }
 
-  let body: {
-    candidates?: {
-      content?: { parts?: { text?: string }[] };
-      finishReason?: string;
-    }[];
-    promptFeedback?: { blockReason?: string };
-    usageMetadata?: {
-      promptTokenCount?: number;
-      candidatesTokenCount?: number;
-      thoughtsTokenCount?: number;
+    const raw = await response.text().catch(() => "");
+    if (!response.ok) {
+      throw new LlmError(
+        `Google (${modelId}) antwortete mit ${response.status}. ${summarize(raw)}`,
+        response.status,
+      );
+    }
+
+    let body: {
+      candidates?: {
+        content?: { parts?: { text?: string }[] };
+        finishReason?: string;
+      }[];
+      promptFeedback?: { blockReason?: string };
+      usageMetadata?: {
+        promptTokenCount?: number;
+        candidatesTokenCount?: number;
+        thoughtsTokenCount?: number;
+      };
     };
-  };
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    throw new LlmError("Google antwortete nicht mit JSON.", 502);
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      throw new LlmError("Google antwortete nicht mit JSON.", 502);
+    }
+
+    if (body.promptFeedback?.blockReason) {
+      throw new LlmError(
+        `Google hat das Thema abgelehnt (${body.promptFeedback.blockReason}). Formuliere es anders.`,
+        400,
+      );
+    }
+
+    const candidate = body.candidates?.[0];
+    const text = (candidate?.content?.parts ?? [])
+      .map((p) => p.text)
+      .filter((t): t is string => Boolean(t))
+      .join("");
+
+    if (!text) {
+      throw new LlmError(
+        `Google hat keinen Text zurückgegeben${
+          candidate?.finishReason ? ` (${candidate.finishReason})` : ""
+        }.`,
+        502,
+      );
+    }
+
+    const usage = body.usageMetadata ?? {};
+    return {
+      text,
+      usage: {
+        input: usage.promptTokenCount ?? 0,
+        // Thinking is billed as output on both sides, so it is counted as
+        // output here too — otherwise Google would look cheaper than the invoice.
+        output:
+          (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0),
+      },
+      truncated: candidate?.finishReason === "MAX_TOKENS",
+    };
   }
-
-  if (body.promptFeedback?.blockReason) {
-    throw new LlmError(
-      `Google hat das Thema abgelehnt (${body.promptFeedback.blockReason}). Formuliere es anders.`,
-      400,
-    );
-  }
-
-  const candidate = body.candidates?.[0];
-  const text = (candidate?.content?.parts ?? [])
-    .map((p) => p.text)
-    .filter((t): t is string => Boolean(t))
-    .join("");
-
-  if (!text) {
-    throw new LlmError(
-      `Google hat keinen Text zurückgegeben${
-        candidate?.finishReason ? ` (${candidate.finishReason})` : ""
-      }.`,
-      502,
-    );
-  }
-
-  const usage = body.usageMetadata ?? {};
-  return {
-    text,
-    usage: {
-      input: usage.promptTokenCount ?? 0,
-      // Thinking is billed as output on both sides, so it is counted as
-      // output here too — otherwise Google would look cheaper than the invoice.
-      output: (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0),
-    },
-    truncated: candidate?.finishReason === "MAX_TOKENS",
-  };
 }
 
 /** Pull the message out of Google's error envelope, or fall back to raw text. */

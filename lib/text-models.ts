@@ -12,6 +12,15 @@
 
 export type TextModel = {
   id: string;
+  /**
+   * Other spellings of the same model.
+   *
+   * These ids move — several shipped with a "-preview" suffix and lost it, and
+   * Google retires older ones for new accounts without warning. A 404 costs
+   * nothing, so a rejected id falls through to the next spelling rather than
+   * becoming a dead entry in a dropdown.
+   */
+  alt?: string[];
   provider: "anthropic" | "google";
   label: string;
   /** USD per million input tokens. */
@@ -24,35 +33,25 @@ export type TextModel = {
 /**
  * Cheapest first.
  *
- * The spread is the point: the cheapest option here costs about a fortieth of
- * the dearest for the same quiz, and for a job that is "write thirty questions
- * as JSON" the cheap end is often enough. Which is why this is a choice rather
+ * The spread is the point: the cheapest option here costs about a tenth of the
+ * dearest for the same quiz, and for a job that is "write thirty questions as
+ * JSON" the cheap end is often enough. Which is why this is a choice rather
  * than a decision somebody else made once.
+ *
+ * Google's 2.5 Flash models are deliberately absent. They are cheaper still on
+ * the price list and this account cannot call them at all — "no longer
+ * available to new users", as a 404. A dropdown entry that always fails is
+ * worse than no entry.
  */
 export const TEXT_MODELS: TextModel[] = [
   {
-    id: "gemini-2.5-flash-lite",
-    provider: "google",
-    label: "Gemini 2.5 Flash Lite",
-    inputPerM: 0.1,
-    outputPerM: 0.4,
-    note: "Das billigste, das Google anbietet. Für einfache Themen meist genug.",
-  },
-  {
     id: "gemini-3.1-flash-lite",
+    alt: ["gemini-3.1-flash-lite-preview", "gemini-flash-lite-latest"],
     provider: "google",
-    label: "Nano Banana 2 Lite (Text)",
+    label: "Gemini 3.1 Flash Lite",
     inputPerM: 0.25,
     outputPerM: 1.5,
-    note: "Neuer als 2.5 Flash Lite, etwas teurer.",
-  },
-  {
-    id: "gemini-2.5-flash",
-    provider: "google",
-    label: "Gemini 2.5 Flash",
-    inputPerM: 0.3,
-    outputPerM: 2.5,
-    note: "Solider Mittelweg bei Google.",
+    note: "Das billigste, das dieser Zugang bekommt. Für klare Themen genug.",
   },
   {
     id: "claude-haiku-4-5",
@@ -64,6 +63,7 @@ export const TEXT_MODELS: TextModel[] = [
   },
   {
     id: "gemini-3.1-flash",
+    alt: ["gemini-3.1-flash-preview", "gemini-flash-latest"],
     provider: "google",
     label: "Gemini 3.1 Flash",
     inputPerM: 2,
