@@ -52,6 +52,13 @@ export async function GET() {
     // about how many characters are left this month, and that number was only
     // ever visible by logging into someone else's dashboard.
     voice: await voiceQuota(),
+    // Which Gemini models this key can actually call.
+    //
+    // Google both renames models and retires older ones for existing keys —
+    // "no longer available to new users" arrives as a 404 on the first real
+    // request, not as anything you can see in advance. Asking the catalogue
+    // endpoint is free and turns "which ids exist" from guesswork into a list.
+    googleModels: await googleModels(),
     settings: {
       // Which model writes a quiz when nobody picks one in the studio, and
       // which provider it therefore needs a key for.
@@ -144,6 +151,32 @@ async function voiceQuota(): Promise<Record<string, unknown> | null> {
         ? new Date(body.next_character_count_reset_unix * 1000).toISOString()
         : null,
     };
+  } catch (err) {
+    return { error: (err as Error).message.slice(0, 120) };
+  }
+}
+
+async function googleModels(): Promise<unknown> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",
+      { headers: { "x-goog-api-key": key }, cache: "no-store" },
+    );
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    const body = (await res.json()) as {
+      models?: {
+        name?: string;
+        displayName?: string;
+        supportedGenerationMethods?: string[];
+      }[];
+    };
+    return (body.models ?? [])
+      .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+      .map((m) => (m.name ?? "").replace(/^models\//, ""))
+      .filter(Boolean)
+      .sort();
   } catch (err) {
     return { error: (err as Error).message.slice(0, 120) };
   }

@@ -75,7 +75,12 @@ async function anthropic(args: {
     .stream({
       model: args.model.id,
       max_tokens: args.maxTokens,
-      output_config: { effort: args.effort ?? "medium" },
+      // Only where the model takes it. Haiku 4.5 rejects the parameter with a
+      // 400 rather than ignoring it, so sending it to every Claude model made
+      // Haiku impossible to pick at all.
+      ...(args.model.supportsEffort === false
+        ? {}
+        : { output_config: { effort: args.effort ?? "medium" } }),
       system: args.system,
       messages: args.messages,
     })

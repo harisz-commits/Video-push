@@ -27,6 +27,15 @@ export type TextModel = {
   inputPerM: number;
   /** USD per million output tokens — thinking tokens included, on both sides. */
   outputPerM: number;
+  /**
+   * Whether the model accepts an effort level.
+   *
+   * Not a nicety: Claude Haiku 4.5 rejects `output_config.effort` outright
+   * with a 400, so sending it made the model unusable rather than merely
+   * unconfigurable — picking Haiku failed after two seconds with "This model
+   * does not support the effort parameter".
+   */
+  supportsEffort?: boolean;
   note: string;
 };
 
@@ -59,6 +68,7 @@ export const TEXT_MODELS: TextModel[] = [
     label: "Claude Haiku 4.5",
     inputPerM: 1,
     outputPerM: 5,
+    supportsEffort: false,
     note: "Das schnelle Claude-Modell.",
   },
   {
@@ -73,6 +83,7 @@ export const TEXT_MODELS: TextModel[] = [
   {
     id: "claude-sonnet-5",
     provider: "anthropic",
+    supportsEffort: true,
     label: "Claude Sonnet 5",
     inputPerM: 3,
     outputPerM: 15,
@@ -81,6 +92,7 @@ export const TEXT_MODELS: TextModel[] = [
   {
     id: "claude-opus-5",
     provider: "anthropic",
+    supportsEffort: true,
     label: "Claude Opus 5",
     inputPerM: 5,
     outputPerM: 25,
