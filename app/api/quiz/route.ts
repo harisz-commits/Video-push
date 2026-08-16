@@ -18,15 +18,11 @@ export const maxDuration = 300;
 export async function POST(req: Request) {
   let topic: string;
   let count: number;
-  let narrate = false;
-  let narrateReveal = false;
   let model: TextModel;
   try {
     const body = (await req.json()) as {
       topic?: unknown;
       count?: unknown;
-      narrate?: unknown;
-      narrateReveal?: unknown;
       model?: unknown;
     };
     if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
@@ -37,8 +33,6 @@ export async function POST(req: Request) {
     // enough to build a difficulty curve, short enough that one bad question
     // does not cost a five-minute render.
     count = Math.min(50, Math.max(4, Number(body.count) || 12));
-    narrate = body.narrate === true;
-    narrateReveal = body.narrateReveal === true;
     // Resolved against the closed catalogue rather than passed through: the id
     // arrives from a public page, and an id taken on trust is permission to
     // bill this account for whatever the provider sells.
@@ -61,18 +55,6 @@ export async function POST(req: Request) {
   const allowed = await guard(req, "script", 4);
   if (!allowed.ok) return errorResponse(allowed.error, allowed.status);
 
-  // Refused up front rather than half way through: finding out that the voice
-  // was never configured after fifty questions have been written and paid for
-  // helps nobody.
-  const elevenKey = process.env.ELEVENLABS_API_KEY;
-  const voiceId = process.env.ELEVENLABS_VOICE_ID;
-  if (narrate && !(elevenKey && voiceId)) {
-    return errorResponse(
-      "Vorlesen braucht ELEVENLABS_API_KEY und ELEVENLABS_VOICE_ID. Ohne die beiden lässt sich das Quiz nur stumm erzeugen.",
-      500,
-    );
-  }
-
   const jobId = `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const startedAt = Date.now();
 
@@ -91,10 +73,6 @@ export async function POST(req: Request) {
       count,
       apiKey,
       model,
-      narrate:
-        narrate && elevenKey && voiceId
-          ? { withReveal: narrateReveal, voiceId, elevenKey }
-          : undefined,
       startedAt,
     }),
   );

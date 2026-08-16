@@ -156,7 +156,6 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const [project, setProject] = useState<QuizProject>(seed);
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(12);
-  const [narrate, setNarrate] = useState(false);
   const [narrateReveal, setNarrateReveal] = useState(false);
   /** Which model writes the questions. See lib/text-models.ts. */
   const [modelId, setModelId] = useState(DEFAULT_TEXT_MODEL.id);
@@ -173,17 +172,6 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const [elapsed, setElapsed] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  /**
-   * A rough upper bound on what narration will cost, before any question
-   * exists to measure.
-   *
-   * Deliberately the pessimistic figure. Identical prompts are recorded once,
-   * which in a flag quiz collapses fifty questions into a single clip — but
-   * that saving depends on questions nobody has written yet, and a number that
-   * turns out too low is worse than one that turns out too high.
-   */
-  const narrationEstimate = count * (narrateReveal ? 88 : 60);
 
   /** Which questions are ticked for rewriting. */
   const [selected, setSelected] = useState<number[]>([]);
@@ -368,8 +356,6 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     const result = await postJson<{ jobId: string }>("/api/quiz", {
       topic,
       count,
-      narrate,
-      narrateReveal,
       model: modelId,
     });
     if (!result.ok) {
@@ -992,56 +978,14 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           </div>
 
           {/*
-            Reading the questions aloud.
+            No "read the questions aloud" switch here any more.
 
-            Set before generating rather than after, because it is the one
-            option here that spends a budget with a monthly ceiling instead of
-            a per-call price — and the estimate belongs next to the switch, not
-            in a note somewhere further down.
+            It used to sit next to the model, and it was the wrong place for
+            it: it spent voice credits before anybody had read a single
+            question, so every question that was then rewritten had to be paid
+            for a second time. Speaking is now its own step further down, after
+            the questions exist and can be judged — same price, nothing wasted.
           */}
-          <div style={{ marginTop: 12, fontSize: 12 }}>
-            <label
-              style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
-            >
-              <input
-                type="checkbox"
-                checked={narrate}
-                onChange={(e) => setNarrate(e.target.checked)}
-              />
-              Fragen vorlesen
-            </label>
-            {narrate ? (
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor: "pointer",
-                  marginTop: 6,
-                  marginLeft: 22,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={narrateReveal}
-                  onChange={(e) => setNarrateReveal(e.target.checked)}
-                />
-                Auflösung vorlesen
-              </label>
-            ) : null}
-          </div>
-          {narrate ? (
-            <div
-              className="mono"
-              style={{ fontSize: 11, color: "#5b6672", marginTop: 6 }}
-            >
-              Kostet grob {narrationEstimate.toLocaleString("de-DE")} Zeichen
-              vom ElevenLabs-Kontingent. Gleiche Fragetexte werden nur einmal
-              aufgenommen — bei „Welches Land ist das?" also einmal für das
-              ganze Video.
-            </div>
-          ) : null}
-
           <div style={{ height: 10 }} />
           <Button onClick={() => void generate()} disabled={busy || topic.trim().length < 3}>
             {busy ? (step ?? "Fragen werden geschrieben…") : "Quiz erzeugen"}
@@ -1297,6 +1241,12 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
                         audioUrl: undefined,
                         audioSeconds: undefined,
                         audioText: undefined,
+                        // The answer goes with it. A quiz that says "Richtig
+                        // ist: Japan" over a question nobody read out is worse
+                        // than a silent one.
+                        revealAudioUrl: undefined,
+                        revealAudioSeconds: undefined,
+                        revealAudioText: undefined,
                       })),
                     }))
                   }

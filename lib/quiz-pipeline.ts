@@ -1,7 +1,6 @@
 import { readdirSync } from "fs";
 import { join } from "path";
 import { complete, type Turn } from "./llm";
-import { narrateQuestions, narrationCost } from "./quiz-narration";
 import { QuizProject, QuizQuestion } from "./quiz";
 import {
   buildQuizPrompt,
@@ -24,16 +23,6 @@ import { quizJobPath, writeJson, type QuizJob } from "./store";
  * index, no duplicates, a flag file that actually exists — and the model is
  * told what it got wrong rather than being trusted the second time either.
  */
-
-/**
- * When narration must stop starting new recordings.
- *
- * The route is allowed 300 seconds and writing fifty questions already takes
- * a good part of that. Leaving forty seconds of headroom means the job always
- * gets to write its result — a quiz with some questions unread is usable, a
- * function killed mid-write leaves nothing at all.
- */
-const NARRATION_DEADLINE_MS = 260_000;
 
 /**
  * Which flags are on disk.
@@ -61,22 +50,12 @@ export async function generateQuiz(args: {
   apiKey: string;
   /** Which model writes the questions. See lib/text-models.ts. */
   model?: TextModel;
-  /**
-   * Read the questions aloud.
-   *
-   * Off unless asked for, and asked for at generation time rather than later,
-   * because it is the one step here that spends a budget with a monthly
-   * ceiling rather than a per-call price.
-   */
-  narrate?: { withReveal: boolean; voiceId: string; elevenKey: string };
   startedAt: number;
 }): Promise<void> {
   const model = args.model ?? resolveTextModel();
   const flags = availableFlags();
   /** Tokens spent across every call this job made, for reporting the cost. */
   const spent = { input: 0, output: 0 };
-  /** Set when narration failed but the quiz itself is fine. */
-  let narrationError: string | undefined;
 
   const progress = (step: string) =>
     writeJson(quizJobPath(args.jobId), {
@@ -114,41 +93,17 @@ export async function generateQuiz(args: {
       count: questions.length,
     });
 
-    // Last, and only if asked. The questions are the expensive half in model
-    // tokens and this is the expensive half in voice credits, so a failure
-    // here must not throw away work that is already finished and paid for.
-    let spoken = questions;
-    if (args.narrate) {
-      const options = { withReveal: args.narrate.withReveal };
-      const plan = narrationCost(questions, options);
-      try {
-        const result = await narrateQuestions({
-          jobId: args.jobId,
-          questions,
-          options,
-          voiceId: args.narrate.voiceId,
-          apiKey: args.narrate.elevenKey,
-          deadline: args.startedAt + NARRATION_DEADLINE_MS,
-          onProgress: (done, total) =>
-            progress(
-              `Fragen werden vorgelesen: Aufnahme ${done} von ${total}` +
-                (total < questions.length
-                  ? ` (${questions.length} Fragen, ${total} verschiedene Texte)`
-                  : ""),
-            ).then(() => undefined),
-        });
-        spoken = result.questions;
-        if (result.skipped > 0) {
-          narrationError = `Die Zeit reichte nicht für alle Aufnahmen: ${result.clips} von ${result.clips + result.skipped} Texten wurden vorgelesen, der Rest bleibt stumm. Das Video rendert trotzdem — nur diese Fragen laufen ohne Stimme.`;
-        }
-      } catch (err) {
-        // A quiz without narration is a quiz. Losing thirty written questions
-        // because the voice ran out of credits is not a trade worth making, so
-        // the failure is carried into the finished project as a note rather
-        // than thrown.
-        narrationError = `Die Fragen konnten nicht vorgelesen werden (${(err as Error).message.slice(0, 160)}). Das Quiz ist fertig, nur ohne Stimme — geschätzt hätte es ${plan.characters.toLocaleString("de-DE")} Zeichen gekostet.`;
-      }
-    }
+    // Deliberately no narration here.
+    //
+    // This job writes questions; giving them a voice is POST /api/quiz/narrate,
+    // and the order matters more than the click it saves. Recordings are paid
+    // for out of a monthly ceiling rather than per call, so paying for them
+    // before anybody has read the questions means paying twice for every
+    // question that then gets rewritten. Reading first and speaking afterwards
+    // costs exactly the same and cannot be wasted.
+    //
+    // It also gives narration the whole 300 seconds of its own function
+    // instead of whatever was left over after fifty questions were written.
 
     const project = QuizProject.parse({
       kind: "quiz",
@@ -157,7 +112,7 @@ export async function generateQuiz(args: {
       title: frame.title,
       intro: frame.intro,
       outro: frame.outro,
-      questions: spoken,
+      questions,
       fps: 30,
       width: 1920,
       height: 1080,
@@ -179,9 +134,6 @@ export async function generateQuiz(args: {
         outputTokens: spent.output,
         cents: Number(costCents(model, spent).toFixed(3)),
       },
-      // A done job that still has something to say. The studio shows it as a
-      // warning beside a finished quiz rather than as a failure.
-      warning: narrationError,
       startedAt: args.startedAt,
       updatedAt: Date.now(),
     } satisfies QuizJob);
