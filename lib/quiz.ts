@@ -60,6 +60,16 @@ export const QuizQuestion = z.object({
    */
   audioUrl: z.string().url().optional(),
   audioSeconds: z.number().positive().max(30).optional(),
+  /**
+   * What the recording actually says.
+   *
+   * Kept so a second narration run can tell an up-to-date clip from a stale
+   * one without listening to it. Without this, "speak the questions that have
+   * no voice yet" would either re-record everything — paying twice for clips
+   * that were already fine — or keep a recording of a question that has since
+   * been rewritten, which is worse.
+   */
+  audioText: z.string().max(400).optional(),
 });
 export type QuizQuestion = z.infer<typeof QuizQuestion>;
 

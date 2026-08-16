@@ -33,13 +33,32 @@ export function narrationText(
   return `${question.prompt} ${labelled}.`;
 }
 
-/** What this will cost, before anything is spent. */
+/** Whether a question already carries a recording of exactly these words. */
+export function isSpoken(
+  question: QuizQuestion,
+  options: { withAnswers: boolean },
+): boolean {
+  return Boolean(
+    question.audioUrl &&
+      question.audioText === narrationText(question, options),
+  );
+}
+
+/**
+ * What this will cost, before anything is spent.
+ *
+ * Counts only what would actually be sent: identical texts once, and nothing
+ * for a question that already has a recording of exactly these words.
+ */
 export function narrationCost(
   questions: QuizQuestion[],
   options: { withAnswers: boolean },
 ): { characters: number; unique: number; saved: number } {
   const texts = questions.map((q) => narrationText(q, options));
-  const unique = new Set(texts);
+  const already = new Set(
+    questions.filter((q) => isSpoken(q, options)).map((q) => narrationText(q, options)),
+  );
+  const unique = new Set(texts.filter((t) => !already.has(t)));
   const characters = [...unique].reduce((sum, t) => sum + t.length, 0);
   const all = texts.reduce((sum, t) => sum + t.length, 0);
   return { characters, unique: unique.size, saved: all - characters };
@@ -95,8 +114,20 @@ export async function narrateQuestions(args: {
     narrationText(q, { withAnswers: args.withAnswers }),
   );
 
-  const distinct = [...new Set(texts)];
+  // Recordings that already exist and still say the right thing. Reusing them
+  // is what makes "speak the ones that have no voice yet" cost only those —
+  // the case after a few questions have been rewritten.
   const clips = new Map<string, { url: string; seconds?: number }>();
+  for (const [i, question] of args.questions.entries()) {
+    if (isSpoken(question, { withAnswers: args.withAnswers })) {
+      clips.set(texts[i], {
+        url: question.audioUrl!,
+        seconds: question.audioSeconds,
+      });
+    }
+  }
+
+  const distinct = [...new Set(texts)].filter((t) => !clips.has(t));
   let characters = 0;
   let done = 0;
   let skipped = 0;
@@ -148,7 +179,12 @@ export async function narrateQuestions(args: {
     questions: args.questions.map((question, i) => {
       const clip = clips.get(texts[i]);
       return clip
-        ? { ...question, audioUrl: clip.url, audioSeconds: clip.seconds }
+        ? {
+            ...question,
+            audioUrl: clip.url,
+            audioSeconds: clip.seconds,
+            audioText: texts[i],
+          }
         : question;
     }),
     characters,

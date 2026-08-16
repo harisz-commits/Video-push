@@ -250,6 +250,35 @@ export type QuizJob = {
 
 export const quizJobPath = (jobId: string) => `jobs/quiz/${jobId}.json`;
 
+/**
+ * A change to a quiz that already exists.
+ *
+ * One job type for two jobs — rewriting some questions, and giving them a
+ * voice — because from the studio's side they are the same thing: something
+ * slow happens on the server and a new list of questions comes back. Two job
+ * types would have meant two pollers doing the same work.
+ *
+ * Never the whole project, only the questions. Everything else on a project —
+ * title, thumbnail, which render belongs to it — can be edited while this runs,
+ * and a job that returned a whole project would quietly undo those edits.
+ */
+export type QuizEditJob = {
+  jobId: string;
+  kind: "requestion" | "narrate";
+  status: "running" | "done" | "error";
+  step?: string;
+  /** QuizQuestion[], validated by the caller. */
+  questions?: unknown;
+  /** Finished, but not entirely — see the note on QuizJob. */
+  warning?: string;
+  error?: string;
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const quizEditJobPath = (jobId: string) =>
+  `jobs/quiz-edit/${jobId}.json`;
+
 /** A thumbnail background being generated. Same background-job shape as the rest. */
 export type ThumbnailJob = {
   jobId: string;

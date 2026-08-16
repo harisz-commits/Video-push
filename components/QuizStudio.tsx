@@ -2,7 +2,8 @@
 
 import { Player, type PlayerRef } from "@remotion/player";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { QuizProject, resolveQuizTiming } from "../lib/quiz";
+import { QuizProject, QuizQuestion, resolveQuizTiming } from "../lib/quiz";
+import { isSpoken, narrationCost } from "../lib/quiz-narration";
 import { QuizVideo } from "../remotion/quiz/QuizVideo";
 import { getJson, postJson } from "./api";
 import { DownloadButton } from "./DownloadButton";
@@ -54,6 +55,14 @@ type QuizJobState = {
   /** Finished, but something optional did not — narration, usually. */
   warning?: string;
   startedAt?: number;
+};
+
+type QuizEditState = {
+  status: "running" | "done" | "error";
+  step?: string;
+  questions?: unknown;
+  warning?: string;
+  error?: string;
 };
 
 type VoiceJobState = {
@@ -144,6 +153,34 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
    * turns out too low is worse than one that turns out too high.
    */
   const narrationEstimate = count * (narrateAnswers ? 96 : 60);
+
+  /** Which questions are ticked for rewriting. */
+  const [selected, setSelected] = useState<number[]>([]);
+  const [editJobId, setEditJobId] = useState<string | null>(null);
+  const [editKind, setEditKind] = useState<"requestion" | "narrate" | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editStep, setEditStep] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editWarning, setEditWarning] = useState<string | null>(null);
+
+  /**
+   * What a narration run would cost from here, exactly.
+   *
+   * Not the estimate shown before generating — this one can see the questions,
+   * so it counts identical texts once and charges nothing for a question that
+   * already carries a recording of exactly these words.
+   */
+  const narrationPlan = useMemo(
+    () => narrationCost(project.questions, { withAnswers: narrateAnswers }),
+    [project.questions, narrateAnswers],
+  );
+  const spokenCount = useMemo(
+    () =>
+      project.questions.filter((q) =>
+        isSpoken(q, { withAnswers: narrateAnswers }),
+      ).length,
+    [project.questions, narrateAnswers],
+  );
 
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Summary[]>([]);
@@ -314,6 +351,82 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     setJobId(result.data.jobId);
     setStartedAt(Date.now());
   }
+
+  // ---- Editing an existing quiz -------------------------------------------
+  //
+  // Both of these hand work to the server and wait for a new list of questions
+  // to come back, so they share a job shape and the poller below.
+  async function startEdit(
+    kind: "requestion" | "narrate",
+    path: string,
+    body: Record<string, unknown>,
+  ) {
+    setEditBusy(true);
+    setEditKind(kind);
+    setEditError(null);
+    setEditWarning(null);
+    const result = await postJson<{ jobId: string }>(path, body);
+    if (!result.ok) {
+      setEditError(result.error);
+      setEditBusy(false);
+      setEditKind(null);
+      return;
+    }
+    setEditJobId(result.data.jobId);
+  }
+
+  const requestion = () =>
+    startEdit("requestion", "/api/quiz/requestion", {
+      topic: project.topic,
+      questions: project.questions,
+      replace: selected,
+    });
+
+  const narrateNow = () =>
+    startEdit("narrate", "/api/quiz/narrate", {
+      questions: project.questions,
+      withAnswers: narrateAnswers,
+    });
+
+  useEffect(() => {
+    if (!editJobId || !editKind) return;
+    const path =
+      editKind === "narrate" ? "/api/quiz/narrate" : "/api/quiz/requestion";
+    let cancelled = false;
+
+    const tick = async () => {
+      const result = await getJson<QuizEditState>(
+        `${path}?jobId=${encodeURIComponent(editJobId)}`,
+      );
+      if (cancelled || !result.ok) return;
+      setEditStep(result.data.step ?? null);
+      if (result.data.status === "running") return;
+
+      if (result.data.status === "done" && result.data.questions) {
+        const parsed = QuizQuestion.array().safeParse(result.data.questions);
+        if (parsed.success) {
+          setProject((p) => ({ ...p, questions: parsed.data }));
+          setSelected([]);
+        } else {
+          setEditError("Die geänderten Fragen passen nicht mehr zum Schema.");
+        }
+        setEditWarning(result.data.warning ?? null);
+      } else {
+        setEditError(result.data.error ?? "Der Auftrag ist fehlgeschlagen.");
+      }
+      setEditJobId(null);
+      setEditKind(null);
+      setEditBusy(false);
+      setEditStep(null);
+    };
+
+    void tick();
+    const id = window.setInterval(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [editJobId, editKind]);
 
   // A generation that takes three minutes and one that died look identical
   // when the only thing on screen is the word "läuft". Counting makes the
@@ -915,35 +1028,191 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
               .map((l) => `${l} ${levels[l]}`)
               .join(" · ")}
           </div>
-          <div style={{ display: "grid", gap: 4, maxHeight: 280, overflowY: "auto" }}>
-            {project.questions.map((q, i) => (
+          {/*
+            The whole list, and the whole of every question.
+
+            It used to show the correct answer alone, inside 280 pixels of
+            scroll — so a quiz about video games read "01 easy · Clash of
+            Clans" thirty times over and there was no way to check a single
+            question without rendering the video. The question, its three
+            options and which one wins are the only things worth looking at
+            here, and there are never more than fifty of them.
+          */}
+          <div style={{ display: "grid", gap: 6 }}>
+            {project.questions.map((q, i) => {
+              const chosen = selected.includes(i);
+              return (
+                <div
+                  key={q.id}
+                  style={{
+                    border: `1px solid ${chosen ? "var(--ink)" : "var(--grid)"}`,
+                    background: chosen ? "rgba(0,0,0,0.03)" : "transparent",
+                    padding: "8px 10px",
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 8,
+                      marginBottom: 3,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={chosen}
+                      onChange={(e) =>
+                        setSelected((current) =>
+                          e.target.checked
+                            ? [...current, i].sort((a, b) => a - b)
+                            : current.filter((n) => n !== i),
+                        )
+                      }
+                      aria-label={`Frage ${i + 1} auswählen`}
+                      style={{ cursor: "pointer" }}
+                    />
+                    <span className="mono" style={{ color: "#5b6672", fontSize: 11 }}>
+                      {String(i + 1).padStart(2, "0")} {q.level}
+                      {q.flag ? ` · ${q.flag.toUpperCase()}` : ""}
+                      {q.audioUrl
+                        ? ` · ♪ ${q.audioSeconds?.toFixed(1) ?? "?"}s`
+                        : ""}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const slot = timing.slots[i];
+                        if (slot) playerRef.current?.seekTo(slot.from + 10);
+                      }}
+                      title="Zu dieser Frage springen"
+                      style={{
+                        marginLeft: "auto",
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        color: "#5b6672",
+                        fontSize: 11,
+                      }}
+                    >
+                      ▶
+                    </button>
+                  </div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{q.prompt}</div>
+                  <div style={{ display: "grid", gap: 2 }}>
+                    {q.answers.map((answer, n) => (
+                      <div
+                        key={n}
+                        style={{
+                          color: n === q.correctIndex ? "var(--live)" : "#5b6672",
+                          fontWeight: n === q.correctIndex ? 700 : 400,
+                        }}
+                      >
+                        <span className="mono">{"ABC"[n]}</span> {answer}
+                        {n === q.correctIndex ? " ✓" : ""}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ---- Rewriting ---- */}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              marginTop: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <Button
+              onClick={() => void requestion()}
+              disabled={editBusy || selected.length === 0}
+            >
+              {editBusy && editKind === "requestion"
+                ? (editStep ?? "wird neu geschrieben…")
+                : `${selected.length || ""} ${
+                    selected.length === 1 ? "Frage" : "Fragen"
+                  } neu erzeugen`.trim()}
+            </Button>
+            {selected.length > 0 ? (
               <button
-                key={q.id}
-                onClick={() => {
-                  const slot = timing.slots[i];
-                  if (slot) playerRef.current?.seekTo(slot.from + 10);
-                }}
-                title="Zu dieser Frage springen"
+                onClick={() => setSelected([])}
                 style={{
-                  textAlign: "left",
-                  padding: "7px 9px",
-                  border: "1px solid var(--grid)",
-                  background: "transparent",
+                  border: "none",
+                  background: "none",
                   cursor: "pointer",
                   fontSize: 12,
-                  lineHeight: 1.35,
+                  color: "#5b6672",
                 }}
               >
-                <span className="mono" style={{ color: "#5b6672" }}>
-                  {String(i + 1).padStart(2, "0")} {q.level}
-                </span>
-                <br />
-                <span style={{ fontWeight: 600 }}>
-                  {q.flag ? `Flagge ${q.flag.toUpperCase()} → ` : ""}
-                  {q.answers[q.correctIndex]}
-                </span>
+                Auswahl aufheben
               </button>
-            ))}
+            ) : (
+              <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                Fragen ankreuzen, um sie zu ersetzen — höchstens zehn auf einmal.
+              </span>
+            )}
+          </div>
+
+          {/* ---- Voice, after the fact ---- */}
+          <div
+            style={{
+              marginTop: 12,
+              paddingTop: 10,
+              borderTop: "1px solid var(--grid)",
+            }}
+          >
+            <label
+              style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, cursor: "pointer" }}
+            >
+              <input
+                type="checkbox"
+                checked={narrateAnswers}
+                onChange={(e) => setNarrateAnswers(e.target.checked)}
+              />
+              Antwortmöglichkeiten mitlesen
+            </label>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <Button onClick={() => void narrateNow()} disabled={editBusy}>
+                {editBusy && editKind === "narrate"
+                  ? (editStep ?? "wird vertont…")
+                  : spokenCount === project.questions.length
+                    ? "Vertonung erneuern"
+                    : "Fragen vertonen"}
+              </Button>
+              {spokenCount > 0 ? (
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    setProject((p) => ({
+                      ...p,
+                      questions: p.questions.map((q) => ({
+                        ...q,
+                        audioUrl: undefined,
+                        audioSeconds: undefined,
+                        audioText: undefined,
+                      })),
+                    }))
+                  }
+                >
+                  Stimme entfernen
+                </Button>
+              ) : null}
+            </div>
+            <div className="mono" style={{ fontSize: 11, color: "#5b6672", marginTop: 6 }}>
+              {spokenCount} von {project.questions.length} Fragen vertont
+              {narrationPlan.characters > 0
+                ? ` · nächster Lauf kostet ${narrationPlan.characters.toLocaleString("de-DE")} Zeichen (${narrationPlan.unique} ${
+                    narrationPlan.unique === 1 ? "Aufnahme" : "Aufnahmen"
+                  })`
+                : " · nichts zu tun"}
+            </div>
+            {editError ? <Note tone="alert">{editError}</Note> : null}
+            {editWarning ? <Note tone="alert">{editWarning}</Note> : null}
           </div>
         </Panel>
 
