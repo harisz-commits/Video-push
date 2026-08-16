@@ -1177,12 +1177,19 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
               Antwortmöglichkeiten mitlesen
             </label>
             <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <Button onClick={() => void narrateNow()} disabled={editBusy}>
+              <Button
+                onClick={() => void narrateNow()}
+                // Nothing to say means nothing to send. Without this the
+                // button would happily start a job that records zero clips.
+                disabled={editBusy || narrationPlan.characters === 0}
+              >
                 {editBusy && editKind === "narrate"
                   ? (editStep ?? "wird vertont…")
-                  : spokenCount === project.questions.length
-                    ? "Vertonung erneuern"
-                    : "Fragen vertonen"}
+                  : narrationPlan.characters === 0
+                    ? "Alle Fragen vertont"
+                    : spokenCount > 0
+                      ? "Fehlende vertonen"
+                      : "Fragen vertonen"}
               </Button>
               {spokenCount > 0 ? (
                 <Button
