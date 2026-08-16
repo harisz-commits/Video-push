@@ -70,6 +70,16 @@ export const QuizQuestion = z.object({
    * been rewritten, which is worse.
    */
   audioText: z.string().max(400).optional(),
+  /**
+   * The answer, spoken once the timer has run out.
+   *
+   * Its own clip rather than part of the question's: it is said at a different
+   * moment, and saying it while the viewer is still guessing would give the
+   * game away.
+   */
+  revealAudioUrl: z.string().url().optional(),
+  revealAudioSeconds: z.number().positive().max(30).optional(),
+  revealAudioText: z.string().max(400).optional(),
 });
 export type QuizQuestion = z.infer<typeof QuizQuestion>;
 
@@ -204,7 +214,14 @@ export function resolveQuizTiming(project: QuizProject): QuizTiming {
         ? Math.max(question.thinkSeconds, question.audioSeconds + airSeconds)
         : question.thinkSeconds,
     );
-    const revealFrames = s(BEATS.reveal);
+    // Long enough for the answer to be said, when it is said at all. The beat
+    // is shorter than the question's because nobody is thinking any more —
+    // it only has to stop the last word being cut off by the wipe.
+    const revealFrames = s(
+      question.revealAudioSeconds
+        ? Math.max(BEATS.reveal, question.revealAudioSeconds + 0.9)
+        : BEATS.reveal,
+    );
     const exitFrames = s(BEATS.exit);
     const durationInFrames =
       enterFrames + thinkFrames + revealFrames + exitFrames;

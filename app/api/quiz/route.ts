@@ -19,14 +19,14 @@ export async function POST(req: Request) {
   let topic: string;
   let count: number;
   let narrate = false;
-  let narrateAnswers = false;
+  let narrateReveal = false;
   let model: TextModel;
   try {
     const body = (await req.json()) as {
       topic?: unknown;
       count?: unknown;
       narrate?: unknown;
-      narrateAnswers?: unknown;
+      narrateReveal?: unknown;
       model?: unknown;
     };
     if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     // does not cost a five-minute render.
     count = Math.min(50, Math.max(4, Number(body.count) || 12));
     narrate = body.narrate === true;
-    narrateAnswers = body.narrateAnswers === true;
+    narrateReveal = body.narrateReveal === true;
     // Resolved against the closed catalogue rather than passed through: the id
     // arrives from a public page, and an id taken on trust is permission to
     // bill this account for whatever the provider sells.
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
       model,
       narrate:
         narrate && elevenKey && voiceId
-          ? { withAnswers: narrateAnswers, voiceId, elevenKey }
+          ? { withReveal: narrateReveal, voiceId, elevenKey }
           : undefined,
       startedAt,
     }),

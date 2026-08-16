@@ -51,6 +51,13 @@ export type TextModel = {
  * the price list and this account cannot call them at all — "no longer
  * available to new users", as a 404. A dropdown entry that always fails is
  * worse than no entry.
+ *
+ * Every id here was checked against what this key can actually list, which is
+ * also why the floating aliases — `gemini-flash-latest`, `gemini-flash-lite-
+ * latest` — are not used as entries. They resolve to whatever Google points
+ * them at this week, and a price printed next to a moving target is a wrong
+ * price waiting to happen. Fixed versions only; the aliases stay as fallbacks
+ * behind a version that has been retired.
  */
 export const TEXT_MODELS: TextModel[] = [
   {
@@ -63,6 +70,24 @@ export const TEXT_MODELS: TextModel[] = [
     note: "Das billigste, das dieser Zugang bekommt. Für klare Themen genug.",
   },
   {
+    id: "gemini-3.5-flash-lite",
+    alt: ["gemini-3.5-flash-lite-preview"],
+    provider: "google",
+    label: "Gemini 3.5 Flash Lite",
+    inputPerM: 0.3,
+    outputPerM: 2.5,
+    note: "Eine Generation neuer als 3.1 Lite, kaum teurer.",
+  },
+  {
+    id: "gemini-3.7-flash",
+    alt: ["gemini-3.7-flash-preview", "gemini-3.6-flash", "gemini-flash-latest"],
+    provider: "google",
+    label: "Gemini 3.7 Flash",
+    inputPerM: 0.75,
+    outputPerM: 3.75,
+    note: "Das neuste Flash. Aktionspreis bis 31.12.2026, danach doppelt so teuer. Gemini 3.6 Flash kostet dasselbe und kann dasselbe.",
+  },
+  {
     id: "claude-haiku-4-5",
     provider: "anthropic",
     label: "Claude Haiku 4.5",
@@ -72,13 +97,13 @@ export const TEXT_MODELS: TextModel[] = [
     note: "Das schnelle Claude-Modell.",
   },
   {
-    id: "gemini-3.1-flash",
-    alt: ["gemini-3.1-flash-preview", "gemini-flash-latest"],
+    id: "gemini-3.5-flash",
+    alt: ["gemini-3.5-flash-preview"],
     provider: "google",
-    label: "Gemini 3.1 Flash",
-    inputPerM: 2,
-    outputPerM: 12,
-    note: "Googles starkes Flash-Modell.",
+    label: "Gemini 3.5 Flash",
+    inputPerM: 1.5,
+    outputPerM: 9,
+    note: "Googles großes Flash-Modell — teurer als 3.7 Flash, solange dessen Aktionspreis gilt.",
   },
   {
     id: "claude-sonnet-5",

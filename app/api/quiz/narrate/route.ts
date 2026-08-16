@@ -31,16 +31,16 @@ export async function POST(req: Request) {
   }
 
   let questions: QuizQuestion[];
-  let withAnswers = false;
+  let withReveal = false;
   try {
     const body = (await req.json()) as {
       questions?: unknown;
-      withAnswers?: unknown;
+      withReveal?: unknown;
     };
     const parsed = QuizQuestion.array().safeParse(body.questions);
     if (!parsed.success || parsed.data.length === 0) throw new Error("questions");
     questions = parsed.data;
-    withAnswers = body.withAnswers === true;
+    withReveal = body.withReveal === true;
   } catch {
     return errorResponse("Ungültige Anfrage. Erwartet werden die Fragen.", 400);
   }
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
 
   const jobId = `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const startedAt = Date.now();
-  const plan = narrationCost(questions, { withAnswers });
+  const plan = narrationCost(questions, { withReveal });
 
   await writeJson(quizEditJobPath(jobId), {
     jobId,
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
         const result = await narrateQuestions({
           jobId,
           questions,
-          withAnswers,
+          options: { withReveal },
           voiceId,
           apiKey,
           // Forty seconds of headroom, so the job always gets to write its

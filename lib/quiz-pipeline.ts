@@ -68,7 +68,7 @@ export async function generateQuiz(args: {
    * because it is the one step here that spends a budget with a monthly
    * ceiling rather than a per-call price.
    */
-  narrate?: { withAnswers: boolean; voiceId: string; elevenKey: string };
+  narrate?: { withReveal: boolean; voiceId: string; elevenKey: string };
   startedAt: number;
 }): Promise<void> {
   const model = args.model ?? resolveTextModel();
@@ -119,14 +119,13 @@ export async function generateQuiz(args: {
     // here must not throw away work that is already finished and paid for.
     let spoken = questions;
     if (args.narrate) {
-      const plan = narrationCost(questions, {
-        withAnswers: args.narrate.withAnswers,
-      });
+      const options = { withReveal: args.narrate.withReveal };
+      const plan = narrationCost(questions, options);
       try {
         const result = await narrateQuestions({
           jobId: args.jobId,
           questions,
-          withAnswers: args.narrate.withAnswers,
+          options,
           voiceId: args.narrate.voiceId,
           apiKey: args.narrate.elevenKey,
           deadline: args.startedAt + NARRATION_DEADLINE_MS,

@@ -144,6 +144,18 @@ const SlotFrame: React.FC<{
           <Audio src={slot.question.audioUrl} volume={1} />
         </Sequence>
       ) : null}
+      {/*
+        The answer, once the clock has run out — not a moment earlier, which
+        is the whole reason it is a separate recording.
+      */}
+      {slot.question.revealAudioUrl ? (
+        <Sequence
+          from={slot.enterFrames + slot.thinkFrames}
+          name="♪ Auflösung"
+        >
+          <Audio src={slot.question.revealAudioUrl} volume={1} />
+        </Sequence>
+      ) : null}
       <QuestionSlot
         slot={slot}
         frame={frame}

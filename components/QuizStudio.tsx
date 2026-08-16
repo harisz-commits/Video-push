@@ -15,7 +15,7 @@ import { getJson, postJson } from "./api";
 import { DownloadButton } from "./DownloadButton";
 import { RenderList, type ProjectRenderRow } from "./RenderList";
 import { ThumbnailPanel } from "./ThumbnailPanel";
-import { Button, Field, formatTimecode, Note, Panel } from "./ui";
+import { Button, formatTimecode, Note, Panel } from "./ui";
 
 const JOB_KEY = "infographics-studio.quizJob";
 const VOICE_KEY = "infographics-studio.quizVoiceJob";
@@ -157,7 +157,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(12);
   const [narrate, setNarrate] = useState(false);
-  const [narrateAnswers, setNarrateAnswers] = useState(false);
+  const [narrateReveal, setNarrateReveal] = useState(false);
   /** Which model writes the questions. See lib/text-models.ts. */
   const [modelId, setModelId] = useState(DEFAULT_TEXT_MODEL.id);
   const textModel = resolveTextModel(modelId);
@@ -183,7 +183,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
    * that saving depends on questions nobody has written yet, and a number that
    * turns out too low is worse than one that turns out too high.
    */
-  const narrationEstimate = count * (narrateAnswers ? 96 : 60);
+  const narrationEstimate = count * (narrateReveal ? 88 : 60);
 
   /** Which questions are ticked for rewriting. */
   const [selected, setSelected] = useState<number[]>([]);
@@ -202,15 +202,12 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
    * already carries a recording of exactly these words.
    */
   const narrationPlan = useMemo(
-    () => narrationCost(project.questions, { withAnswers: narrateAnswers }),
-    [project.questions, narrateAnswers],
+    () => narrationCost(project.questions, { withReveal: narrateReveal }),
+    [project.questions, narrateReveal],
   );
   const spokenCount = useMemo(
-    () =>
-      project.questions.filter((q) =>
-        isSpoken(q, { withAnswers: narrateAnswers }),
-      ).length,
-    [project.questions, narrateAnswers],
+    () => project.questions.filter(isSpoken).length,
+    [project.questions],
   );
 
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -372,7 +369,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
       topic,
       count,
       narrate,
-      narrateAnswers,
+      narrateReveal,
       model: modelId,
     });
     if (!result.ok) {
@@ -419,7 +416,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const narrateNow = () =>
     startEdit("narrate", "/api/quiz/narrate", {
       questions: project.questions,
-      withAnswers: narrateAnswers,
+      withReveal: narrateReveal,
     });
 
   useEffect(() => {
@@ -918,11 +915,31 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
             </>
           ) : (
           <>
-          <Field
+          {/*
+            Five rows rather than one.
+
+            A topic is rarely three words. What actually gets typed here is a
+            briefing — which countries, which era, what to avoid — and a single
+            line hid all but the last few words of it, so it could not be read
+            back or corrected. It scrolls rather than growing, so the panel
+            below it stays where it was.
+          */}
+          <textarea
             value={topic}
-            placeholder="z. B. Flaggen der Welt"
+            placeholder="z. B. Flaggen der Welt — gern mit Details: welche Regionen, welche Epoche, was vermieden werden soll."
             onChange={(e) => setTopic(e.target.value)}
             aria-label="Quiz-Thema"
+            rows={5}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              border: "1px solid var(--grid)",
+              background: "#fff",
+              fontSize: 14,
+              lineHeight: 1.45,
+              resize: "vertical",
+              overflowY: "auto",
+            }}
           />
           <div style={{ height: 8 }} />
           <label
@@ -1006,10 +1023,10 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
               >
                 <input
                   type="checkbox"
-                  checked={narrateAnswers}
-                  onChange={(e) => setNarrateAnswers(e.target.checked)}
+                  checked={narrateReveal}
+                  onChange={(e) => setNarrateReveal(e.target.checked)}
                 />
-                Antwortmöglichkeiten mitlesen
+                Auflösung vorlesen
               </label>
             ) : null}
           </div>
@@ -1249,10 +1266,10 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
             >
               <input
                 type="checkbox"
-                checked={narrateAnswers}
-                onChange={(e) => setNarrateAnswers(e.target.checked)}
+                checked={narrateReveal}
+                onChange={(e) => setNarrateReveal(e.target.checked)}
               />
-              Antwortmöglichkeiten mitlesen
+              Auflösung vorlesen — „Richtig ist: …", wenn die Zeit um ist
             </label>
             <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
               <Button
