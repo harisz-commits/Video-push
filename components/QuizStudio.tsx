@@ -4,6 +4,12 @@ import { Player, type PlayerRef } from "@remotion/player";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QuizProject, QuizQuestion, resolveQuizTiming } from "../lib/quiz";
 import { isSpoken, narrationCost } from "../lib/quiz-narration";
+import {
+  DEFAULT_TEXT_MODEL,
+  estimateCents,
+  resolveTextModel,
+  TEXT_MODELS,
+} from "../lib/text-models";
 import { QuizVideo } from "../remotion/quiz/QuizVideo";
 import { getJson, postJson } from "./api";
 import { DownloadButton } from "./DownloadButton";
@@ -47,10 +53,18 @@ function suggest(all: Language[]): string[] {
   return picked.length >= 3 ? picked : all.slice(0, 7).map((l) => l.id);
 }
 
+type QuizCost = {
+  label: string;
+  inputTokens: number;
+  outputTokens: number;
+  cents: number;
+};
+
 type QuizJobState = {
   status: "running" | "done" | "error";
   step?: string;
   project?: unknown;
+  cost?: QuizCost;
   error?: string;
   /** Finished, but something optional did not — narration, usually. */
   warning?: string;
@@ -108,6 +122,18 @@ const recall = (key: string): string | null => {
   }
 };
 
+/**
+ * A price in US cents, the way a German reader expects to see one.
+ *
+ * US cents rather than converted euros: both providers bill in dollars, and a
+ * euro figure printed here would go wrong the moment the rate moved — quietly,
+ * in a place nobody would think to check.
+ */
+function formatCents(cents: number): string {
+  const rounded = cents < 1 ? cents.toFixed(2) : cents.toFixed(1);
+  return `${rounded.replace(".", ",")} US-Cent`;
+}
+
 function ago(ts: number): string {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
   if (s < 60) return "gerade eben";
@@ -132,6 +158,11 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
   const [count, setCount] = useState(12);
   const [narrate, setNarrate] = useState(false);
   const [narrateAnswers, setNarrateAnswers] = useState(false);
+  /** Which model writes the questions. See lib/text-models.ts. */
+  const [modelId, setModelId] = useState(DEFAULT_TEXT_MODEL.id);
+  const textModel = resolveTextModel(modelId);
+  /** What the last finished generation actually cost. */
+  const [cost, setCost] = useState<QuizCost | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
@@ -336,11 +367,13 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
     setBusy(true);
     setError(null);
     setWarning(null);
+    setCost(null);
     const result = await postJson<{ jobId: string }>("/api/quiz", {
       topic,
       count,
       narrate,
       narrateAnswers,
+      model: modelId,
     });
     if (!result.ok) {
       setError(result.error);
@@ -380,6 +413,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
       topic: project.topic,
       questions: project.questions,
       replace: selected,
+      model: modelId,
     });
 
   const narrateNow = () =>
@@ -461,6 +495,7 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
       }
       setStep(result.data.step ?? null);
       setWarning(result.data.warning ?? null);
+      if (result.data.cost) setCost(result.data.cost);
       // Resuming a job started in another session, or before a reload: without
       // this the counter would start from zero and lie about how long it has
       // been going.
@@ -907,6 +942,39 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           />
 
           {/*
+            Which model writes the questions.
+
+            The price sits on every option because the spread is fortyfold for
+            the same job, and "write thirty questions as JSON" is exactly the
+            kind of work where the cheap end is often enough. What is shown
+            here is an estimate; what is shown after the run is measured.
+          */}
+          <select
+            value={textModel.id}
+            onChange={(e) => setModelId(e.target.value)}
+            aria-label="Textmodell"
+            style={{
+              width: "100%",
+              padding: "9px 10px",
+              border: "1px solid var(--grid)",
+              background: "#fff",
+              fontSize: 13,
+              marginTop: 12,
+            }}
+          >
+            {TEXT_MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} — ca. {formatCents(estimateCents(m, count))} für {count} Fragen
+              </option>
+            ))}
+          </select>
+          <div className="mono" style={{ fontSize: 11, color: "#5b6672", marginTop: 4 }}>
+            {textModel.note} {textModel.inputPerM.toFixed(2).replace(".", ",")} $
+            /Mio. Eingabe, {textModel.outputPerM.toFixed(2).replace(".", ",")} $
+            /Mio. Ausgabe.
+          </div>
+
+          {/*
             Reading the questions aloud.
 
             Set before generating rather than after, because it is the one
@@ -963,6 +1031,16 @@ export const QuizStudio: React.FC<{ seed: QuizProject }> = ({ seed }) => {
           </Button>
           {error ? <Note tone="alert">{error}</Note> : null}
           {warning ? <Note tone="alert">{warning}</Note> : null}
+          {cost ? (
+            <Note tone="info">
+              <span className="mono">
+                {formatCents(cost.cents)} — {cost.label},{" "}
+                {cost.inputTokens.toLocaleString("de-DE")} Token rein,{" "}
+                {cost.outputTokens.toLocaleString("de-DE")} raus
+              </span>{" "}
+              — gemessen, nicht geschätzt.
+            </Note>
+          ) : null}
           {busy ? (
             <Note tone="info">
               <span className="mono">

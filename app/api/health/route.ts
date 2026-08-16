@@ -1,5 +1,6 @@
 import { head } from "@vercel/blob";
 import { DEFAULT_MODEL } from "../../../lib/gemini";
+import { DEFAULT_TEXT_MODEL } from "../../../lib/text-models";
 import { blobEnvNames, resolveBlobToken } from "../../../lib/store";
 
 export const runtime = "nodejs";
@@ -52,7 +53,9 @@ export async function GET() {
     // ever visible by logging into someone else's dashboard.
     voice: await voiceQuota(),
     settings: {
-      ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5",
+      // Which model writes a quiz when nobody picks one in the studio, and
+      // which provider it therefore needs a key for.
+      QUIZ_TEXT_MODEL: `${DEFAULT_TEXT_MODEL.id} (${DEFAULT_TEXT_MODEL.provider})`,
       ANTHROPIC_EFFORT: process.env.ANTHROPIC_EFFORT ?? "low",
       DAILY_SCRIPT_LIMIT: process.env.DAILY_SCRIPT_LIMIT ?? "40",
       DAILY_VOICE_LIMIT: process.env.DAILY_VOICE_LIMIT ?? "20",

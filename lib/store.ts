@@ -244,6 +244,14 @@ export type QuizJob = {
    * warning says what is missing.
    */
   warning?: string;
+  /** What the run actually cost, measured from the provider's token counts. */
+  cost?: {
+    model: string;
+    label: string;
+    inputTokens: number;
+    outputTokens: number;
+    cents: number;
+  };
   startedAt: number;
   updatedAt: number;
 };

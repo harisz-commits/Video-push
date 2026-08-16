@@ -1,8 +1,10 @@
 import { waitUntil } from "@vercel/functions";
 import { errorResponse, guard } from "../../../../lib/guardrails";
+import { keyFor, keyNameFor } from "../../../../lib/llm";
 import { QuizQuestion } from "../../../../lib/quiz";
 import { availableFlags } from "../../../../lib/quiz-pipeline";
 import { rewriteQuestions } from "../../../../lib/quiz-requestion";
+import { resolveTextModel, type TextModel } from "../../../../lib/text-models";
 import {
   quizEditJobPath,
   readJson,
@@ -20,18 +22,20 @@ export const maxDuration = 300;
  * and must survive the tab going away.
  */
 export async function POST(req: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return errorResponse("ANTHROPIC_API_KEY ist nicht gesetzt.", 500);
-
   let topic: string;
   let questions: QuizQuestion[];
   let replace: number[];
+  let model: TextModel;
   try {
     const body = (await req.json()) as {
       topic?: unknown;
       questions?: unknown;
       replace?: unknown;
+      model?: unknown;
     };
+    model = resolveTextModel(
+      typeof body.model === "string" ? body.model : undefined,
+    );
     topic =
       typeof body.topic === "string" && body.topic.trim()
         ? body.topic.trim().slice(0, 200)
@@ -59,6 +63,14 @@ export async function POST(req: Request) {
     );
   }
 
+  const apiKey = keyFor(model);
+  if (!apiKey) {
+    return errorResponse(
+      `${keyNameFor(model)} ist nicht gesetzt — ${model.label} lässt sich ohne diesen Key nicht aufrufen.`,
+      500,
+    );
+  }
+
   const allowed = await guard(req, "script", 1);
   if (!allowed.ok) return errorResponse(allowed.error, allowed.status);
 
@@ -79,6 +91,7 @@ export async function POST(req: Request) {
       try {
         const next = await rewriteQuestions({
           apiKey,
+          model,
           topic,
           questions,
           replace,

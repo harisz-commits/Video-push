@@ -1,6 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { complete } from "./llm";
 import { QuizQuestion } from "./quiz";
 import { QUIZ_SYSTEM_PROMPT } from "./quiz-prompt";
+import { resolveTextModel, type TextModel } from "./text-models";
 
 /**
  * Replacing individual questions.
@@ -17,10 +18,10 @@ import { QUIZ_SYSTEM_PROMPT } from "./quiz-prompt";
  * again.
  */
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
-
 export async function rewriteQuestions(args: {
   apiKey: string;
+  /** Which model rewrites them. Defaults to the studio's default. */
+  model?: TextModel;
   topic: string;
   /** The whole quiz, so the replacements can avoid all of it. */
   questions: QuizQuestion[];
@@ -28,7 +29,7 @@ export async function rewriteQuestions(args: {
   replace: number[];
   availableFlags?: string[];
 }): Promise<QuizQuestion[]> {
-  const client = new Anthropic({ apiKey: args.apiKey });
+  const model = args.model ?? resolveTextModel();
   const wanted = args.replace.length;
 
   // Keeping the level means the difficulty mix the quiz was built with
@@ -46,16 +47,16 @@ export async function rewriteQuestions(args: {
     ? `\n\nVerfügbare Flaggen-Codes (nur diese verwenden):\n${args.availableFlags.join(" ")}`
     : "";
 
-  const message = await client.messages
-    .stream({
-      model: MODEL,
-      max_tokens: Math.min(16000, 2000 + wanted * 700),
-      output_config: { effort: "medium" },
-      system: QUIZ_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Thema: ${args.topic}
+  const reply = await complete({
+    model,
+    apiKey: args.apiKey,
+    maxTokens: Math.min(16000, 2000 + wanted * 700),
+    effort: "medium",
+    system: QUIZ_SYSTEM_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: `Thema: ${args.topic}
 
 Schreib genau ${wanted} NEUE Fragen, in dieser Reihenfolge und mit diesen
 Schwierigkeiten:
@@ -66,17 +67,13 @@ auch nicht anders formuliert, und auch keine, die dieselbe Antwort abfragt:
 ${avoid}
 
 Vergib die ids n1, n2, n3 …${flags}`,
-        },
-      ],
-    })
-    .finalMessage();
+      },
+    ],
+  });
 
-  const raw = message.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
+  const raw = reply.text;
 
-  if (message.stop_reason === "max_tokens") {
+  if (reply.truncated) {
     throw new Error(
       "Die Antwort wurde beim Token-Limit abgeschnitten. Ersetze weniger Fragen auf einmal.",
     );

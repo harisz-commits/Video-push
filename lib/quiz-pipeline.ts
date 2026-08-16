@@ -1,6 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { readdirSync } from "fs";
 import { join } from "path";
+import { complete, type Turn } from "./llm";
 import { narrateQuestions, narrationCost } from "./quiz-narration";
 import { QuizProject, QuizQuestion } from "./quiz";
 import {
@@ -8,6 +8,7 @@ import {
   QUIZ_FRAME_SYSTEM_PROMPT,
   QUIZ_SYSTEM_PROMPT,
 } from "./quiz-prompt";
+import { costCents, resolveTextModel, type TextModel } from "./text-models";
 import { quizJobPath, writeJson, type QuizJob } from "./store";
 
 /**
@@ -24,8 +25,6 @@ import { quizJobPath, writeJson, type QuizJob } from "./store";
  * told what it got wrong rather than being trusted the second time either.
  */
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
-
 /**
  * When narration must stop starting new recordings.
  *
@@ -35,7 +34,6 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
  * function killed mid-write leaves nothing at all.
  */
 const NARRATION_DEADLINE_MS = 260_000;
-const EFFORT = (process.env.ANTHROPIC_EFFORT as "low" | "medium" | "high") ?? "medium";
 
 /**
  * Which flags are on disk.
@@ -61,6 +59,8 @@ export async function generateQuiz(args: {
   topic: string;
   count: number;
   apiKey: string;
+  /** Which model writes the questions. See lib/text-models.ts. */
+  model?: TextModel;
   /**
    * Read the questions aloud.
    *
@@ -71,8 +71,10 @@ export async function generateQuiz(args: {
   narrate?: { withAnswers: boolean; voiceId: string; elevenKey: string };
   startedAt: number;
 }): Promise<void> {
-  const client = new Anthropic({ apiKey: args.apiKey });
+  const model = args.model ?? resolveTextModel();
   const flags = availableFlags();
+  /** Tokens spent across every call this job made, for reporting the cost. */
+  const spent = { input: 0, output: 0 };
   /** Set when narration failed but the quiz itself is fine. */
   let narrationError: string | undefined;
 
@@ -89,7 +91,9 @@ export async function generateQuiz(args: {
   try {
     await progress("Fragen werden geschrieben");
     const questions = await writeQuestions({
-      client,
+      model,
+      apiKey: args.apiKey,
+      spent,
       topic: args.topic,
       count: args.count,
       flags,
@@ -102,7 +106,13 @@ export async function generateQuiz(args: {
     });
 
     await progress("Titel und Einstieg");
-    const frame = await writeFrame({ client, topic: args.topic, count: questions.length });
+    const frame = await writeFrame({
+      model,
+      apiKey: args.apiKey,
+      spent,
+      topic: args.topic,
+      count: questions.length,
+    });
 
     // Last, and only if asked. The questions are the expensive half in model
     // tokens and this is the expensive half in voice credits, so a failure
@@ -159,6 +169,17 @@ export async function generateQuiz(args: {
       topic: args.topic,
       status: "done",
       project,
+      // What this run actually cost, measured rather than estimated — the
+      // studio shows it beside the finished quiz so the price on screen is
+      // what happened, not what somebody guessed beforehand. Retries and the
+      // title call are included; they were paid for too.
+      cost: {
+        model: model.id,
+        label: model.label,
+        inputTokens: spent.input,
+        outputTokens: spent.output,
+        cents: Number(costCents(model, spent).toFixed(3)),
+      },
       // A done job that still has something to say. The studio shows it as a
       // warning beside a finished quiz rather than as a failure.
       warning: narrationError,
@@ -178,14 +199,16 @@ export async function generateQuiz(args: {
 }
 
 async function writeQuestions(args: {
-  client: Anthropic;
+  model: TextModel;
+  apiKey: string;
+  spent: { input: number; output: number };
   topic: string;
   count: number;
   flags: string[];
   /** Reports each attempt, so a slow run does not look like a dead one. */
   onAttempt?: (attempt: number) => Promise<void>;
 }): Promise<QuizQuestion[]> {
-  const messages: Anthropic.MessageParam[] = [
+  const messages: Turn[] = [
     {
       role: "user",
       content: buildQuizPrompt({
@@ -202,37 +225,26 @@ async function writeQuestions(args: {
 
   for (let attempt = 0; attempt < 3; attempt++) {
     await args.onAttempt?.(attempt);
-    // Streamed, and not by preference: above roughly twenty thousand
-    // max_tokens the SDK refuses a plain request outright, because one that
-    // large could in principle run past ten minutes. Raising the ceiling
-    // without switching to streaming traded a truncated reply for an instant
-    // "Streaming is required" — a worse failure, since it arrives before any
-    // work has been done at all.
-    //
-    // Nothing here consumes the stream as it arrives; `finalMessage()` waits
-    // for the whole thing. The streaming is what makes the request legal, not
-    // what makes it useful.
-    const message = await args.client.messages
-      .stream({
-        model: MODEL,
-        // Scaled with the request. Thinking tokens count against this ceiling
-        // too, so a fixed 8000 was fine for twelve questions and truncated
-        // thirty mid-JSON — and a reply cut off at the ceiling costs the whole
-        // batch, not part of it.
-        max_tokens: Math.min(32000, 6000 + args.count * 700),
-        output_config: { effort: EFFORT },
-        system: QUIZ_SYSTEM_PROMPT,
-        messages,
-      })
-      .finalMessage();
+    const reply = await complete({
+      model: args.model,
+      apiKey: args.apiKey,
+      system: QUIZ_SYSTEM_PROMPT,
+      messages,
+      // Scaled with the request. Thinking tokens count against this ceiling on
+      // both providers, so a fixed 8000 was fine for twelve questions and
+      // truncated thirty mid-JSON — and a reply cut off at the ceiling costs
+      // the whole batch, not part of it.
+      maxTokens: Math.min(32000, 6000 + args.count * 700),
+      effort: (process.env.ANTHROPIC_EFFORT as "low" | "medium" | "high") ?? "medium",
+    });
 
-    if (message.stop_reason === "refusal") {
-      throw new Error(
-        "Das Modell hat dieses Thema abgelehnt. Formuliere es anders oder wähle ein anderes.",
-      );
-    }
-    const raw = textOf(message);
-    if (message.stop_reason === "max_tokens") {
+    // Counted even on an attempt that gets rejected below: a retry is spent
+    // money whether or not its output survived.
+    args.spent.input += reply.usage.input;
+    args.spent.output += reply.usage.output;
+
+    const raw = reply.text;
+    if (reply.truncated) {
       throw new Error(
         `Die Antwort wurde beim Token-Limit abgeschnitten. Fordere weniger Fragen an (aktuell ${args.count}).`,
       );
@@ -431,14 +443,15 @@ function parseQuestions(raw: string, flags: string[]): ParseResult {
 }
 
 async function writeFrame(args: {
-  client: Anthropic;
+  model: TextModel;
+  apiKey: string;
+  spent: { input: number; output: number };
   topic: string;
   count: number;
 }): Promise<{ title: string; intro: string; outro: string }> {
-  const message = await args.client.messages.create({
-    model: MODEL,
-    max_tokens: 700,
-    output_config: { effort: "low" },
+  const reply = await complete({
+    model: args.model,
+    apiKey: args.apiKey,
     system: QUIZ_FRAME_SYSTEM_PROMPT,
     messages: [
       {
@@ -446,9 +459,16 @@ async function writeFrame(args: {
         content: `Thema: ${args.topic}\nAnzahl Fragen: ${args.count}`,
       },
     ],
+    // Small on purpose — three short lines. Google's thinking models will use
+    // a chunk of this before writing anything, hence the headroom.
+    maxTokens: 2000,
+    effort: "low",
   });
 
-  const json = extractJson(textOf(message)) as {
+  args.spent.input += reply.usage.input;
+  args.spent.output += reply.usage.output;
+
+  const json = extractJson(reply.text) as {
     title?: string;
     intro?: string;
     outro?: string;
@@ -463,13 +483,6 @@ async function writeFrame(args: {
       `${args.count} Fragen. Ein paar Sekunden pro Frage. Wie weit kommst du?`,
     outro: json?.outro?.slice(0, 200) || "Wie viele hattest du? Schreib es in die Kommentare.",
   };
-}
-
-function textOf(message: Anthropic.Message): string {
-  return message.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
 }
 
 /** The first balanced {...} in the reply, tolerating prose around it. */

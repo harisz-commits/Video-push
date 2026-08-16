@@ -1,6 +1,8 @@
 import { waitUntil } from "@vercel/functions";
 import { errorResponse, guard } from "../../../lib/guardrails";
+import { keyFor, keyNameFor } from "../../../lib/llm";
 import { generateQuiz } from "../../../lib/quiz-pipeline";
+import { resolveTextModel, type TextModel } from "../../../lib/text-models";
 import { quizJobPath, readJson, writeJson, type QuizJob } from "../../../lib/store";
 
 export const runtime = "nodejs";
@@ -14,19 +16,18 @@ export const maxDuration = 300;
  * poll it, close the tab if you like.
  */
 export async function POST(req: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return errorResponse("ANTHROPIC_API_KEY ist nicht gesetzt.", 500);
-
   let topic: string;
   let count: number;
   let narrate = false;
   let narrateAnswers = false;
+  let model: TextModel;
   try {
     const body = (await req.json()) as {
       topic?: unknown;
       count?: unknown;
       narrate?: unknown;
       narrateAnswers?: unknown;
+      model?: unknown;
     };
     if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
       throw new Error("topic");
@@ -38,10 +39,22 @@ export async function POST(req: Request) {
     count = Math.min(50, Math.max(4, Number(body.count) || 12));
     narrate = body.narrate === true;
     narrateAnswers = body.narrateAnswers === true;
+    // Resolved against the closed catalogue rather than passed through: the id
+    // arrives from a public page, and an id taken on trust is permission to
+    // bill this account for whatever the provider sells.
+    model = resolveTextModel(typeof body.model === "string" ? body.model : undefined);
   } catch {
     return errorResponse(
       "Ungültige Anfrage. Erwartet wird { topic: string, count?: number }.",
       400,
+    );
+  }
+
+  const apiKey = keyFor(model);
+  if (!apiKey) {
+    return errorResponse(
+      `${keyNameFor(model)} ist nicht gesetzt — ${model.label} lässt sich ohne diesen Key nicht aufrufen.`,
+      500,
     );
   }
 
@@ -77,6 +90,7 @@ export async function POST(req: Request) {
       topic,
       count,
       apiKey,
+      model,
       narrate:
         narrate && elevenKey && voiceId
           ? { withAnswers: narrateAnswers, voiceId, elevenKey }
