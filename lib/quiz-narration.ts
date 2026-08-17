@@ -1,5 +1,6 @@
 import { synthesizeWithTimestamps } from "./elevenlabs";
 import type { QuizQuestion } from "./quiz";
+import { spellNumbers } from "./say-numbers";
 import { writeBinary } from "./store";
 
 /**
@@ -31,14 +32,24 @@ export type NarrationOptions = {
   withReveal: boolean;
 };
 
-/** What a question sounds like while the clock runs. */
+/**
+ * What a question sounds like while the clock runs.
+ *
+ * Numbers spelled out as words, because the voice cannot be trusted with
+ * digits: "2023" comes back as "zwanzig dreiundzwanzig", or as four separate
+ * digits, and not reliably the same way twice. What is written on screen keeps
+ * its digits — this is the spoken copy of the question, not the question. See
+ * lib/say-numbers.ts.
+ */
 export function narrationText(question: QuizQuestion): string {
-  return question.prompt;
+  return spellNumbers(question.prompt);
 }
 
 /** What is said once the time is up. */
 export function revealText(question: QuizQuestion): string {
-  return `Richtig ist: ${question.answers[question.correctIndex]}.`;
+  return spellNumbers(
+    `Richtig ist: ${question.answers[question.correctIndex]}.`,
+  );
 }
 
 /** Whether a question already carries a recording of exactly these words. */

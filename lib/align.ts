@@ -1,4 +1,5 @@
 import type { Alignment, Scene, VideoProject } from "./schema";
+import { spellNumbers } from "./say-numbers";
 
 /**
  * Scene timings are derived, never authored.
@@ -14,6 +15,32 @@ export const TAIL_FRAMES = 45;
 
 /** A scene may never be shorter than this, whatever the anchors say. */
 const MIN_SCENE_FRAMES = 20;
+
+/**
+ * The text this alignment actually belongs to.
+ *
+ * Voiceovers recorded before numbers were spelled out have one timestamp per
+ * character of the WRITTEN script; everything recorded since has one per
+ * character of the spoken form. Both have to keep working, and the alignment
+ * itself says which is which — its length matches the text that produced it.
+ *
+ * Preferring the spoken form on a tie is deliberate: the two are identical
+ * whenever the script contains no number at all, and then it makes no
+ * difference which one is chosen.
+ */
+function spokenFor(
+  voiceover: string,
+  alignment: Alignment,
+): { text: string; converted: boolean } {
+  const spoken = spellNumbers(voiceover);
+  const n = alignment.startTimesSeconds.length;
+  if (spoken.length === n) return { text: spoken, converted: true };
+  if (voiceover.length === n) return { text: voiceover, converted: false };
+  // Neither matches — the alignment drifted from both, and charIndexToSeconds
+  // will scale proportionally whatever it is given. The spoken form is the
+  // better guess, because it is what a current recording was made from.
+  return { text: spoken, converted: true };
+}
 
 /** Speaking rate used only to fake a timeline before any audio exists. */
 const ESTIMATED_WORDS_PER_MINUTE = 160;
@@ -178,7 +205,24 @@ export function resolveSceneTimings(project: VideoProject): Timing {
   }
 
   // ---- Locate each anchor phrase in the voiceover. ----
-  const normalized = normalize(voiceover);
+  //
+  // In the text as it was SPOKEN, not as it is written. ElevenLabs returns one
+  // timestamp per character of what it was sent, and what it is sent has its
+  // numbers spelled out — "1789" leaves here as twenty-nine characters, not
+  // four. Searching the written script would put every anchor after the first
+  // number at the wrong offset, and the length mismatch would quietly demote
+  // every timing in the video from exact to proportional.
+  //
+  // Both sides go through the same conversion, so an anchor still matches the
+  // passage it was lifted from.
+  // One decision for both sides. Converting the anchor while searching the
+  // written text — or the other way round — finds nothing at all, which is
+  // worse than either choice made consistently: the scene falls back to being
+  // interpolated between its neighbours and the warning blames the script.
+  const spoken = spokenFor(voiceover, alignment);
+  const asSpoken = (phrase: string) =>
+    spoken.converted ? spellNumbers(phrase) : phrase;
+  const normalized = normalize(spoken.text);
   const haystack = {
     ...normalized,
     lowerNorm: normalized.norm.toLowerCase(),
@@ -199,7 +243,7 @@ export function resolveSceneTimings(project: VideoProject): Timing {
       return;
     }
 
-    const hit = findPhrase(haystack, phrase, cursor);
+    const hit = findPhrase(haystack, asSpoken(phrase), cursor);
     if (!hit) {
       warnings.push({
         sceneId: scene.id,
@@ -217,7 +261,7 @@ export function resolveSceneTimings(project: VideoProject): Timing {
       });
     }
 
-    const seconds = charIndexToSeconds(alignment, hit.index, voiceover.length);
+    const seconds = charIndexToSeconds(alignment, hit.index, spoken.text.length);
     startFrames[i] = Math.round(seconds * fps);
     resolvedFlags[i] = true;
     cursor = hit.index + 1;

@@ -78,6 +78,12 @@ export async function generateLanguageQuiz(args: {
       // One request per language rather than one long one: they are separate
       // clips in the finished video, and a single failure should cost one
       // question rather than the whole quiz.
+      //
+      // Numbers are deliberately NOT spelled out here, unlike everywhere else
+      // that hands text to the voice. This sentence is Spanish, or Finnish, or
+      // Turkish, and lib/say-numbers.ts writes German. Dropping
+      // "zweitausenddreiundzwanzig" into a Portuguese sentence would not fix a
+      // pronunciation — it would answer the question in the wrong language.
       const { audio, alignment } = await synthesizeWithTimestamps({
         text,
         voiceId: args.voiceId,

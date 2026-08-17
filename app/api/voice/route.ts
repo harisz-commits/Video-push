@@ -5,6 +5,7 @@ import {
   synthesizeWithTimestamps,
 } from "../../../lib/elevenlabs";
 import { errorResponse, guard } from "../../../lib/guardrails";
+import { spellNumbers } from "../../../lib/say-numbers";
 import { VoiceRequest } from "../../../lib/schema";
 import {
   readJson,
@@ -124,7 +125,13 @@ export async function POST(req: Request) {
   waitUntil(
     synthesize({
       job,
-      text: body.voiceover,
+      // Spoken, not written: digits reach the voice as words, because it
+      // decides for itself what "1789" sounds like and decides badly. The
+      // script keeps its digits — only this copy is converted, and the scene
+      // timing searches the same converted text so the character offsets it
+      // gets back still line up. See lib/say-numbers.ts and spokenFor() in
+      // lib/align.ts.
+      text: spellNumbers(body.voiceover),
       voiceId,
       apiKey,
     }),
