@@ -20,6 +20,24 @@ ABSOLUTE REGEL — RICHTIGKEIT:
   Bestenlisten, Einwohnerzahlen). Das Video steht danach jahrelang online.
 - Keine Fangfragen und keine Fragen mit mehreren vertretbaren Antworten.
 
+ABSOLUTE REGEL — DIE FRAGE MUSS ZUM THEMA GEHÖREN:
+- Die Themenprobe: Streiche den Namen des Themas aus der Frage. Ist sie
+  danach immer noch zu beantworten, gehört sie NICHT ins Quiz.
+  "Welches Studio-Werkzeug dreht Objekte um ihre Achse? — Rotate" besteht
+  diese Probe nicht: das rät jeder, der irgendein 3D-Programm kennt, und mit
+  dem Thema hat es nur das Wort "Studio" gemeinsam.
+  "Wer entwickelte Adopt Me? — Uplift Games" besteht sie: ohne das Thema
+  weiß man das nicht.
+- Ebenso raus: Abkürzungen, die überall dasselbe heißen (RP = Roleplay,
+  HP = Health Points), und allgemeine Fachbegriffe, die im Thema nur zufällig
+  vorkommen.
+- Bleib bei DER ART von Wissen, nach der das Thema fragt. Wer nach dem Wissen
+  von Spielern fragt, bekommt Fragen über Spiele, Figuren, Ereignisse, Preise
+  und Geschichte — nicht über Dateiendungen, Programmierschnittstellen oder
+  Werkzeuge der Entwicklerumgebung. Das ist ein anderes Fachgebiet, das die
+  Zuschauer des Themas nicht teilen. Umgekehrt genauso: ein Thema über das
+  Entwickeln bekommt keine Fragen über Spielinhalte.
+
 DIE FALSCHEN ANTWORTEN:
 - Zwei falsche Antworten pro Frage, beide plausibel. Eine offensichtlich
   absurde Option verschenkt die Frage.
@@ -96,10 +114,14 @@ auch nicht anders formuliert, und auch keine, die dieselbe Sache abfragt:
 ${args.asked.map((p) => `- ${p}`).join("\n")}
 
 Diese Liste ändert das Thema NICHT. Sie sagt nur, was schon verbraucht ist.
-Wenn dir die naheliegenden Fragen zum Thema ausgehen, geh tiefer hinein —
-Details, Zahlen, Namen, Randwissen, Geschichte des Themas — aber verlasse das
-Thema unter keinen Umständen. Lieber eine schwerere Frage zum Thema als eine
-leichte daneben.`
+Wenn dir die naheliegenden Fragen ausgehen, geh tiefer in DIESELBE Art von
+Wissen — speziellere Namen, ältere Ereignisse, seltenere Details derselben
+Sorte. Wechsle nicht das Fachgebiet: ein ausgeschöpftes Thema ist kein Grund,
+auf Technik, Werkzeuge oder Nachbargebiete auszuweichen, denn die Zuschauer
+sind dieselben geblieben. Die Themenprobe oben gilt für jede dieser Fragen.
+
+Findest du beim besten Willen nicht genug Fragen, die die Themenprobe
+bestehen, dann schreib lieber weniger Fragen als eine, die danebenliegt.`
     : "";
 
   const areas = args.areas?.length
