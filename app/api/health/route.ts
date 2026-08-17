@@ -189,6 +189,28 @@ type SnapshotFailure = {
   at?: string;
 };
 
+/**
+ * Read a Blob document, or nothing at all.
+ *
+ * Nothing here may throw. This whole endpoint exists to explain a broken
+ * deployment, and it used to fail at exactly that job: the lookup for the
+ * build's error report sat inside the catch block that handled the missing
+ * snapshot, unguarded. A deployment with neither document — no snapshot AND no
+ * recorded reason, which is precisely the state worth diagnosing — made
+ * /api/health answer 500 with an empty body. The one tool for finding out what
+ * was wrong broke on the case it was built for.
+ */
+async function readBlob<T>(key: string, token: string): Promise<T | null> {
+  try {
+    const meta = await head(key, { token });
+    const response = await fetch(`${meta.url}?t=${Date.now()}`);
+    if (!response.ok) return null;
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 async function snapshotState(token: string | undefined): Promise<{
   present: boolean;
   note: string;
@@ -199,39 +221,51 @@ async function snapshotState(token: string | undefined): Promise<{
     return { present: false, note: "Kein Blob-Store — Rendern nicht möglich." };
   }
   const id = process.env.VERCEL_DEPLOYMENT_ID ?? "local";
-  try {
-    const meta = await head(`snapshot-cache/${id}.json`, { token });
 
-    // Which image this deployment renders from, and the fingerprint of the
-    // content it was built for. Two deployments showing the same pair means
-    // the second one reused the first one's snapshot instead of creating a
-    // second copy — the only way to see from outside that a build cost no
-    // storage at all.
-    const pointer = await fetch(`${meta.url}?t=${Date.now()}`)
-      .then((r) => r.json() as Promise<{ snapshotId?: string; fingerprint?: string }>)
-      .catch(() => null);
-
+  // Which image this deployment renders from, and the fingerprint of the
+  // content it was built for. Two deployments showing the same pair means the
+  // second one reused the first one's snapshot instead of creating a second
+  // copy — the only way to see from outside that a build cost no storage.
+  const pointer = await readBlob<{ snapshotId?: string; fingerprint?: string }>(
+    `snapshot-cache/${id}.json`,
+    token,
+  );
+  if (pointer?.snapshotId) {
     return {
       present: true,
       note: "Rendern möglich.",
-      snapshotId: pointer?.snapshotId,
-      fingerprint: pointer?.fingerprint,
-    };
-  } catch {
-    // The build writes its reason next to where the snapshot would have gone,
-    // so the answer to "why can't it render" lives here rather than only in a
-    // build log nobody can reach from the running app.
-    const reason = await fetch(
-      `${(await head(`snapshot-cache/${id}.error.json`, { token })).url}?t=${Date.now()}`,
-    )
-      .then((r) => r.json() as Promise<SnapshotFailure>)
-      .catch(() => null);
-
-    return {
-      present: false,
-      note: reason?.message
-        ? explainSnapshotFailure(reason)
-        : "Für dieses Deployment wurde kein Snapshot erzeugt. Die App läuft, aber Rendern schlägt fehl, bis ein Build den Snapshot-Schritt durchbekommt.",
+      snapshotId: pointer.snapshotId,
+      fingerprint: pointer.fingerprint,
     };
   }
+
+  // The build writes its reason next to where the snapshot would have gone, so
+  // the answer to "why can't it render" lives here rather than only in a build
+  // log nobody can reach from the running app.
+  const reason = await readBlob<SnapshotFailure>(
+    `snapshot-cache/${id}.error.json`,
+    token,
+  );
+  if (reason?.message) {
+    return { present: false, note: explainSnapshotFailure(reason) };
+  }
+
+  // Neither document. The build did not fail the snapshot step — it never
+  // reached it, or skipped it. The skip has exactly one cause: no Blob token
+  // in the BUILD environment. Vercel binds variables when a deployment is
+  // created, so a store attached after this deployment was built is present at
+  // runtime — this endpoint can read Blob, or it would not have got this far —
+  // and absent at build time. Redeploying is what fixes that, and it is worth
+  // naming, because "the store is connected" is true and beside the point.
+  return {
+    present: false,
+    note:
+      `Weder ein Snapshot-Zeiger noch ein Fehlerbericht für Deployment ${id}. ` +
+      "Der Build hat den Snapshot-Schritt also nicht versucht, sondern übersprungen — " +
+      "das passiert nur, wenn beim BUILD kein Blob-Token in der Umgebung lag. " +
+      "Zur Laufzeit liegt eines vor (sonst käme diese Antwort nicht zustande), " +
+      "was zusammenpasst: Vercel bindet Variablen beim Erzeugen des Deployments ein. " +
+      "Ein neues Deployment behebt es. Im Build-Log steht die Zeile „[snapshot] ÜBERSPRUNGEN“ " +
+      "mit den gefundenen Variablennamen.",
+  };
 }

@@ -51,18 +51,34 @@ async function forget(
   });
 }
 
+/**
+ * What to say when this deployment has no snapshot to restore.
+ *
+ * It used to name a cause: "beim Build war noch kein Blob-Store verbunden."
+ * That is one cause and, once a store is attached, usually the wrong one — the
+ * step also skips when the token was missing from the BUILD environment of
+ * this particular deployment, and it fails outright when the account refuses a
+ * sandbox or the snapshot storage is full. Sent as a fact, the guess costs a
+ * trip to the Vercel dashboard to fix something that was never broken.
+ *
+ * So it says what is known, gives the step that fixes every version of it, and
+ * points at the one place that knows which version this is.
+ */
+const NO_SNAPSHOT =
+  "Für dieses Deployment existiert kein Sandbox-Snapshot — der Build hat ihn " +
+  "weder erzeugt noch wiederverwendet. Skript, Stimme und Quiz laufen normal, " +
+  "nur Rendern nicht. Meistens hilft ein neues Deployment. Warum er fehlt, " +
+  "steht unter /api/health bei „snapshot“: ein übersprungener Schritt, ein " +
+  "voller Snapshot-Speicher und ein abgelehnter Sandbox-Zugriff sehen hier " +
+  "gleich aus, brauchen aber verschiedene Handgriffe.";
+
 export async function restoreSnapshot() {
   const blob = await get(getSnapshotBlobKey(), {
     access: BLOB_ACCESS,
     token: resolveBlobToken()?.value,
   });
   if (!blob) {
-    throw new Error(
-      "Für dieses Deployment existiert kein Sandbox-Snapshot. Das ist der Fall, "
-      + "wenn beim Build noch kein Blob-Store verbunden war. Blob-Store auf "
-      + "vercel.com anlegen, dem Projekt zuweisen und einmal neu deployen — "
-      + "dann wird der Snapshot beim Build erzeugt.",
-    );
+    throw new Error(NO_SNAPSHOT);
   }
 
   const response = new Response(blob.stream);
@@ -71,12 +87,7 @@ export async function restoreSnapshot() {
   const snapshotId = cache.snapshotId;
 
   if (!snapshotId) {
-    throw new Error(
-      "Für dieses Deployment existiert kein Sandbox-Snapshot. Das ist der Fall, "
-      + "wenn beim Build noch kein Blob-Store verbunden war. Blob-Store auf "
-      + "vercel.com anlegen, dem Projekt zuweisen und einmal neu deployen — "
-      + "dann wird der Snapshot beim Build erzeugt.",
-    );
+    throw new Error(NO_SNAPSHOT);
   }
 
   let sandbox: Awaited<ReturnType<typeof Sandbox.create>>;
