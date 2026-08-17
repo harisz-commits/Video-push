@@ -73,7 +73,7 @@ export async function generateQuiz(args: {
     // on purpose: a quiz without the memory is a quiz, a quiz that failed
     // because storage was slow is nothing.
     await progress("Frühere Quiz werden gelesen");
-    const history = await askedQuestions().catch(() => ({
+    const history = await askedQuestions(args.topic).catch(() => ({
       prompts: [] as string[],
       total: 0,
     }));

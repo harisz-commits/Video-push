@@ -92,7 +92,7 @@ export async function POST(req: Request) {
       try {
         // Best effort, like in the generator: losing the memory costs variety,
         // failing to read it would cost the rewrite.
-        const history = await askedQuestions().catch(() => ({
+        const history = await askedQuestions(topic).catch(() => ({
           prompts: [] as string[],
           total: 0,
         }));

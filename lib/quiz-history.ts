@@ -44,7 +44,92 @@ export type AskedQuestions = {
   total: number;
 };
 
-export async function askedQuestions(): Promise<AskedQuestions> {
+/**
+ * Words in a topic that say what it is about.
+ *
+ * Everything a quiz topic says about being a quiz is dropped, so "Roblox Quiz
+ * — 50 Fragen die nur Roblox Profis kennen!" and "roblox quiz" are recognised
+ * as the same subject rather than as two strings that happen to share a word.
+ */
+const BOILERPLATE = new Set([
+  "quiz",
+  "quizfragen",
+  "frage",
+  "fragen",
+  "die",
+  "der",
+  "das",
+  "den",
+  "dem",
+  "des",
+  "und",
+  "oder",
+  "für",
+  "mit",
+  "von",
+  "zum",
+  "zur",
+  "ein",
+  "eine",
+  "einen",
+  "einem",
+  "einer",
+  "nur",
+  "alle",
+  "alles",
+  "kennen",
+  "kennt",
+  "wissen",
+  "profis",
+  "über",
+  "aus",
+  "auf",
+  "bei",
+  "ist",
+  "sind",
+  "als",
+  "auch",
+  "nicht",
+  "keine",
+  "kein",
+  "was",
+  "wer",
+  "wie",
+  "jedenfalls",
+  "danach",
+  "video",
+  "videos",
+]);
+
+function subjectWords(topic: string): Set<string> {
+  return new Set(
+    topic
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((w) => w.length >= 3 && !BOILERPLATE.has(w)),
+  );
+}
+
+/**
+ * Everything asked before that could plausibly be asked again HERE.
+ *
+ * Scoped to the topic, and that scoping is the whole point rather than a
+ * refinement. Unscoped, a Roblox quiz was handed every question from the last
+ * forty projects — which for this account meant dozens about other video
+ * games, from four "Spiele, die Millennials kennen" quizzes sitting right next
+ * to the Roblox ones in the list. Two things went wrong with that.
+ *
+ * The list stopped being a list of things to avoid and became a description of
+ * what a quiz here looks like: six thousand characters of other people's
+ * subjects against a two-word topic, and the questions drifted to match the
+ * six thousand. And a narrow subject gets squeezed dry — a hundred Roblox
+ * questions already banned, twelve more demanded, and the shortest way out is
+ * to stop being about Roblox.
+ *
+ * A question from a flag quiz was never going to reappear in a Roblox quiz, so
+ * banning it bought nothing and cost both tokens and the topic.
+ */
+export async function askedQuestions(topic: string): Promise<AskedQuestions> {
   const token = resolveBlobToken()?.value;
   if (!token) return { prompts: [], total: 0 };
 
@@ -71,10 +156,24 @@ export async function askedQuestions(): Promise<AskedQuestions> {
     ),
   );
 
+  // A broad topic can ask about anything, so anything can repeat under it and
+  // the whole corpus stays in scope. That is the case this memory was built
+  // for — "Allgemeinwissen" returning the spider's legs every time — and it
+  // is exactly the case where narrowing would break it.
+  const broad = isBroad(topic);
+  const wanted = subjectWords(topic);
+
   const seen = new Set<string>();
   const prompts: string[] = [];
   for (const record of records) {
     if (!record?.project || formatOf(record.project) !== "quiz") continue;
+
+    if (!broad) {
+      const theirs = subjectWords((record.project as QuizProject).topic ?? "");
+      const shares = [...wanted].some((w) => theirs.has(w));
+      if (!shares) continue;
+    }
+
     for (const question of (record.project as QuizProject).questions) {
       // Deduplicated on a normalised form, because the same question comes
       // back with different punctuation and a ban list that lists it twice

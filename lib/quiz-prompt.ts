@@ -84,10 +84,22 @@ export function buildQuizPrompt(args: {
   // Stated as a hard rule rather than a preference, because "möglichst nicht"
   // is read as "if convenient" and the whole point is that the convenient
   // question is the one that keeps coming back.
+  //
+  // And immediately fenced in, because the rule has an obvious cheap escape:
+  // a narrow subject whose easy questions are all on the list is easiest to
+  // satisfy by leaving the subject. Which is what happened — a Roblox quiz
+  // came back half about other games. The list is a list of forbidden
+  // questions, not a licence to change the topic, and it has to say so.
   const asked = args.asked?.length
     ? `\n\nDIESE FRAGEN GAB ES SCHON. Keine davon darf noch einmal vorkommen —
 auch nicht anders formuliert, und auch keine, die dieselbe Sache abfragt:
-${args.asked.map((p) => `- ${p}`).join("\n")}`
+${args.asked.map((p) => `- ${p}`).join("\n")}
+
+Diese Liste ändert das Thema NICHT. Sie sagt nur, was schon verbraucht ist.
+Wenn dir die naheliegenden Fragen zum Thema ausgehen, geh tiefer hinein —
+Details, Zahlen, Namen, Randwissen, Geschichte des Themas — aber verlasse das
+Thema unter keinen Umständen. Lieber eine schwerere Frage zum Thema als eine
+leichte daneben.`
     : "";
 
   const areas = args.areas?.length
@@ -104,6 +116,8 @@ Schreib ${args.count} Fragen dazu.
 Ungefähr gleich viele Fragen je Schwierigkeit, aber GEMISCHT über das ganze
 Video verteilt — nicht nach Schwierigkeit sortiert. Zwei gleich schwere Fragen
 sollen möglichst nicht direkt hintereinander stehen.${areas}${asked}
+
+Alle ${args.count} Fragen gehören zum Thema: ${args.topic}
 
 Vergib die ids fortlaufend: q1, q2, q3 …${flags}`;
 }
