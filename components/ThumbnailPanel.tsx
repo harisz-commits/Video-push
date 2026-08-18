@@ -961,8 +961,19 @@ export const ThumbnailPanel: React.FC<{
           className="mono"
           style={{ fontSize: 11, color: "#5b6672", marginBottom: 6 }}
         >
+          {/*
+            What the caption says depends on what would actually be drawn.
+            "Flaggen werden gezeigt" was printed even when the caller passed
+            none — true for a flag quiz, plainly wrong for a video format that
+            has no flags at all, and the sort of small lie that makes a reader
+            stop trusting the rest of the panel.
+          */}
           Hintergrundbild{" "}
-          {imageUrl ? "— erzeugt" : "— keins, Flaggen werden gezeigt"}
+          {imageUrl
+            ? "— erzeugt"
+            : flags.length > 0
+              ? "— keins, Flaggen werden gezeigt"
+              : "— keins, die Fläche bleibt einfarbig"}
         </div>
         <textarea
           value={imagePrompt}

@@ -11,6 +11,9 @@ import {
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
 import { StoryVideo } from "../remotion/story/StoryVideo";
 import { getJson, postJson } from "./api";
+import { DownloadButton } from "./DownloadButton";
+import { RenderList, type ProjectRenderRow } from "./RenderList";
+import { ThumbnailPanel } from "./ThumbnailPanel";
 import { Button, formatTimecode, Note, Panel } from "./ui";
 
 /**
@@ -102,6 +105,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Summary[]>([]);
+  const [renders, setRenders] = useState<ProjectRenderRow[]>([]);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [render, setRender] = useState<{
     renderId: string;
@@ -116,6 +120,26 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const lastSaved = useRef<string | null>(null);
 
   const timing = useMemo(() => resolveStoryTiming(project), [project]);
+
+  /**
+   * The video to offer for download.
+   *
+   * The render in flight wins; otherwise the newest one storage knows about.
+   * That second source is what makes walking away from a render safe — a file
+   * that finished while the tab was closed is still findable afterwards,
+   * which is the whole reason the project keeps a list of its renders.
+   */
+  const finishedVideo = useMemo(() => {
+    if (render?.status === "done" && render.outputUrl) {
+      return { url: render.outputUrl, sizeBytes: undefined as number | undefined };
+    }
+    const newest = renders
+      .filter((r) => r.outputUrl)
+      .sort((a, b) => b.at - a.at)[0];
+    return newest?.outputUrl
+      ? { url: newest.outputUrl, sizeBytes: newest.sizeBytes }
+      : null;
+  }, [render?.status, render?.outputUrl, renders]);
   const undrawn = useMemo(
     () => project.images.filter((i) => !i.url),
     [project.images],
@@ -162,9 +186,11 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
    * knowing a URL nobody was shown.
    */
   const loadProject = useCallback(async (id: string) => {
-    const result = await getJson<{ id: string; project: unknown }>(
-      `/api/projects/${encodeURIComponent(id)}`,
-    );
+    const result = await getJson<{
+      id: string;
+      project: unknown;
+      renders?: ProjectRenderRow[];
+    }>(`/api/projects/${encodeURIComponent(id)}`);
     if (!result.ok) {
       setError(result.error);
       return;
@@ -178,6 +204,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     setProject(parsed.data);
     setProjectId(result.data.id);
     setTopic(parsed.data.topic);
+    setRenders(result.data.renders ?? []);
     setRender(null);
     setError(null);
     setSaveState("saved");
@@ -446,6 +473,8 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   async function startRender() {
     const result = await postJson<{ renderId: string }>("/api/render", {
       project,
+      // Filed against the project so the finished file is findable later,
+      // whether or not this tab is still open when it lands.
       projectId: projectId ?? undefined,
     });
     if (!result.ok) {
@@ -775,14 +804,33 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                   : "Video rendern"}
               </Button>
               {render?.error ? <Note tone="alert">{render.error}</Note> : null}
-              {render?.outputUrl ? (
-                <Note tone="live">
-                  <a href={render.outputUrl} target="_blank" rel="noreferrer">
-                    Fertiges Video herunterladen
-                  </a>
-                </Note>
+              {finishedVideo ? (
+                <DownloadButton
+                  url={finishedVideo.url}
+                  sizeBytes={finishedVideo.sizeBytes}
+                />
               ) : null}
+              <RenderList renders={renders} activeRenderId={render?.renderId} />
             </Panel>
+
+            <ThumbnailPanel
+              step="05"
+              // No flags in this format — it has no country questions, and an
+              // unrelated flag on the cover would be a promise the video does
+              // not keep.
+              flags={[]}
+              defaultTitle={project.title}
+              topic={project.topic}
+              slug={project.title
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-|-$/g, "")
+                .slice(0, 48)}
+              config={project.thumbnail}
+              onChange={(thumbnail) =>
+                setProject((current) => ({ ...current, thumbnail }))
+              }
+            />
           </>
         ) : null}
       </div>
