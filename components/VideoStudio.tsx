@@ -6,7 +6,6 @@ import { IMAGE_MODELS, resolveModel } from "../lib/image-models";
 import {
   resolveStoryTiming,
   StoryProject,
-  writtenNarration,
   type StoryProject as Story,
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
@@ -102,7 +101,6 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const lastSaved = useRef<string | null>(null);
 
   const timing = useMemo(() => resolveStoryTiming(project), [project]);
-  const narration = useMemo(() => writtenNarration(project), [project]);
   const undrawn = useMemo(
     () => project.images.filter((i) => !i.url),
     [project.images],
@@ -422,8 +420,13 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const drawCost = undrawn.length * imageModel.cents;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(340px, 420px) 1fr", gap: 24 }}>
-      <div>
+    // The same three-column shell the other two studios use, rather than a
+    // grid of its own. That was the bug: an inline "minmax(340px, 420px) 1fr"
+    // has no breakpoint, so on a phone the rail kept its 340px, the stage was
+    // crushed to a strip, and the whole page overflowed sideways. The shared
+    // classes collapse to one column below 1280px and put the player first.
+    <div className="studio-grid">
+      <div className="studio-rail">
         <Panel step="01" title="Thema">
           <textarea
             value={topic}
@@ -740,8 +743,8 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
         ) : null}
       </div>
 
-      <div>
-        <div style={{ position: "sticky", top: 16 }}>
+      <div className="studio-stage">
+        <div style={{ width: "100%" }}>
           <Player
             ref={playerRef}
             component={StoryVideo as React.FC<Record<string, unknown>>}
@@ -750,25 +753,60 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             fps={project.fps}
             compositionWidth={project.width}
             compositionHeight={project.height}
-            style={{ width: "100%", border: "1px solid var(--grid)" }}
+            style={{ width: "100%", aspectRatio: "16 / 9" }}
             controls
             acknowledgeRemotionLicense
           />
           <div
             className="mono"
-            style={{ fontSize: 11, color: "#5b6672", marginTop: 8 }}
+            style={{ fontSize: 11, color: "#5b6672", padding: "10px 2px" }}
           >
             {formatTimecode(timing.totalFrames / project.fps)} ·{" "}
-            {project.shots.length} Einstellungen ·{" "}
+            {project.shots.length} Einstellungen · {project.images.length} Bilder
+            ·{" "}
             {timing.estimated
               ? "Zeiten geschätzt, bis die Stimme da ist"
-              : "Zeiten aus den Timestamps"}
-          </div>
-
-          <div style={{ marginTop: 14, maxHeight: 320, overflowY: "auto", fontSize: 13, lineHeight: 1.5 }}>
-            {narration}
+              : "Zeiten aus der Aufnahme"}
           </div>
         </div>
+      </div>
+
+      <div className="studio-scenes">
+        <div
+          className="mono"
+          style={{ fontSize: 11, color: "#5b6672", padding: "18px 0 8px" }}
+        >
+          GESPROCHENER TEXT
+        </div>
+        {project.shots.length > 0 && project.id !== seed.id ? (
+          project.shots.map((shot, i) => (
+            <div
+              key={shot.id}
+              style={{
+                display: "flex",
+                gap: 8,
+                padding: "6px 0",
+                borderBottom: "1px solid var(--grid)",
+                fontSize: 12.5,
+                lineHeight: 1.45,
+              }}
+            >
+              <span
+                className="mono"
+                style={{ fontSize: 10, color: "#5b6672", minWidth: 44 }}
+              >
+                {timing.shots[i]
+                  ? formatTimecode(timing.shots[i].from / project.fps)
+                  : ""}
+              </span>
+              <span style={{ flex: 1 }}>{shot.text}</span>
+            </div>
+          ))
+        ) : (
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: "#5b6672" }}>
+            Gib links ein Thema ein und lass das Skript schreiben.
+          </p>
+        )}
       </div>
     </div>
   );

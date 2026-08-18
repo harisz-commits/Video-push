@@ -194,6 +194,25 @@ select {
   overflow-y: auto;
 }
 
+/*
+ * Decoration that only fits when there is room for it.
+ *
+ * The header's caption explains where a format's timing comes from. It is
+ * worth reading once and never again, and on a phone it was worth less than
+ * that: as an unbreakable flex item it pushed the whole page 64px wider than
+ * the screen, which turned it into a vertical strip of one word per line and
+ * clipped the left edge of every panel.
+ */
+.only-wide {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .only-wide {
+    display: inline;
+  }
+}
+
 @media (max-width: 1279px) {
   .studio-grid {
     grid-template-columns: minmax(0, 1fr);

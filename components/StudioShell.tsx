@@ -57,6 +57,7 @@ export const StudioShell: React.FC<{
           display: "flex",
           alignItems: "center",
           gap: 16,
+          flexWrap: "wrap",
           padding: "12px 20px",
           borderBottom: "1px solid var(--grid)",
         }}
@@ -65,7 +66,10 @@ export const StudioShell: React.FC<{
           Video Studio
         </span>
         <FormatSwitch value={format} onChange={change} />
-        <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+        <span
+          className="mono only-wide"
+          style={{ fontSize: 11, color: "#5b6672", minWidth: 0 }}
+        >
           {format === "quiz"
             ? "Zeiten aus der Uhr — feste Bedenkzeit pro Frage"
             : format === "video"
