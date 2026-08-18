@@ -140,18 +140,32 @@ noch einmal.`;
 /**
  * The text actually sent to the image model.
  *
- * The subject first and the style second, because the models weight the front
- * of a prompt more heavily and the subject is the part that differs. The
- * negative clause is repeated here rather than trusted to the style directive:
- * lettering is the single most common thing these models add unasked, and a
- * picture with invented text in it is unusable in a German video.
+ * The medium is stated three times — before the subject, inside the style
+ * block, and after it — which looks redundant and is not. Measured on a
+ * fourteen-picture film, one came back as a photograph: a bowl of kohl and a
+ * glass flacon, drawn beautifully and completely wrong, because "kohl and a
+ * flacon" is a product still life and the training data for that phrase is
+ * photographs almost to the exclusion of anything else. A subject with a
+ * strong photographic prior will override a style instruction that is
+ * mentioned once and placed after it.
+ *
+ * So the medium comes first, where the model weights it most, and the refusal
+ * is spelled out as the specific things it must not be rather than as the
+ * abstraction "no photorealism" — which a photograph does not recognise itself
+ * as.
  */
 export function imagePrompt(subject: string, style: StoryStyle): string {
-  return `${subject.trim()}
+  return `A flat 2D illustration — a drawing, not a photograph.
 
-STYLE (follow exactly, this is the house style for every image in this film):
+SUBJECT: ${subject.trim()}
+
+STYLE (follow exactly; this is the house style for every image in this film):
 ${style.directive.trim()}
 
-No text, no letters, no numbers, no captions, no watermarks, no signatures.
-No photorealism. Single coherent illustration, full bleed, 16:9.`;
+HARD CONSTRAINTS:
+- This is an illustration. It is NOT a photograph, NOT a photo studio shot,
+  NOT product photography, NOT a 3D render, NOT CGI. No camera depth of field,
+  no lens blur, no realistic skin, no photographic lighting.
+- No text, no letters, no numbers, no captions, no watermarks, no signatures.
+- Single coherent illustration, full bleed, 16:9.`;
 }
