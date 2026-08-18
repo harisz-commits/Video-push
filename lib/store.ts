@@ -160,6 +160,14 @@ export type RenderJob = {
   stage?: "segments" | "stitching" | "done";
   /** The sandbox joining the pieces, once that has started. */
   stitch?: { sandboxId: string; cmdId: string; startedAt: number };
+  /**
+   * Why joining the pieces failed.
+   *
+   * Kept so the next poll reports it instead of starting the same doomed join
+   * again — which is what turned one broken path into a render that sat at
+   * ninety-five per cent indefinitely.
+   */
+  stitchError?: string;
 };
 
 export type RenderSegment = {

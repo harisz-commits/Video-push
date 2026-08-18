@@ -143,29 +143,38 @@ export async function stitchSegments(args: {
     // Written as one script so the whole join is a single command: fetch each
     // piece, list them for the demuxer, rewrap. Quoted with single quotes
     // because the URLs carry query strings.
+    //
+    // Absolute paths throughout, and that is not tidiness. The concat demuxer
+    // resolves the entries of its list relative to the DIRECTORY THE LIST IS
+    // IN — so a list at parts/list.txt saying "file 'parts/000.mp4'" sends
+    // ffmpeg looking for parts/parts/000.mp4, and every join failed on it.
+    const dir = "/vercel/sandbox/stitch";
     const script = [
       "set -e",
-      "rm -rf parts && mkdir -p parts",
+      `rm -rf ${dir} && mkdir -p ${dir}`,
       ...urls.map(
         (url, i) =>
-          `curl -sSL '${url}' -o parts/${String(i).padStart(3, "0")}.mp4`,
+          `curl -fsSL '${url}' -o ${dir}/${String(i).padStart(3, "0")}.mp4`,
       ),
-      "ls parts/*.mp4 | sed \"s|^|file '|;s|$|'|\" > parts/list.txt",
-      "FF=$(ls node_modules/@remotion/compositor-linux-*/ffmpeg 2>/dev/null | head -1)",
-      '[ -n "$FF" ] || { echo "kein ffmpeg im Compositor-Paket"; exit 1; }',
-      '"$FF" -y -f concat -safe 0 -i parts/list.txt -c copy stitched.mp4',
-      "ls -l stitched.mp4",
+      `for f in ${dir}/*.mp4; do echo "file '$f'" >> ${dir}/list.txt; done`,
+      "FF=$(ls /vercel/sandbox/node_modules/@remotion/compositor-linux-*/ffmpeg 2>/dev/null | head -1)",
+      '[ -n "$FF" ] || { echo "kein ffmpeg im Compositor-Paket" >&2; exit 1; }',
+      `"$FF" -y -f concat -safe 0 -i ${dir}/list.txt -c copy ${dir}/stitched.mp4`,
+      `ls -l ${dir}/stitched.mp4`,
     ].join("\n");
 
     const done = await sandbox.runCommand("sh", ["-lc", script]);
     if (done.exitCode !== 0) {
-      const err = (await done.stderr()).trim().slice(-400);
-      throw new Error(`Das Verbinden der Teile ist fehlgeschlagen. ${err}`);
+      const err = (await done.stderr()).trim().slice(-500);
+      const out = (await done.stdout()).trim().slice(-200);
+      throw new Error(
+        `Das Verbinden der Teile ist fehlgeschlagen (Exit ${done.exitCode}). ${err || out}`,
+      );
     }
 
     return await uploadToVercelBlob({
       sandbox,
-      sandboxFilePath: "stitched.mp4",
+      sandboxFilePath: `${dir}/stitched.mp4`,
       blobPath: renderBlobPath(args.renderId),
       contentType: "video/mp4",
       blobToken: args.blobToken,

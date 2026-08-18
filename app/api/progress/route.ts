@@ -323,6 +323,20 @@ async function sectioned(
     } satisfies RenderProgress);
   }
 
+  // A join that already failed is not retried on every poll. Trying again
+  // every four seconds would hide the reason behind a wall of identical
+  // failures and keep nine sandboxes' worth of files being downloaded again.
+  if (job.stitchError) {
+    return Response.json({
+      ...base,
+      status: "error",
+      progress: 0.95,
+      phase: "Verbinden fehlgeschlagen",
+      parts,
+      error: `Alle ${segments.length} Teile sind gerendert, aber das Zusammenfügen ist gescheitert: ${job.stitchError}`,
+    } satisfies RenderProgress);
+  }
+
   // Every piece finished and nothing is joining them yet.
   if (finished.length === segments.length && job.stage === "segments") {
     const token = resolveBlobToken()?.value;
@@ -356,9 +370,15 @@ async function sectioned(
             // eslint-disable-next-line no-console
             console.log("[stitch] fertig", result.url, result.size);
           } catch (err) {
+            // Recorded on the job rather than only in a log nobody deployed
+            // here can read. Without this a failing join simply reset itself
+            // and was tried again on the next poll — which looks exactly like
+            // a render sitting at ninety-five per cent forever.
             await writeJson(progressPath(job.renderId), {
               ...job,
+              segments: withUrls,
               stage: "segments",
+              stitchError: (err as Error).message.slice(0, 500),
             } satisfies RenderJob).catch(() => undefined);
             // eslint-disable-next-line no-console
             console.error("[stitch]", err);
