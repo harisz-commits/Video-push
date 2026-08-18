@@ -249,7 +249,12 @@ async function sectioned(
         });
         return {
           segment,
-          stage: p.stage as string,
+          // Normalised, because a sandbox that no longer exists does not make
+          // this call throw — it answers with an object that has no stage at
+          // all. Left as undefined, such a piece was neither finished nor
+          // failed nor unreachable, so nine dead sandboxes reported themselves
+          // as nine running ones, forever.
+          stage: ((p as { stage?: string }).stage ?? "unbekannt") as string,
           // `overallProgress`, not `progress`. The latter exists too, but at
           // the render-progress stage it is a nested object rather than a
           // number — so reading it reported every piece as 0 % right up to
@@ -304,7 +309,9 @@ async function sectioned(
    * above would have found. So this is death, and reporting it as "still
    * rendering" is how a dead render sits at zero per cent forever.
    */
-  const unreachable = states.filter((s) => s.stage === "unreachable").length;
+  const unreachable = states.filter(
+    (s) => s.stage === "unreachable" || s.stage === "unbekannt",
+  ).length;
   if (unreachable === segments.length && Date.now() - job.startedAt > 120_000) {
     return Response.json({
       ...base,
