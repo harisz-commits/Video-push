@@ -72,6 +72,14 @@ const FRAMING: Record<string, string> = {
     "The image will be cropped to a roughly square area, so keep the subject centred and well inside the frame; the left and right edges will be cut away.",
   bottom:
     "The image will be cropped to a wide, short letterbox strip, so keep the subject centred vertically and do not rely on the top or bottom of the frame.",
+  /*
+   * The video format, which is the only caller that puts nothing on top of the
+   * picture at all — no headline, no answer boxes. What it does do is move
+   * slowly across the still while it is on screen, so the composition has to
+   * survive being seen at a slight offset in any direction.
+   */
+  story:
+    "The image fills the whole 16:9 frame edge to edge, with nothing placed over it. It will drift and zoom slowly by a few percent while on screen, so keep the subject away from the extreme edges and leave a little air on all four sides.",
 };
 
 /**
@@ -88,6 +96,7 @@ const ASPECT: Record<string, string> = {
   full: "16:9",
   split: "1:1",
   bottom: "21:9",
+  story: "16:9",
 };
 
 export async function generateImage({

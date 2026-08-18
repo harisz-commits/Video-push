@@ -93,7 +93,12 @@ export async function drawStoryImages(args: {
         const result = await generateImage({
           prompt: imagePrompt(image.prompt, style),
           apiKey: args.apiKey,
-          layout: "wide",
+          // "story", not "wide": an unknown layout falls back to the split
+          // one, which asks for a square and warns that the sides will be cut
+          // away. Every picture in this film came back 1024x1024 and then lost
+          // a third of itself to the 16:9 frame — paid for, generated,
+          // discarded. See FRAMING and ASPECT in lib/gemini.ts.
+          layout: "story",
           model,
         });
 
