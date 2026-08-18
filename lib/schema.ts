@@ -456,6 +456,15 @@ export const VoiceRequest = z.object({
   projectId: z.string().min(1).max(100),
   voiceover: z.string().min(50),
   voiceId: z.string().min(1).max(100).optional(),
+  /**
+   * Reading speed, as ElevenLabs' multiplier.
+   *
+   * Optional, and absent means "whatever the voice is configured with" rather
+   * than 1 — the infographics format never asked for a speed and should not
+   * start getting one. The video format sends 1.15, which lands near 160 words
+   * a minute. The bounds are the API's; outside them it answers 422.
+   */
+  speed: z.number().min(0.7).max(1.2).optional(),
 });
 
 export const RenderRequest = z.object({

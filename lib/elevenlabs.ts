@@ -60,6 +60,7 @@ export async function synthesizeWithTimestamps({
   apiKey,
   modelId = DEFAULT_MODEL_ID,
   outputFormat = DEFAULT_OUTPUT_FORMAT,
+  speed,
   signal,
 }: {
   text: string;
@@ -67,6 +68,15 @@ export async function synthesizeWithTimestamps({
   apiKey: string;
   modelId?: string;
   outputFormat?: string;
+  /**
+   * How fast it is read, as ElevenLabs' multiplier.
+   *
+   * Omitted rather than defaulted to 1, so a voice's own configured settings
+   * keep applying when nobody asked for a speed. ElevenLabs accepts 0.7 to
+   * 1.2; anything outside that is a 422, so it is clamped rather than passed
+   * through — a rejected request costs the whole take.
+   */
+  speed?: number;
   signal?: AbortSignal;
 }): Promise<SpeechResult> {
   if (text.length > MAX_CHARS) {
@@ -86,7 +96,17 @@ export async function synthesizeWithTimestamps({
       "xi-api-key": apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ text, model_id: modelId }),
+    body: JSON.stringify({
+      text,
+      model_id: modelId,
+      ...(speed === undefined
+        ? {}
+        : {
+            voice_settings: {
+              speed: Math.min(1.2, Math.max(0.7, speed)),
+            },
+          }),
+    }),
     signal,
   });
 

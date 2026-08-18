@@ -7,6 +7,8 @@ import type { VideoProject } from "../lib/schema";
 import { FormatSwitch } from "./FormatSwitch";
 import { QuizStudio } from "./QuizStudio";
 import { Studio } from "./Studio";
+import { VideoStudio } from "./VideoStudio";
+import type { StoryProject } from "../lib/story";
 
 const FORMAT_KEY = "infographics-studio.format";
 
@@ -21,7 +23,8 @@ const FORMAT_KEY = "infographics-studio.format";
 export const StudioShell: React.FC<{
   seed: VideoProject;
   quizSeed: QuizProject;
-}> = ({ seed, quizSeed }) => {
+  storySeed: StoryProject;
+}> = ({ seed, quizSeed, storySeed }) => {
   const [format, setFormat] = useState<Format>("infographics");
 
   // Restored after mount rather than during render: the server has no
@@ -30,7 +33,9 @@ export const StudioShell: React.FC<{
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(FORMAT_KEY);
-      if (stored === "quiz" || stored === "infographics") setFormat(stored);
+      if (stored === "quiz" || stored === "infographics" || stored === "video") {
+        setFormat(stored);
+      }
     } catch {
       // Defaulting to infographics is a fine answer.
     }
@@ -63,12 +68,16 @@ export const StudioShell: React.FC<{
         <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
           {format === "quiz"
             ? "Zeiten aus der Uhr — feste Bedenkzeit pro Frage"
-            : "Zeiten aus der Stimme — Szenen folgen den Timestamps"}
+            : format === "video"
+              ? "Zeiten aus der Stimme — Bildwechsel folgen dem eigenen Schnitt"
+              : "Zeiten aus der Stimme — Szenen folgen den Timestamps"}
         </span>
       </header>
 
       {format === "quiz" ? (
         <QuizStudio seed={quizSeed} />
+      ) : format === "video" ? (
+        <VideoStudio seed={storySeed} />
       ) : (
         <Studio seed={seed} />
       )}

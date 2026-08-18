@@ -1,0 +1,26 @@
+{
+  "kind": "video",
+  "id": "story-seed",
+  "topic": "",
+  "title": "Neues Video",
+  "style": {
+    "name": "Sand und Indigo, Siebdruck",
+    "directive": "Flat screen-print illustration on warm sand paper. Limited palette of sand, ochre, burnt red and deep indigo shadows. Visible fine grain, no gradients. Confident dark outlines, flat fills. Side-on or slightly elevated views with calm horizons and generous empty space. People only as reduced modern stick figures without facial features.",
+    "palette": ["#E8D5B0", "#C97B3C", "#8C2F1E", "#2A3557"]
+  },
+  "images": [
+    {
+      "key": "leeres-video",
+      "name": "Noch kein Bild",
+      "prompt": "An empty desert horizon at dawn, nothing else"
+    }
+  ],
+  "shots": [
+    {
+      "id": "s1",
+      "text": "Gib links ein Thema ein und lass das Skript schreiben.",
+      "image": "leeres-video",
+      "motion": "in"
+    }
+  ]
+}

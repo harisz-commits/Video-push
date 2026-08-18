@@ -7,12 +7,50 @@ import type { Scene, VideoProject } from "../lib/schema";
 import { VideoProject as VideoProjectSchema } from "../lib/schema";
 import { Video } from "./Video";
 
-export { COMP_NAME, QUIZ_COMP_NAME } from "../lib/constants";
-import { COMP_NAME, QUIZ_COMP_NAME } from "../lib/constants";
+export { COMP_NAME, QUIZ_COMP_NAME, STORY_COMP_NAME } from "../lib/constants";
+import { COMP_NAME, QUIZ_COMP_NAME, STORY_COMP_NAME } from "../lib/constants";
+import {
+  StoryProject as StoryProjectSchema,
+  resolveStoryTiming,
+} from "../lib/story";
+import { StoryVideo } from "./story/StoryVideo";
 import { QuizProject as QuizProjectSchema, resolveQuizTiming } from "../lib/quiz";
 import { QuizVideo } from "./quiz/QuizVideo";
 
 const seed: VideoProject = VideoProjectSchema.parse(europa);
+
+/**
+ * A seed for the video format, in code rather than in data/.
+ *
+ * Remotion needs defaultProps to open a composition at all, and the honest
+ * default for this format is a film with no pictures yet: that is what a
+ * project looks like between the script being written and the drawing being
+ * paid for, and it is the state most worth being able to open.
+ */
+const storySeed = StoryProjectSchema.parse({
+  kind: "video",
+  id: "story-seed",
+  topic: "Wie die Ägypter die Hitze überlebt haben",
+  title: "Wie die Ägypter die Hitze überlebt haben",
+  style: {
+    name: "Sand und Indigo, Siebdruck",
+    directive:
+      "Flat screen-print illustration on warm sand paper. Limited palette of sand, ochre, burnt red and deep indigo shadows. Visible fine grain, no gradients. Confident dark outlines, flat fills. Side-on or slightly elevated views with calm horizons and generous empty space. People only as reduced modern stick figures without facial features.",
+    palette: ["#E8D5B0", "#C97B3C", "#8C2F1E", "#2A3557"],
+  },
+  images: [
+    {
+      key: "lehmziegelhaus-von-der-seite",
+      name: "Lehmziegelhaus von der Seite",
+      prompt:
+        "A mud brick house seen from the side, thick walls, small high windows, a low doorway, desert ground",
+    },
+  ],
+  shots: [
+    { id: "s1", text: "Der Sand speichert die Hitze des Tages.", image: "lehmziegelhaus-von-der-seite", motion: "in" },
+  ],
+});
+
 
 /**
  * Duration comes from the data, never from a constant. With audio attached it
@@ -69,6 +107,34 @@ export const RemotionRoot: React.FC = () => (
         );
         return {
           durationInFrames: resolveQuizTiming(parsed).totalFrames,
+          fps: parsed.fps,
+          width: parsed.width,
+          height: parsed.height,
+        };
+      }}
+    />
+
+    {/*
+      The video format. Timed by the voice like the infographics film, but it
+      needs no anchor phrases: it wrote its own cut, so every picture's offset
+      into the narration is known by construction.
+    */}
+    <Composition
+      id={STORY_COMP_NAME}
+      component={StoryVideo as React.FC<Record<string, unknown>>}
+      durationInFrames={resolveStoryTiming(storySeed).totalFrames}
+      fps={30}
+      width={1920}
+      height={1080}
+      defaultProps={
+        { project: storySeed } as unknown as Record<string, unknown>
+      }
+      calculateMetadata={({ props }) => {
+        const parsed = StoryProjectSchema.parse(
+          (props as { project: unknown }).project,
+        );
+        return {
+          durationInFrames: resolveStoryTiming(parsed).totalFrames,
           fps: parsed.fps,
           width: parsed.width,
           height: parsed.height,

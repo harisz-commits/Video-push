@@ -267,6 +267,55 @@ export type QuizJob = {
 export const quizJobPath = (jobId: string) => `jobs/quiz/${jobId}.json`;
 
 /**
+ * Writing a video: the script and the picture list, before anything is drawn.
+ *
+ * Separate from the drawing job on purpose. Writing costs a fraction of a cent
+ * and drawing costs dollars, so the two are different jobs with different
+ * buttons — a script that comes back wrong should cost nothing to throw away.
+ */
+export type StoryJob = {
+  jobId: string;
+  topic: string;
+  status: "running" | "done" | "error";
+  step?: string;
+  project?: unknown;
+  error?: string;
+  warning?: string;
+  cost?: {
+    model: string;
+    label: string;
+    inputTokens: number;
+    outputTokens: number;
+    cents: number;
+  };
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const storyJobPath = (jobId: string) => `jobs/story/${jobId}.json`;
+
+/** Drawing the pictures for a video. Reports per picture, because it is slow. */
+export type StoryImageJob = {
+  jobId: string;
+  status: "running" | "done" | "error";
+  step?: string;
+  /** The project with `url` filled in on every picture that got drawn. */
+  project?: unknown;
+  error?: string;
+  warning?: string;
+  /** Pictures paid for this run, and pictures taken from the library. */
+  drawn?: number;
+  reused?: number;
+  cents?: number;
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const storyImageJobPath = (jobId: string) =>
+  `jobs/story-images/${jobId}.json`;
+
+
+/**
  * A change to a quiz that already exists.
  *
  * One job type for two jobs — rewriting some questions, and giving them a

@@ -89,7 +89,12 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { projectId: string; voiceover: string; voiceId?: string };
+  let body: {
+    projectId: string;
+    voiceover: string;
+    voiceId?: string;
+    speed?: number;
+  };
   try {
     body = VoiceRequest.parse(await req.json());
   } catch {
@@ -125,6 +130,9 @@ export async function POST(req: Request) {
   waitUntil(
     synthesize({
       job,
+      // How fast it is read. Only the video format sends one today; without it
+      // the voice keeps whatever it was configured with.
+      speed: body.speed,
       // Spoken, not written: digits reach the voice as words, because it
       // decides for itself what "1789" sounds like and decides badly. The
       // script keeps its digits — only this copy is converted, and the scene
@@ -145,15 +153,17 @@ async function synthesize({
   text,
   voiceId,
   apiKey,
+  speed,
 }: {
   job: VoiceJob;
   text: string;
   voiceId: string;
   apiKey: string;
+  speed?: number;
 }): Promise<void> {
   try {
     const { audio, alignment, characterCount } = await synthesizeWithTimestamps(
-      { text, voiceId, apiKey },
+      { text, voiceId, apiKey, speed },
     );
 
     // Overwritten per project id, so regenerating a voiceover replaces the take

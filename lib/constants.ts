@@ -17,10 +17,21 @@ export const COMP_NAME = "InfographicsVideo";
  */
 export const QUIZ_COMP_NAME = "QuizVideo";
 
+/**
+ * The video format: a spoken story over generated pictures.
+ *
+ * A third composition rather than a variant of the first. Both are timed by
+ * the voice, but the infographics film searches for anchor phrases in a script
+ * somebody wrote, while this one wrote its own cut and knows every offset by
+ * construction — so they share a clock and nothing else.
+ */
+export const STORY_COMP_NAME = "StoryVideo";
+
 /** Which renderer a project belongs to. The studio's switch sets this. */
-export type Format = "infographics" | "quiz";
+export type Format = "infographics" | "quiz" | "video";
 
 export const COMP_FOR: Record<Format, string> = {
   infographics: COMP_NAME,
   quiz: QUIZ_COMP_NAME,
+  video: STORY_COMP_NAME,
 };

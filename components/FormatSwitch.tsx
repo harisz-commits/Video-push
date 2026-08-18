@@ -6,8 +6,9 @@ import type { Format } from "../lib/constants";
 /**
  * The switch between formats, at the top of everything.
  *
- * Two formats are two different films with two different rules — one timed by
- * a voice, one by a clock — so this is a mode change, not a setting. It is
+ * Three formats are three different films with different rules — one timed by
+ * a voice, one by a clock, one by a voice over pictures it drew itself — so
+ * this is a mode change, not a setting. It is
  * drawn as a segmented control rather than a dropdown because a mode you are
  * currently in should be visible without opening anything.
  */
@@ -32,6 +33,7 @@ export const FormatSwitch: React.FC<{
       [
         ["infographics", "Infographics"],
         ["quiz", "Quiz"],
+        ["video", "Video"],
       ] as const
     ).map(([key, label]) => {
       const active = value === key;

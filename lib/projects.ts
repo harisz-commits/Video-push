@@ -63,7 +63,7 @@ export type ProjectSummary = {
   title: string;
   topic: string;
   /** Which renderer it belongs to, so the list can be read at a glance. */
-  format: "infographics" | "quiz";
+  format: "infographics" | "quiz" | "video";
   createdAt: number;
   updatedAt: number;
   /** Format-specific one-liner: words and scenes, or a question count. */
@@ -101,7 +101,9 @@ export function summarize(record: ProjectRecord): ProjectSummary {
     hasScript:
       p.kind === "quiz"
         ? p.questions.length > 0
-        : p.voiceover.trim().length > 0,
+        : p.kind === "video"
+          ? p.shots.length > 0
+          : p.voiceover.trim().length > 0,
     hasAudio:
       p.kind === "quiz"
         ? Boolean(p.audioUrl)
