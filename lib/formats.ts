@@ -75,8 +75,13 @@ export function renderBlockedReason(project: AnyProject): string | null {
     if (undrawn === project.images.length) {
       return "Für dieses Video ist noch kein einziges Bild gezeichnet. Zeichne zuerst die Bilder.";
     }
-    if (!project.audioUrl || !project.alignment) {
-      return "Für diesen Render fehlt die Stimme. Ohne die Timestamps stehen die Bildwechsel nur geschätzt — erzeuge zuerst das Voiceover.";
+    // Cues, not alignment. This format stores one time per shot, and the
+    // voice route clears the character alignment when it writes them — two
+    // sources of truth that disagree would be worse than one. Checking the
+    // field this format no longer uses is what blocked rendering a video whose
+    // voice had just been recorded perfectly well.
+    if (!project.audioUrl || !project.cues?.length) {
+      return "Für diesen Render fehlt die Stimme. Ohne sie stehen die Bildwechsel nur geschätzt — erzeuge zuerst das Voiceover.";
     }
     return null;
   }

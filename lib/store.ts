@@ -318,8 +318,7 @@ export const storyImageJobPath = (jobId: string) =>
  * A video being spoken, by whichever provider was chosen.
  *
  * Reports cues rather than an alignment: this format needs one time per shot,
- * and that is the shape both ElevenLabs and Google can deliver. See
- * app/api/story/voice/route.ts for why it is not the infographics voice job.
+ * not one per character. See app/api/story/voice/route.ts.
  */
 export type StoryVoiceJob = {
   jobId: string;
@@ -330,7 +329,6 @@ export type StoryVoiceJob = {
   cues?: number[];
   audioSeconds?: number;
   characters?: number;
-  provider?: "elevenlabs" | "google";
   voice?: string;
   error?: string;
   startedAt: number;

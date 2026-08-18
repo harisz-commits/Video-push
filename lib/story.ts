@@ -100,27 +100,18 @@ export const StoryProject = z.object({
    * Above one on purpose: a normal German reading lands near 130 words a
    * minute, slow enough for this format to lose people.
    *
-   * The range is wider than ElevenLabs allows because the two providers do not
-   * agree on it. Measured on a two-minute film, ElevenLabs at 1.15 produced
-   * 146 words a minute — under the 150 this format is aiming for, and it
-   * cannot be fixed by asking for more, because 1.2 is its ceiling and lands
-   * near 152. Google takes up to 4.0 and reaches 160-170 without strain.
-   * Clamping therefore happens in each client against its own limit rather
-   * than here against the stricter of the two.
+   * Measured on a two-minute film: 1.15 produced 146 words a minute, under
+   * the 150 this format aims for. 1.2 is ElevenLabs' ceiling and lands near
+   * 152, so that is the default and there is no room above it.
    */
-  speed: z.number().min(0.5).max(2).default(1.2),
+  speed: z.number().min(0.7).max(1.2).default(1.2),
   /**
-   * Which voice read it.
-   *
-   * Two providers, and they differ in more than timbre: ElevenLabs returns a
-   * timestamp per character, Google one per SSML mark. Stored so a project can
-   * be re-spoken by the same voice later, and so the studio can show which one
-   * a finished video actually used.
+   * Which voice read it, so a project can be re-spoken by the same one later.
    */
   voice: z
     .object({
-      provider: z.enum(["elevenlabs", "google"]),
-      /** Voice id at ElevenLabs, or a name like de-DE-Neural2-D at Google. */
+      provider: z.enum(["elevenlabs"]).default("elevenlabs"),
+      /** The ElevenLabs voice id. */
       name: z.string().max(120).optional(),
     })
     .optional(),
