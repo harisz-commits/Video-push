@@ -9,7 +9,6 @@ import {
   writeJson,
   type RenderJob,
   type RenderProgress,
-  type RenderSegment,
 } from "../../../lib/store";
 import { renderBlobPath } from "../../../lib/projects";
 import { stitchSegments } from "../render/segments";
@@ -240,25 +239,45 @@ async function sectioned(
 
   const states = await Promise.all(
     segments.map(async (segment) => {
+      if (segment.url) {
+        return { segment, stage: "done", progress: 1, url: segment.url };
+      }
       try {
         const p = await getRenderProgress({
           sandboxId: segment.sandboxId,
           cmdId: segment.cmdId,
         });
-        return { segment, stage: p.stage as string, progress: progressOf(p) };
+        return {
+          segment,
+          stage: p.stage as string,
+          // `overallProgress`, not `progress`. The latter exists too, but at
+          // the render-progress stage it is a nested object rather than a
+          // number — so reading it reported every piece as 0 % right up to
+          // the moment it finished.
+          // "expired" is the one stage that carries no progress at all.
+          progress:
+            p.stage === "done"
+              ? 1
+              : p.stage === "expired"
+                ? 0
+                : (p.overallProgress ?? 0),
+          url: p.stage === "done" ? p.url : undefined,
+        };
       } catch {
         // A sandbox that cannot be reached has either finished and been
         // reclaimed or died. Which of the two is answered by whether its file
         // exists, not by guessing here.
-        return { segment, stage: "unreachable", progress: 0 };
+        return { segment, stage: "unreachable", progress: 0, url: undefined };
       }
     }),
   );
 
-  const finished = states.filter(
-    (s) => s.stage === "done" || Boolean(s.segment.url),
+  const finished = states.filter((s) => s.stage === "done");
+  // "expired" is Remotion's word for a sandbox that outlived its lease with
+  // the render unfinished. Treated as a failure, because that is what it is.
+  const failed = states.filter(
+    (s) => s.stage === "error" || s.stage === "expired",
   );
-  const failed = states.filter((s) => s.stage === "error");
 
   if (failed.length > 0) {
     return Response.json({
@@ -266,7 +285,7 @@ async function sectioned(
       status: "error",
       progress: 0,
       phase: "Abgebrochen",
-      error: `${failed.length} von ${segments.length} Teilen sind fehlgeschlagen. Starte den Render neu.`,
+        error: `${failed.length} von ${segments.length} Teilen sind fehlgeschlagen (${[...new Set(failed.map((f) => f.stage))].join(", ")}). ${finished.length} waren fertig. Starte den Render neu.`,
     } satisfies RenderProgress);
   }
 
@@ -276,6 +295,12 @@ async function sectioned(
   if (finished.length === segments.length && job.stage === "segments") {
     const token = resolveBlobToken()?.value;
     if (token) {
+      // The finished pieces name their own files, so nothing has to be looked
+      // up afterwards.
+      const withUrls = states.map((s) => ({
+        ...s.segment,
+        url: s.url ?? s.segment.url,
+      }));
       // Marked before the work starts, so the next poll a second later does
       // not start a second join of the same pieces.
       await writeJson(progressPath(job.renderId), {
@@ -286,20 +311,14 @@ async function sectioned(
       waitUntil(
         (async () => {
           try {
-            const urls = await Promise.all(
-              segments.map(async (segment) => ({
-                ...segment,
-                url: segment.url ?? (await blobUrl(segment, token)),
-              })),
-            );
             const result = await stitchSegments({
               renderId: job.renderId,
-              segments: urls,
+              segments: withUrls,
               blobToken: token,
             });
             await writeJson(progressPath(job.renderId), {
               ...job,
-              segments: urls,
+              segments: withUrls,
               stage: "done",
             } satisfies RenderJob);
             // eslint-disable-next-line no-console
@@ -324,24 +343,6 @@ async function sectioned(
     phase:
       job.stage === "stitching"
         ? "Teile werden verbunden"
-        : `Teil ${finished.length + 1} von ${segments.length} — ${Math.round(done * 100)} %`,
+        : `${finished.length} von ${segments.length} Teilen fertig — ${Math.round(done * 100)} %`,
   } satisfies RenderProgress);
-}
-
-/** A piece's public URL, derived from where it was told to upload itself. */
-async function blobUrl(
-  segment: RenderSegment,
-  token: string,
-): Promise<string> {
-  const { head } = await import("@vercel/blob");
-  const meta = await head(segment.path, { token });
-  return meta.url;
-}
-
-/** Remotion reports progress under different names per stage. */
-function progressOf(p: unknown): number {
-  const stage = (p as { stage?: string }).stage;
-  if (stage === "done") return 1;
-  const value = (p as { progress?: number }).progress;
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
