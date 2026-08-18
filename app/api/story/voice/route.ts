@@ -2,7 +2,12 @@ import { waitUntil } from "@vercel/functions";
 import { synthesizeWithTimestamps } from "../../../../lib/elevenlabs";
 import { errorResponse, guard } from "../../../../lib/guardrails";
 import { spellNumbers } from "../../../../lib/say-numbers";
-import { cuesFromAlignment, StoryProject } from "../../../../lib/story";
+import { mp3Duration } from "../../../../lib/mp3";
+import {
+  chunkSegments,
+  cuesForSegments,
+  StoryProject,
+} from "../../../../lib/story";
 import {
   readJson,
   storyVoiceJobPath,
@@ -13,6 +18,26 @@ import {
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+/**
+ * Characters per request.
+ *
+ * The API refuses more than 9,500 outright, and refusing is what it did: a
+ * twenty-five minute script is 28,747 characters, so every long video failed
+ * in milliseconds without spending a single credit. Set below the limit rather
+ * than at it, because the cut can only fall between shots and the last shot
+ * before the boundary has to fit.
+ */
+const CHARS_PER_REQUEST = 9_000;
+
+/**
+ * When to give up rather than be killed mid-recording.
+ *
+ * Unlike the quiz, whose clips are independent, this is one continuous track:
+ * half of it is worth nothing. So a run that cannot finish says so instead of
+ * leaving a truncated voiceover behind.
+ */
+const DEADLINE_MS = 250_000;
 
 /**
  * Give a video its voice.
@@ -103,19 +128,53 @@ export async function POST(req: Request) {
         // Numbers reach every voice as words. See lib/say-numbers.ts.
         const segments = project.shots.map((s) => spellNumbers(s.text.trim()));
 
-        const spoken = await synthesizeWithTimestamps({
-          text: segments.join(" "),
-          voiceId: elevenVoice,
-          apiKey: elevenKey,
-          speed: project.speed,
-        });
-        const cues = cuesFromAlignment(project, spoken.alignment);
-        const ends = spoken.alignment.endTimesSeconds;
-        const seconds = ends.length ? ends[ends.length - 1] : 0;
+        // Recorded in as many requests as the length needs, joined end to
+        // end. The cut always falls between shots, where the picture changes
+        // anyway, so a seam has somewhere to hide.
+        const chunks = chunkSegments(segments, CHARS_PER_REQUEST);
+        const parts: Buffer[] = [];
+        const cues: number[] = [];
+        let offset = 0;
+        let characters = 0;
 
+        for (const [index, chunk] of chunks.entries()) {
+          if (Date.now() > startedAt + DEADLINE_MS) {
+            throw new Error(
+              `Die Zeit reichte nur für ${index} von ${chunks.length} Aufnahmen. Ein Video dieser Länge lässt sich derzeit nicht in einem Durchgang vertonen — nimm eine kürzere Länge.`,
+            );
+          }
+          if (chunks.length > 1) {
+            await writeJson(storyVoiceJobPath(jobId), {
+              jobId,
+              status: "running",
+              step: `Aufnahme ${index + 1} von ${chunks.length}`,
+              startedAt,
+              updatedAt: Date.now(),
+            } satisfies StoryVoiceJob).catch(() => undefined);
+          }
+
+          const spoken = await synthesizeWithTimestamps({
+            text: chunk.segments.join(" "),
+            voiceId: elevenVoice,
+            apiKey: elevenKey,
+            speed: project.speed,
+          });
+
+          for (const seconds of cuesForSegments(chunk.segments, spoken.alignment)) {
+            cues.push(offset + seconds);
+          }
+          parts.push(spoken.audio);
+          characters += spoken.characterCount;
+          // Measured from the file, not from the last timestamp: the sound
+          // after the final character is real time, and treating it as zero
+          // would pull every later chunk forward.
+          offset += mp3Duration(spoken.audio);
+        }
+
+        const seconds = offset;
         const audioUrl = await writeBinary(
           `audio/story-${jobId}.mp3`,
-          spoken.audio,
+          Buffer.concat(parts as unknown as Uint8Array[]),
           "audio/mpeg",
         );
 
@@ -125,7 +184,7 @@ export async function POST(req: Request) {
           audioUrl,
           cues,
           audioSeconds: seconds,
-          characters: spoken.characterCount,
+          characters,
           voice: voiceName,
           startedAt,
           updatedAt: Date.now(),

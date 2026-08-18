@@ -189,7 +189,23 @@ export function cuesFromAlignment(
   project: StoryProject,
   alignment: { startTimesSeconds: number[] },
 ): number[] {
-  const spoken = project.shots.map((s) => spellNumbers(s.text.trim()));
+  return cuesForSegments(
+    project.shots.map((s) => spellNumbers(s.text.trim())),
+    alignment,
+  );
+}
+
+/**
+ * The same reduction for an arbitrary run of segments.
+ *
+ * Split out because a long narration is recorded in several requests — the
+ * voice takes 9,500 characters at a time — and each recording has to be
+ * measured against only the segments that went into it.
+ */
+export function cuesForSegments(
+  spoken: string[],
+  alignment: { startTimesSeconds: number[] },
+): number[] {
   const narration = spoken.join(" ");
   const n = alignment.startTimesSeconds.length;
   const scale = narration.length === n ? 1 : n / Math.max(1, narration.length);
@@ -202,6 +218,37 @@ export function cuesFromAlignment(
     cursor += text.length + 1;
   }
   return cues;
+}
+
+/**
+ * Group segments into runs that each fit one request.
+ *
+ * Cut between shots, never inside one: a seam between two recordings is
+ * audible, and the only place it can hide is where the picture changes anyway.
+ */
+export function chunkSegments(
+  spoken: string[],
+  budget: number,
+): { segments: string[]; firstIndex: number }[] {
+  const chunks: { segments: string[]; firstIndex: number }[] = [];
+  let current: string[] = [];
+  let firstIndex = 0;
+  let size = 0;
+
+  spoken.forEach((text, i) => {
+    const cost = text.length + 1;
+    if (current.length > 0 && size + cost > budget) {
+      chunks.push({ segments: current, firstIndex });
+      current = [];
+      firstIndex = i;
+      size = 0;
+    }
+    current.push(text);
+    size += cost;
+  });
+
+  if (current.length > 0) chunks.push({ segments: current, firstIndex });
+  return chunks;
 }
 
 /** The written narration, for reading and editing. */

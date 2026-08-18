@@ -430,6 +430,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   useEffect(() => {
     if (!voiceJobId) return;
     let cancelled = false;
+    let failures = 0;
     const tick = async () => {
       const result = await getJson<{
         status: string;
@@ -440,7 +441,23 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
         voice?: string;
         error?: string;
       }>(`/api/story/voice?jobId=${encodeURIComponent(voiceJobId)}`);
-      if (cancelled || !result.ok) return;
+      if (cancelled) return;
+      if (!result.ok) {
+        // A job document carrying an "error" field is read by getJson as a
+        // failed call — which is right, and was being dropped on the floor
+        // here. So a recording that was refused in milliseconds left the
+        // button saying "wird gesprochen…" forever, with the reason sitting
+        // unread in the job. Same rule as the other pollers: ride out a blip,
+        // report a wall.
+        failures += 1;
+        if (failures > TOLERATED_POLL_FAILURES) {
+          setVoiceError(result.error);
+          setVoiceJobId(null);
+          setVoiceBusy(false);
+        }
+        return;
+      }
+      failures = 0;
       if (result.data.status === "running") return;
 
       if (result.data.status === "done" && result.data.audioUrl) {
