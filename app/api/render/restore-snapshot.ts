@@ -7,11 +7,38 @@ import { BLOB_ACCESS, resolveBlobToken } from "../../../lib/store";
  *
  * Not a choice — anything else is refused with sandbox_timeout_invalid,
  * "extension would exceed maximum execution timeout". A restore inherits the
- * snapshot's execution budget and cannot extend it, so the render has to fit
- * in this window. Speed therefore comes from the cores the snapshot was built
- * with (see create-snapshot.ts), which a restore does inherit.
+ * snapshot's execution budget and cannot extend it.
+ *
+ * What a restore does NOT inherit is the machine. This comment used to claim
+ * it did — "speed comes from the cores the snapshot was built with" — and that
+ * was simply wrong: the sandbox reported two cores and 4,283 MB while the
+ * snapshot had been built asking for eight. See VCPU_LADDER below.
+ *
+ * Note also that this value is not the real ceiling on a render. It is only
+ * consulted when the sandbox reports an unrecognised stage; a render that
+ * keeps reporting progress runs well past it, and the wall it eventually hits
+ * is the platform's own limit near forty-five minutes.
  */
 const SANDBOX_LIFETIME = 5 * 60 * 1000;
+
+/**
+ * How many cores a render gets, best first.
+ *
+ * This was the single most expensive oversight in the render path. The
+ * snapshot is BUILT asking for eight vCPUs, but restoring it asked for
+ * nothing — and a sandbox with no `resources` gets the default. Measured on
+ * the running machine: two cores, 4,283 MB, which is exactly two times the
+ * documented 2,048 MB per vCPU. Every render this studio has ever produced
+ * ran on a quarter of the machine it could have had.
+ *
+ * Rendering is almost pure CPU: Remotion paints frames in parallel Chromium
+ * tabs and then encodes. Cores are therefore close to linear here, which is
+ * why a sixteen-minute video crawled at three frames a second.
+ *
+ * A ladder rather than a single value, because the account may refuse the
+ * largest size and being refused must not mean no render at all.
+ */
+const VCPU_LADDER = [8, 4, 2];
 
 const getSnapshotBlobKey = () =>
   `snapshot-cache/${process.env.VERCEL_DEPLOYMENT_ID ?? "local"}.json`;
@@ -90,12 +117,25 @@ export async function restoreSnapshot() {
     throw new Error(NO_SNAPSHOT);
   }
 
-  let sandbox: Awaited<ReturnType<typeof Sandbox.create>>;
+  let sandbox: Awaited<ReturnType<typeof Sandbox.create>> | null = null;
+  let lastError: unknown = null;
   try {
-    sandbox = await Sandbox.create({
-      source: { type: "snapshot", snapshotId },
-      timeout: SANDBOX_LIFETIME,
-    });
+    for (const vcpus of VCPU_LADDER) {
+      try {
+        sandbox = await Sandbox.create({
+          source: { type: "snapshot", snapshotId },
+          timeout: SANDBOX_LIFETIME,
+          resources: { vcpus },
+        });
+        break;
+      } catch (err) {
+        // A refused size is not a broken snapshot. Only the last rung's
+        // failure means the snapshot itself will not boot, and that is the one
+        // the handler below is written for.
+        lastError = err;
+      }
+    }
+    if (!sandbox) throw lastError ?? new Error("Keine Sandbox erhalten.");
   } catch (err) {
     // A snapshot that will not boot must not be handed to the next build as a
     // reusable one. Builds decide whether to create a snapshot by asking the
