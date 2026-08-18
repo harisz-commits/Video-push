@@ -79,6 +79,14 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const [voiceJobId, setVoiceJobId] = useState<string | null>(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const [provider, setProvider] = useState<"elevenlabs" | "google">("elevenlabs");
+  const [googleVoice, setGoogleVoice] = useState("de-DE-Neural2-D");
+  const [voices, setVoices] = useState<{
+    elevenlabs: boolean;
+    googleConfigured: boolean;
+    google: { name: string; gender?: string }[];
+  } | null>(null);
 
   const [projectId, setProjectId] = useState<string | null>(null);
   const [render, setRender] = useState<{
@@ -296,13 +304,28 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   }, [drawJobId]);
 
   // ---- Voice --------------------------------------------------------------
+  //
+  // Asked, not hardcoded: which Google voices exist depends on the account,
+  // and an option that cannot be used is worse than a shorter list.
+  useEffect(() => {
+    void getJson<NonNullable<typeof voices>>("/api/story/voice").then((r) => {
+      if (!r.ok) return;
+      setVoices(r.data);
+      if (r.data.google.length > 0) {
+        const neural = r.data.google.find((v) => v.name.includes("Neural2"));
+        if (neural) setGoogleVoice(neural.name);
+      }
+    });
+  }, []);
+
   async function speak() {
     setVoiceBusy(true);
     setVoiceError(null);
-    const result = await postJson<{ jobId: string }>("/api/voice", {
-      projectId: projectId ?? project.id,
-      voiceover: narration,
-      speed: project.speed,
+    setVoiceNote(null);
+    const result = await postJson<{ jobId: string }>("/api/story/voice", {
+      project,
+      provider,
+      voice: provider === "google" ? googleVoice : undefined,
     });
     if (!result.ok) {
       setVoiceError(result.error);
@@ -319,18 +342,36 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       const result = await getJson<{
         status: string;
         audioUrl?: string;
-        alignment?: unknown;
+        cues?: number[];
+        audioSeconds?: number;
+        characters?: number;
+        provider?: "elevenlabs" | "google";
+        voice?: string;
         error?: string;
-      }>(`/api/voice?jobId=${encodeURIComponent(voiceJobId)}`);
+      }>(`/api/story/voice?jobId=${encodeURIComponent(voiceJobId)}`);
       if (cancelled || !result.ok) return;
       if (result.data.status === "running") return;
 
       if (result.data.status === "done" && result.data.audioUrl) {
+        const data = result.data;
         setProject((p) => ({
           ...p,
-          audioUrl: result.data.audioUrl,
-          alignment: result.data.alignment as Story["alignment"],
+          audioUrl: data.audioUrl,
+          cues: data.cues,
+          audioSeconds: data.audioSeconds,
+          // The old character alignment belongs to whoever spoke last. Keeping
+          // it beside fresh cues would leave two disagreeing sources of truth,
+          // and the timing code prefers cues — so the stale one would sit
+          // there being wrong and invisible.
+          alignment: undefined,
+          voice: {
+            provider: data.provider ?? "elevenlabs",
+            name: data.voice,
+          },
         }));
+        setVoiceNote(
+          `${data.provider === "google" ? "Google" : "ElevenLabs"}${data.voice ? ` · ${data.voice}` : ""} · ${(data.characters ?? 0).toLocaleString("de-DE")} Zeichen`,
+        );
       } else {
         setVoiceError(result.data.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
       }
@@ -569,6 +610,68 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                 </span>
               }
             >
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                {(
+                  [
+                    ["elevenlabs", "ElevenLabs"],
+                    ["google", "Google Neural2"],
+                  ] as const
+                ).map(([key, label]) => {
+                  const usable =
+                    key === "google"
+                      ? (voices?.googleConfigured ?? false)
+                      : (voices?.elevenlabs ?? true);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setProvider(key)}
+                      disabled={!usable}
+                      title={
+                        usable
+                          ? undefined
+                          : "Nicht eingerichtet — siehe Hinweis unten."
+                      }
+                      style={{
+                        flex: 1,
+                        padding: "7px 10px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: usable ? "pointer" : "not-allowed",
+                        border: `1px solid ${provider === key ? "var(--ink)" : "var(--grid)"}`,
+                        background: provider === key ? "var(--ink)" : "transparent",
+                        color: provider === key ? "var(--field)" : "var(--ink)",
+                        opacity: usable ? 1 : 0.45,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {provider === "google" && (voices?.google.length ?? 0) > 0 ? (
+                <select
+                  value={googleVoice}
+                  onChange={(e) => setGoogleVoice(e.target.value)}
+                  aria-label="Google-Stimme"
+                  style={{
+                    width: "100%",
+                    padding: "9px 10px",
+                    border: "1px solid var(--grid)",
+                    background: "#fff",
+                    fontSize: 13,
+                    marginBottom: 8,
+                  }}
+                >
+                  {voices!.google.map((v) => (
+                    <option key={v.name} value={v.name}>
+                      {v.name}
+                      {v.gender ? ` · ${v.gender.toLowerCase()}` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
               <Button onClick={() => void speak()} disabled={voiceBusy}>
                 {voiceBusy
                   ? "wird gesprochen…"
@@ -577,11 +680,21 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                     : "Sprechen"}
               </Button>
               {voiceError ? <Note tone="alert">{voiceError}</Note> : null}
+              {voiceNote ? <Note tone="info">{voiceNote}</Note> : null}
+              {voices && !voices.googleConfigured ? (
+                <Note tone="info">
+                  Google-Stimmen sind noch nicht eingerichtet. Sie brauchen
+                  GOOGLE_TTS_CREDENTIALS — das JSON eines Dienstkontos mit
+                  aktivierter Text-to-Speech-API. Ein API-Key reicht nicht:
+                  diese API lehnt Keys ab und verlangt OAuth2.
+                </Note>
+              ) : null}
               <Note tone="info">
                 Tempo {project.speed.toFixed(2).replace(".", ",")} — etwa{" "}
-                {WORDS_PER_MINUTE} Wörter pro Minute. Kostet ungefähr{" "}
-                {estimatedChars.toLocaleString("de-DE")} Zeichen vom
-                ElevenLabs-Kontingent.
+                {WORDS_PER_MINUTE} Wörter pro Minute.{" "}
+                {provider === "google"
+                  ? `Etwa ${estimatedChars.toLocaleString("de-DE")} Zeichen, nach Verbrauch abgerechnet.`
+                  : `Kostet ungefähr ${estimatedChars.toLocaleString("de-DE")} Zeichen vom ElevenLabs-Kontingent.`}
               </Note>
             </Panel>
 

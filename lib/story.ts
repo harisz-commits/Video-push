@@ -103,6 +103,33 @@ export const StoryProject = z.object({
    * saying rather than dictating it. ElevenLabs refuses anything above 1.2.
    */
   speed: z.number().min(0.7).max(1.2).default(1.15),
+  /**
+   * Which voice read it.
+   *
+   * Two providers, and they differ in more than timbre: ElevenLabs returns a
+   * timestamp per character, Google one per SSML mark. Stored so a project can
+   * be re-spoken by the same voice later, and so the studio can show which one
+   * a finished video actually used.
+   */
+  voice: z
+    .object({
+      provider: z.enum(["elevenlabs", "google"]),
+      /** Voice id at ElevenLabs, or a name like de-DE-Neural2-D at Google. */
+      name: z.string().max(120).optional(),
+    })
+    .optional(),
+  /**
+   * When each shot starts, in seconds.
+   *
+   * The one timing fact this format needs, and both providers can produce it:
+   * Google reports it directly from the <mark> tags, ElevenLabs' character
+   * timestamps are reduced to it at synthesis time. Storing the answer rather
+   * than the evidence is what lets the two be swapped without anything
+   * downstream knowing which one spoke.
+   */
+  cues: z.array(z.number().nonnegative()).optional(),
+  /** How long the recording is. Needed when there is no alignment to measure. */
+  audioSeconds: z.number().positive().optional(),
   audioUrl: z.string().url().optional(),
   alignment: z
     .object({
@@ -154,6 +181,32 @@ export function spokenNarration(project: StoryProject): string {
   return project.shots.map((s) => spellNumbers(s.text.trim())).join(" ");
 }
 
+/**
+ * Where each shot begins, measured from ElevenLabs' character timestamps.
+ *
+ * The reduction that makes the two providers interchangeable: Google hands
+ * back one time per shot already, and this turns per-character times into the
+ * same shape. Everything downstream then reads cues and never asks who spoke.
+ */
+export function cuesFromAlignment(
+  project: StoryProject,
+  alignment: { startTimesSeconds: number[] },
+): number[] {
+  const spoken = project.shots.map((s) => spellNumbers(s.text.trim()));
+  const narration = spoken.join(" ");
+  const n = alignment.startTimesSeconds.length;
+  const scale = narration.length === n ? 1 : n / Math.max(1, narration.length);
+
+  const cues: number[] = [];
+  let cursor = 0;
+  for (const text of spoken) {
+    const i = Math.round(cursor * scale);
+    cues.push(alignment.startTimesSeconds[Math.max(0, Math.min(n - 1, i))] ?? 0);
+    cursor += text.length + 1;
+  }
+  return cues;
+}
+
 /** The written narration, for reading and editing. */
 export function writtenNarration(project: StoryProject): string {
   return project.shots.map((s) => s.text.trim()).join(" ");
@@ -171,6 +224,32 @@ export function resolveStoryTiming(project: StoryProject): StoryTiming {
   const fps = project.fps;
   const byKey = new Map(project.images.map((i) => [i.key, i]));
   const spoken = project.shots.map((s) => spellNumbers(s.text.trim()));
+
+  // Measured cues win over everything. They are what both providers now
+  // produce, and they are exact — derived from marks Google placed or from
+  // character offsets ElevenLabs timed, rather than re-derived here.
+  const cues = project.cues;
+  if (cues && cues.length === project.shots.length && project.audioSeconds) {
+    const endFrame = Math.round(project.audioSeconds * fps) + STORY_TAIL_FRAMES;
+    const starts = cues.map((seconds) => Math.round(seconds * fps));
+    starts[0] = 0;
+
+    return {
+      shots: project.shots.map((shot, i) => {
+        const from = starts[i];
+        const next = i + 1 < starts.length ? starts[i + 1] : endFrame;
+        return {
+          ...shot,
+          from,
+          durationInFrames: Math.max(MIN_SHOT_FRAMES, next - from),
+          url: byKey.get(shot.image)?.url,
+        } satisfies ResolvedShot;
+      }),
+      totalFrames: Math.max(1, endFrame),
+      audioSeconds: project.audioSeconds,
+      estimated: false,
+    };
+  }
 
   const alignment = project.alignment;
   const hasAudio = Boolean(alignment && alignment.startTimesSeconds.length > 0);
