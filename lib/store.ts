@@ -183,6 +183,14 @@ export type RenderProgress = {
   outputUrl?: string;
   sizeBytes?: number;
   error?: string;
+  /**
+   * Per piece, when a render is sectioned.
+   *
+   * Reported because a sum hides exactly the thing worth knowing: nine pieces
+   * summing to zero can mean nine that just started or nine that are dead, and
+   * the aggregate reads identically either way.
+   */
+  parts?: { index: number; stage: string; progress: number }[];
   startedAt: number;
   updatedAt: number;
 };

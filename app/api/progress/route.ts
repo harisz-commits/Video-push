@@ -290,6 +290,31 @@ async function sectioned(
   }
 
   const done = states.reduce((sum, s) => sum + s.progress, 0) / segments.length;
+  const parts = states.map((s) => ({
+    index: s.segment.index,
+    stage: s.stage,
+    progress: Number(s.progress.toFixed(3)),
+  }));
+
+  /**
+   * Every piece out of reach, long after they should have started.
+   *
+   * A sandbox that cannot be asked has either finished and been reclaimed or
+   * died — and if it had finished it would have left a file, which the check
+   * above would have found. So this is death, and reporting it as "still
+   * rendering" is how a dead render sits at zero per cent forever.
+   */
+  const unreachable = states.filter((s) => s.stage === "unreachable").length;
+  if (unreachable === segments.length && Date.now() - job.startedAt > 120_000) {
+    return Response.json({
+      ...base,
+      status: "error",
+      progress: 0,
+      phase: "Abgebrochen",
+      parts,
+      error: `Keines der ${segments.length} Teile ist noch erreichbar und keines hat eine Datei hinterlassen. Die Sandboxes sind beendet worden, bevor sie fertig waren. Starte den Render neu.`,
+    } satisfies RenderProgress);
+  }
 
   // Every piece finished and nothing is joining them yet.
   if (finished.length === segments.length && job.stage === "segments") {
@@ -339,6 +364,7 @@ async function sectioned(
   return Response.json({
     ...base,
     status: "rendering",
+    parts,
     progress: job.stage === "stitching" ? 0.97 : done * 0.95,
     phase:
       job.stage === "stitching"
