@@ -48,6 +48,26 @@ type ImageJobState = {
   cents?: number;
 };
 
+type Summary = {
+  id: string;
+  title: string;
+  topic: string;
+  format: "infographics" | "quiz" | "video";
+  updatedAt: number;
+  detail: string;
+  renderUrl?: string;
+  pendingRenders: number;
+};
+
+function ago(ts: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return "gerade eben";
+  const m = Math.round(s / 60);
+  if (m < 60) return `vor ${m} Min`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `vor ${h} Std` : `vor ${Math.round(h / 24)} Tagen`;
+}
+
 const formatCents = (cents: number) =>
   cents >= 100
     ? `${(cents / 100).toFixed(2).replace(".", ",")} $`
@@ -81,6 +101,8 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
 
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Summary[]>([]);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [render, setRender] = useState<{
     renderId: string;
     status: string;
@@ -101,22 +123,85 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const drawnCount = project.images.length - undrawn.length;
 
   // ---- Autosave -----------------------------------------------------------
+  const refreshProjects = useCallback(async () => {
+    const result = await getJson<{ projects: Summary[] }>("/api/projects");
+    if (result.ok) {
+      setProjects(result.data.projects.filter((p) => p.format === "video"));
+    }
+  }, []);
+
   const save = useCallback(async () => {
     const payload = JSON.stringify(project);
+    setSaveState("saving");
     const result = await postJson<{ id: string }>("/api/projects", {
       id: projectId ?? undefined,
       title: project.title,
       project,
     });
-    if (!result.ok) return;
+    if (!result.ok) {
+      setSaveState("idle");
+      return;
+    }
     lastSaved.current = payload;
     setProjectId(result.data.id);
+    setSaveState("saved");
     try {
       window.localStorage.setItem(PROJECT_KEY, result.data.id);
     } catch {
       // Not being able to remember the id costs a save, not the work.
     }
-  }, [project, projectId]);
+    void refreshProjects();
+  }, [project, projectId, refreshProjects]);
+
+  /**
+   * Open a saved video.
+   *
+   * Without this the format had no way back to its own work: it saved
+   * diligently and offered no door. A reload showed the empty seed, and the
+   * pictures somebody had paid three dollars for were reachable only by
+   * knowing a URL nobody was shown.
+   */
+  const loadProject = useCallback(async (id: string) => {
+    const result = await getJson<{ id: string; project: unknown }>(
+      `/api/projects/${encodeURIComponent(id)}`,
+    );
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    const parsed = StoryProject.safeParse(result.data.project);
+    if (!parsed.success) {
+      setError("Dieses Projekt ist kein Video.");
+      return;
+    }
+    lastSaved.current = JSON.stringify(parsed.data);
+    setProject(parsed.data);
+    setProjectId(result.data.id);
+    setTopic(parsed.data.topic);
+    setRender(null);
+    setError(null);
+    setSaveState("saved");
+    try {
+      window.localStorage.setItem(PROJECT_KEY, result.data.id);
+    } catch {
+      // The project is open either way.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshProjects();
+  }, [refreshProjects]);
+
+  // Reopen whatever was last worked on. A reload used to land on the empty
+  // seed even though the work was safely stored.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(PROJECT_KEY);
+      if (stored) void loadProject(stored);
+    } catch {
+      // Starting on the seed is a fine answer.
+    }
+  }, [loadProject]);
 
   useEffect(() => {
     const payload = JSON.stringify(project);
@@ -400,6 +485,66 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     // classes collapse to one column below 1280px and put the player first.
     <div className="studio-grid">
       <div className="studio-rail">
+        <Panel
+          step="00"
+          title="Projekt"
+          right={
+            <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+              {saveState === "saving"
+                ? "speichert…"
+                : projectId
+                  ? "gespeichert"
+                  : "ungespeichert"}
+            </span>
+          }
+        >
+          <select
+            value={projectId ?? ""}
+            onChange={(e) => {
+              const id = e.target.value;
+              if (id) {
+                void loadProject(id);
+                return;
+              }
+              // Starting fresh forgets the id first, so the autosave below
+              // mints a new project instead of overwriting the open one with
+              // an empty seed.
+              lastSaved.current = null;
+              setProjectId(null);
+              setSaveState("idle");
+              try {
+                window.localStorage.removeItem(PROJECT_KEY);
+              } catch {
+                // Nothing depends on this succeeding.
+              }
+              setProject(seed);
+              setTopic("");
+              setRender(null);
+            }}
+            aria-label="Gespeichertes Video"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              border: "1px solid var(--grid)",
+              background: "#fff",
+              fontSize: 13,
+            }}
+          >
+            <option value="">— Neues Video —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.title} · {p.detail} · {ago(p.updatedAt)}
+              </option>
+            ))}
+          </select>
+          {projects.length === 0 ? (
+            <Note tone="info">
+              Noch kein gespeichertes Video. Sobald eines erzeugt ist, landet es
+              hier automatisch.
+            </Note>
+          ) : null}
+        </Panel>
+
         <Panel step="01" title="Thema">
           <textarea
             value={topic}

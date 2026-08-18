@@ -107,7 +107,13 @@ export function summarize(record: ProjectRecord): ProjectSummary {
     hasAudio:
       p.kind === "quiz"
         ? Boolean(p.audioUrl)
-        : Boolean(p.audioUrl && p.alignment),
+        : p.kind === "video"
+          // Cues, not alignment — this format stores one time per shot and
+          // clears the character alignment when it records. Asking for the
+          // field it no longer uses made every finished video report itself
+          // as silent, which is the same mistake the render gate made.
+          ? Boolean(p.audioUrl && p.cues?.length)
+          : Boolean(p.audioUrl && p.alignment),
     // Either source counts. `lastRender` is what the browser used to write
     // when it happened to be watching; `renders` is what the server files
     // regardless. Reading only the first is how a project with a perfectly
