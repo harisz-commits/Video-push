@@ -269,13 +269,37 @@ async function sectioned(
           url: p.stage === "done" ? p.url : undefined,
         };
       } catch {
-        // A sandbox that cannot be reached has either finished and been
-        // reclaimed or died. Which of the two is answered by whether its file
-        // exists, not by guessing here.
         return { segment, stage: "unreachable", progress: 0, url: undefined };
       }
     }),
   );
+
+  /**
+   * A piece is finished if its FILE exists, whatever its sandbox says.
+   *
+   * The sandbox is reclaimed some minutes after it finishes, and from then on
+   * it answers with no stage at all — so a render whose pieces were all
+   * rendered and uploaded looked, an hour later, exactly like one whose
+   * pieces had died. The upload is the fact that matters and it is durable;
+   * the sandbox is not.
+   */
+  const token0 = resolveBlobToken()?.value;
+  if (token0) {
+    const { head } = await import("@vercel/blob");
+    await Promise.all(
+      states.map(async (state) => {
+        if (state.stage === "done" || state.url) return;
+        const meta = await head(state.segment.path, { token: token0 }).catch(
+          () => null,
+        );
+        if (meta) {
+          state.stage = "done";
+          state.progress = 1;
+          state.url = meta.url;
+        }
+      }),
+    );
+  }
 
   const finished = states.filter((s) => s.stage === "done");
   // "expired" is Remotion's word for a sandbox that outlived its lease with
