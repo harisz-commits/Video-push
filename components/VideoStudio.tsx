@@ -611,8 +611,17 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             aria-label="Länge in Minuten"
           />
 
+          {/*
+            The budget and the length together decide how often a viewer sees
+            the same picture, and that is the number worth showing. Sixty
+            images across twenty-five minutes sounds generous and means every
+            picture comes back ten times — which nobody works out from the two
+            sliders on their own.
+          */}
           <label className="mono" style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "12px 0 6px" }}>
-            höchstens {imageBudget} verschiedene Bilder · {formatCents(imageBudget * imageModel.cents)}
+            höchstens {imageBudget} verschiedene Bilder ·{" "}
+            {formatCents(imageBudget * imageModel.cents)} · jedes etwa{" "}
+            {Math.max(1, Math.round((minutes * 60) / 3 / imageBudget))}× zu sehen
           </label>
           <input
             type="range"
