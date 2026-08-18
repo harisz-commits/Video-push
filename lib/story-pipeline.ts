@@ -2,8 +2,10 @@ import { complete } from "./llm";
 import { slugify } from "./image-library";
 import { StoryProject, StoryStyle, type StoryImage, type StoryShot } from "./story";
 import {
-  buildScriptPrompt,
+  buildOutlinePrompt,
+  buildSectionPrompt,
   buildStylePrompt,
+  STORY_OUTLINE_SYSTEM_PROMPT,
   STORY_SCRIPT_SYSTEM_PROMPT,
   STORY_STYLE_SYSTEM_PROMPT,
   WORDS_PER_MINUTE,
@@ -61,7 +63,6 @@ export async function generateStory(args: {
       topic: args.topic,
     });
 
-    await progress(`${Math.round(args.minutes * WORDS_PER_MINUTE)} Wörter werden geschrieben`);
     const script = await writeScript({
       model,
       apiKey: args.apiKey,
@@ -70,6 +71,8 @@ export async function generateStory(args: {
       style: style.style,
       minutes: args.minutes,
       imageBudget: args.imageBudget,
+      deadline: args.startedAt + WRITING_DEADLINE_MS,
+      onProgress: progress,
     });
 
     const project = StoryProject.parse({
@@ -85,11 +88,22 @@ export async function generateStory(args: {
       height: 1080,
     });
 
+    const words = script.shots.reduce(
+      (n, shot) => n + shot.text.trim().split(/\s+/).length,
+      0,
+    );
+
     await writeJson(storyJobPath(args.jobId), {
       jobId: args.jobId,
       topic: args.topic,
       status: "done",
       project,
+      // Said plainly when the film came out shorter than asked for, because
+      // the alternative is a silently short video that looks finished. A
+      // section can be lost to the clock or to a reply that would not parse.
+      warning: script.short
+        ? `Nicht alle Abschnitte wurden fertig — das Video ist ${Math.round(words / WORDS_PER_MINUTE)} statt ${args.minutes} Minuten lang. Erzeug es noch einmal, oder nimm eine kürzere Länge.`
+        : undefined,
       cost: {
         model: model.id,
         label: model.label,
@@ -158,6 +172,36 @@ async function writeStyle(args: {
   };
 }
 
+/**
+ * When to stop starting new sections.
+ *
+ * The route is allowed 300 seconds. A section that begins at 250 will not
+ * finish, and a job killed mid-write leaves nothing at all — whereas stopping
+ * early leaves a shorter film that is complete as far as it goes.
+ */
+const WRITING_DEADLINE_MS = 250_000;
+
+/** Minutes of video per section. Small enough that a model actually fills it. */
+const MINUTES_PER_SECTION = 2;
+
+/** How many sections are written at once. See the note in writeScript(). */
+const LANES = 3;
+
+/**
+ * Write the script in sections.
+ *
+ * One call cannot do this. Asked for 4,000 words in a single reply, Gemini 3.7
+ * Flash returned 1,160 — and not because it hit the ceiling: 10,603 of 32,000
+ * output tokens. It simply stops, and returns valid, complete-looking JSON
+ * that is a quarter of what was asked for. Every length above about three
+ * minutes was silently short.
+ *
+ * So: an outline first, then each section written against it. Sections run
+ * several at a time because they do not depend on each other's text — only on
+ * the outline, which every one of them gets in full, and on a set of
+ * recurring motifs decided up front. Those motifs are what keep the film
+ * looking like one film despite being written in pieces.
+ */
 async function writeScript(args: {
   model: TextModel;
   apiKey: string;
@@ -166,39 +210,186 @@ async function writeScript(args: {
   style: StoryStyle;
   minutes: number;
   imageBudget: number;
-}): Promise<{ images: StoryImage[]; shots: StoryShot[] }> {
+  deadline: number;
+  onProgress: (step: string) => Promise<unknown>;
+}): Promise<{ images: StoryImage[]; shots: StoryShot[]; short: boolean }> {
+  const sectionCount = Math.max(
+    1,
+    Math.min(15, Math.round(args.minutes / MINUTES_PER_SECTION)),
+  );
+
+  // A third of the picture budget goes to motifs that every section may draw
+  // on; the rest is split between them. Without a shared pool the sections
+  // would each invent their own vocabulary and nothing would ever recur.
+  const motifBudget = Math.max(3, Math.min(8, Math.round(args.imageBudget / 3)));
+  const perSection = Math.max(
+    1,
+    Math.floor((args.imageBudget - motifBudget) / sectionCount),
+  );
+
+  await args.onProgress(
+    sectionCount === 1
+      ? "Skript wird geschrieben"
+      : `Gliederung für ${sectionCount} Abschnitte`,
+  );
+
+  const plan = await writeOutline({
+    ...args,
+    sections: sectionCount,
+    motifs: motifBudget,
+  });
+
+  const words = Math.round((args.minutes * WORDS_PER_MINUTE) / sectionCount);
+  const results = new Array<{ images: StoryImage[]; shots: StoryShot[] } | null>(
+    sectionCount,
+  ).fill(null);
+  let done = 0;
+  let next = 0;
+  let short = false;
+
+  const lane = async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= sectionCount) return;
+      if (Date.now() > args.deadline) {
+        short = true;
+        continue;
+      }
+
+      const reply = await complete({
+        model: args.model,
+        apiKey: args.apiKey,
+        system: STORY_SCRIPT_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: buildSectionPrompt({
+              topic: args.topic,
+              style: args.style,
+              sections: plan.sections,
+              index,
+              words,
+              motifs: plan.motifs,
+              imageBudget: perSection,
+            }),
+          },
+        ],
+        maxTokens: 16000,
+        effort: "medium",
+      });
+      args.spent.input += reply.usage.input;
+      args.spent.output += reply.usage.output;
+
+      try {
+        const json = parseObject(reply.text) as {
+          images?: unknown;
+          shots?: unknown;
+        };
+        results[index] = reconcile(json.images, json.shots, plan.motifs);
+      } catch {
+        // One section that will not parse must not cost the other twelve. The
+        // film is shorter by that section and says so.
+        short = true;
+      }
+
+      done += 1;
+      await args.onProgress(`Abschnitt ${done} von ${sectionCount}`);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(LANES, sectionCount) }, lane));
+
+  // Stitched in outline order, not in the order they came back.
+  const images = new Map<string, StoryImage>();
+  for (const motif of plan.motifs) images.set(motif.key, motif);
+  const shots: StoryShot[] = [];
+
+  for (const result of results) {
+    if (!result) continue;
+    for (const image of result.images) {
+      if (!images.has(image.key)) images.set(image.key, image);
+    }
+    for (const shot of result.shots) {
+      shots.push({ ...shot, id: `s${shots.length + 1}` });
+    }
+  }
+
+  if (shots.length === 0) {
+    throw new Error("Das Modell hat keinen gesprochenen Text geliefert.");
+  }
+
+  // A motif nobody used is a picture nobody should pay for.
+  const used = new Set(shots.map((s) => s.image));
+  return {
+    images: [...images.values()].filter((i) => used.has(i.key)),
+    shots,
+    short,
+  };
+}
+
+async function writeOutline(args: {
+  model: TextModel;
+  apiKey: string;
+  spent: { input: number; output: number };
+  topic: string;
+  style: StoryStyle;
+  minutes: number;
+  sections: number;
+  motifs: number;
+}): Promise<{
+  sections: { title: string; brief: string }[];
+  motifs: StoryImage[];
+}> {
   const reply = await complete({
     model: args.model,
     apiKey: args.apiKey,
-    system: STORY_SCRIPT_SYSTEM_PROMPT,
+    system: STORY_OUTLINE_SYSTEM_PROMPT,
     messages: [
       {
         role: "user",
-        content: buildScriptPrompt({
+        content: buildOutlinePrompt({
           topic: args.topic,
           style: args.style,
           minutes: args.minutes,
-          imageBudget: args.imageBudget,
+          sections: args.sections,
+          motifs: args.motifs,
         }),
       },
     ],
-    // Scaled with the length, and generously: thinking counts against this on
-    // both providers, and a reply cut off at the ceiling loses the whole
-    // script rather than its tail.
-    maxTokens: Math.min(32000, 8000 + Math.round(args.minutes * 3200)),
+    maxTokens: 6000,
     effort: "medium",
   });
   args.spent.input += reply.usage.input;
   args.spent.output += reply.usage.output;
 
-  if (reply.truncated) {
-    throw new Error(
-      "Das Skript wurde beim Token-Limit abgeschnitten. Wähle eine kürzere Länge und setz das Video aus zwei Teilen zusammen.",
-    );
+  const json = parseObject(reply.text) as { sections?: unknown; motifs?: unknown };
+
+  const sections = (Array.isArray(json.sections) ? json.sections : [])
+    .map((item) => item as { title?: unknown; brief?: unknown })
+    .filter((s) => typeof s.brief === "string" && s.brief.trim().length > 3)
+    .map((s) => ({
+      title: typeof s.title === "string" ? s.title.trim().slice(0, 90) : "",
+      brief: (s.brief as string).trim().slice(0, 400),
+    }));
+
+  if (sections.length === 0) {
+    throw new Error("Das Modell hat keine brauchbare Gliederung geliefert.");
   }
 
-  const json = parseObject(reply.text) as { images?: unknown; shots?: unknown };
-  return reconcile(json.images, json.shots);
+  const motifs: StoryImage[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(json.motifs) ? json.motifs : []) {
+    const m = item as { key?: unknown; name?: unknown; prompt?: unknown };
+    const name = typeof m.name === "string" ? m.name.trim() : "";
+    const prompt = typeof m.prompt === "string" ? m.prompt.trim() : "";
+    if (prompt.length < 10) continue;
+    const key = slugify(typeof m.key === "string" && m.key ? m.key : name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    motifs.push({ key, name: name.slice(0, 120) || key, prompt: prompt.slice(0, 700) });
+  }
+
+  return { sections, motifs };
 }
 
 /**
@@ -214,6 +405,8 @@ async function writeScript(args: {
 function reconcile(
   rawImages: unknown,
   rawShots: unknown,
+  /** Pictures defined for the whole film that a shot may name. */
+  motifs: StoryImage[] = [],
 ): { images: StoryImage[]; shots: StoryShot[] } {
   const images = new Map<string, StoryImage>();
   for (const item of Array.isArray(rawImages) ? rawImages : []) {
@@ -229,11 +422,15 @@ function reconcile(
       prompt: prompt.slice(0, 700),
     });
   }
-  if (images.size === 0) {
+  // The shared motifs count as known keys without being re-declared here —
+  // the section was told not to list them again, and a shot pointing at one
+  // must not be treated as pointing at nothing.
+  const known = new Set([...images.keys(), ...motifs.map((m) => m.key)]);
+  if (known.size === 0) {
     throw new Error("Das Modell hat keine brauchbaren Bildbeschreibungen geliefert.");
   }
 
-  const keys = [...images.keys()];
+  const keys = [...known];
   const shots: StoryShot[] = [];
   let previous = keys[0];
 
@@ -243,7 +440,7 @@ function reconcile(
     if (!text) continue;
 
     const wanted = typeof s.image === "string" ? slugify(s.image) : "";
-    const image = images.has(wanted) ? wanted : previous;
+    const image = known.has(wanted) ? wanted : previous;
     previous = image;
 
     const motion =
@@ -264,7 +461,8 @@ function reconcile(
     throw new Error("Das Modell hat keinen gesprochenen Text geliefert.");
   }
 
-  // A picture nobody shows is a picture nobody should pay for.
+  // A picture nobody shows is a picture nobody should pay for. Motifs are
+  // filtered at the end of writeScript(), across all sections.
   const used = new Set(shots.map((s) => s.image));
   return {
     images: [...images.values()].filter((i) => used.has(i.key)),

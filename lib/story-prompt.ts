@@ -59,6 +59,62 @@ ${topic}
 Leg den Bildstil fest, der zu diesem Thema passt.`;
 }
 
+/**
+ * The outline, and the motifs that will hold the film together.
+ *
+ * A separate call because of a hard, measured limit: asked for 4,000 words in
+ * one reply, Gemini 3.7 Flash returned 1,160 — twenty-nine percent, and not
+ * because it ran out of room (10,603 of 32,000 output tokens). It simply
+ * stops. No phrasing fixes that; the script has to be written in pieces, and
+ * pieces need a plan they can be written against.
+ *
+ * The recurring motifs are decided here too, and that is what makes writing
+ * the sections in parallel possible without the film falling apart: every
+ * section draws on the same small set of shared pictures, so the motifs come
+ * back across the whole video even though no section knows what the others
+ * wrote.
+ */
+export const STORY_OUTLINE_SYSTEM_PROMPT = `Du planst ein deutsches Erklärvideo, bevor es geschrieben wird.
+
+DER BOGEN:
+- Teile das Thema in Abschnitte, die aufeinander aufbauen.
+- Der erste Abschnitt wirft eine Frage auf, die Mitte beantwortet sie in
+  Schritten, der letzte dreht sie noch einmal.
+- Jeder Abschnitt behandelt EINEN Gedanken. Kein Abschnitt wiederholt einen
+  anderen — sie werden getrennt voneinander geschrieben, und was du hier nicht
+  auseinanderhältst, steht später doppelt im Video.
+- "brief" sagt in ein bis zwei Sätzen, was in diesem Abschnitt gesagt wird.
+  Sei konkret: nenn die Sache beim Namen, nicht das Thema noch einmal.
+
+DIE WIEDERKEHRENDEN MOTIVE:
+- Fünf bis acht Bilder, die im ganzen Video immer wieder auftauchen dürfen.
+- Sie sind das visuelle Rückgrat: das Lagerfeuer, die Landschaft, das Werkzeug
+  — Dinge, die in vielen Abschnitten passen, nicht nur in einem.
+- "prompt" beschreibt NUR den Inhalt, auf Englisch. Kein Wort über Stil oder
+  Farben; das kommt aus dem Stil-Text.
+- "key" ist ein Kleinbuchstaben-Slug: a-z, 0-9, Bindestriche, Umlaute
+  ausgeschrieben.
+
+Antworte mit einem JSON-Objekt, sonst nichts:
+{"sections":[{"title":"…","brief":"…"}],
+ "motifs":[{"key":"…","name":"…","prompt":"…"}]}`;
+
+export function buildOutlinePrompt(args: {
+  topic: string;
+  style: StoryStyle;
+  minutes: number;
+  sections: number;
+  motifs: number;
+}): string {
+  return `Thema des Videos:
+${args.topic}
+
+Bildstil steht fest: „${args.style.name}"
+
+Plane genau ${args.sections} Abschnitte für ${args.minutes} Minuten Video und
+${args.motifs} wiederkehrende Motive.`;
+}
+
 export const STORY_SCRIPT_SYSTEM_PROMPT = `Du schreibst ein deutsches Erklärvideo: gesprochenen Text und dazu die Bilder.
 
 DER GESPROCHENE TEXT:
@@ -135,6 +191,60 @@ LÄNGE:
 Vergib die Reihenfolge so, dass das Video einen Bogen hat: der Einstieg wirft
 eine Frage auf, die Mitte beantwortet sie in Schritten, der Schluss dreht sie
 noch einmal.`;
+}
+
+/**
+ * One section of the film.
+ *
+ * Given the whole outline, not just its own line, so it knows what came before
+ * and what follows and does not re-explain either. The sections are written
+ * independently and in parallel; the outline is the only thing keeping them
+ * from colliding.
+ */
+export function buildSectionPrompt(args: {
+  topic: string;
+  style: StoryStyle;
+  sections: { title: string; brief: string }[];
+  index: number;
+  words: number;
+  /** Motif keys every section may reuse, chosen once for the whole film. */
+  motifs: { key: string; name: string }[];
+  /** How many NEW pictures this section may invent on top of the motifs. */
+  imageBudget: number;
+}): string {
+  const plan = args.sections
+    .map((s, i) => `${i + 1}. ${s.title} — ${s.brief}${i === args.index ? "   <<< DIESEN schreibst du" : ""}`)
+    .join("\n");
+
+  const shots = Math.max(2, Math.round(args.words / 8));
+
+  return `Thema des Videos:
+${args.topic}
+
+Bildstil steht fest: „${args.style.name}". Beschreib in "prompt" nur den Inhalt.
+
+DER PLAN DES GANZEN VIDEOS:
+${plan}
+
+Schreib NUR Abschnitt ${args.index + 1}. Nicht die anderen, nicht ihre Inhalte,
+und keine Zusammenfassung des Ganzen. ${
+    args.index === 0
+      ? "Es ist der Anfang: der erste Satz muss neugierig machen, ohne Begrüßung."
+      : args.index === args.sections.length - 1
+        ? "Es ist der Schluss: der letzte Satz ist ein Gedanke, der bleibt."
+        : "Es ist ein Abschnitt aus der Mitte: steig ohne Einleitung ein und hör ohne Fazit auf, der nächste Abschnitt macht weiter."
+  }
+
+LÄNGE: ungefähr ${args.words} Wörter, das sind etwa ${shots} Einstellungen.
+Halte diese Länge ein — sie ist auf das ganze Video abgestimmt.
+
+DIESE BILDER GIBT ES SCHON und du sollst sie benutzen, wo sie passen:
+${args.motifs.map((m) => `- ${m.key} (${m.name})`).join("\n") || "- keine"}
+Nimm ihre "key"-Werte direkt in den Einstellungen. Führ sie NICHT noch einmal
+in "images" auf.
+
+NEUE BILDER: höchstens ${args.imageBudget}. Jedes kostet Geld — lass lieber ein
+Motiv wiederkehren.`;
 }
 
 /**

@@ -36,6 +36,8 @@ type StoryJobState = {
   step?: string;
   project?: unknown;
   error?: string;
+  /** Finished, but shorter than asked for. See lib/story-pipeline.ts. */
+  warning?: string;
   cost?: { label: string; inputTokens: number; outputTokens: number; cents: number };
   startedAt?: number;
 };
@@ -89,6 +91,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cost, setCost] = useState<StoryJobState["cost"] | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
@@ -243,6 +246,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     setBusy(true);
     setError(null);
     setCost(null);
+    setWarning(null);
     const result = await postJson<{ jobId: string }>("/api/story", {
       topic,
       minutes,
@@ -292,6 +296,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       }
       failures = 0;
       setStep(result.data.step ?? null);
+      setWarning(result.data.warning ?? null);
       if (result.data.cost) setCost(result.data.cost);
       if (!startedAt && typeof result.data.startedAt === "number") {
         setStartedAt(result.data.startedAt);
@@ -645,6 +650,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             {busy ? (step ?? "Wird geschrieben…") : "Skript schreiben"}
           </Button>
           {error ? <Note tone="alert">{error}</Note> : null}
+          {warning ? <Note tone="alert">{warning}</Note> : null}
           {cost ? (
             <Note tone="info">
               <span className="mono">
