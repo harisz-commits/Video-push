@@ -59,6 +59,11 @@ export async function GET() {
     // request, not as anything you can see in advance. Asking the catalogue
     // endpoint is free and turns "which ids exist" from guesswork into a list.
     googleModels: await googleModels(),
+    // Whether this account can reach Google's Text-to-Speech at all, and with
+    // which key. An AI Studio key is scoped to the Generative Language API and
+    // is NOT automatically a Cloud TTS key — the two look identical and behave
+    // completely differently, so this asks rather than assumes.
+    googleVoices: await googleVoices(),
     settings: {
       // Which model writes a quiz when nobody picks one in the studio, and
       // which provider it therefore needs a key for.
@@ -179,6 +184,53 @@ async function googleModels(): Promise<unknown> {
       .sort();
   } catch (err) {
     return { error: (err as Error).message.slice(0, 120) };
+  }
+}
+
+/**
+ * German voices Google Text-to-Speech will actually sell this account.
+ *
+ * Read-only and free — it is the catalogue endpoint, not synthesis. Reported
+ * rather than thrown for the same reason as the voice quota: a list nobody can
+ * read is a nuisance, a health endpoint that 500s over it is worse.
+ */
+async function googleVoices(): Promise<unknown> {
+  const key = process.env.GOOGLE_TTS_API_KEY ?? process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch(
+      "https://texttospeech.googleapis.com/v1/voices?languageCode=de-DE",
+      { headers: { "x-goog-api-key": key }, cache: "no-store" },
+    );
+    const raw = await res.text().catch(() => "");
+    if (!res.ok) {
+      return {
+        usedKey: process.env.GOOGLE_TTS_API_KEY
+          ? "GOOGLE_TTS_API_KEY"
+          : "GEMINI_API_KEY",
+        error: `HTTP ${res.status}`,
+        detail: raw.slice(0, 300),
+      };
+    }
+    const body = JSON.parse(raw) as {
+      voices?: { name?: string; ssmlGender?: string }[];
+    };
+    const names = (body.voices ?? [])
+      .map((v) => v.name ?? "")
+      .filter(Boolean)
+      .sort();
+    return {
+      usedKey: process.env.GOOGLE_TTS_API_KEY
+        ? "GOOGLE_TTS_API_KEY"
+        : "GEMINI_API_KEY",
+      total: names.length,
+      neural2: names.filter((n) => n.includes("Neural2")),
+      families: [
+        ...new Set(names.map((n) => n.split("-")[2] ?? "?")),
+      ].sort(),
+    };
+  } catch (err) {
+    return { error: (err as Error).message.slice(0, 160) };
   }
 }
 
