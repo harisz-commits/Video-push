@@ -33,6 +33,14 @@ export async function GET() {
       ["node", "node --version"],
       ["paket", "command -v dnf yum apt-get microdnf 2>/dev/null || echo keiner"],
       ["cwd", "pwd && ls | head -10"],
+      // What the machine actually is. The render is almost entirely CPU work
+      // — Remotion paints frames in parallel Chromium tabs and then encodes —
+      // so cores and clock are the whole story when comparing this against
+      // any other host.
+      ["kerne", "nproc"],
+      ["cpu", "grep -m1 'model name' /proc/cpuinfo | cut -d: -f2"],
+      ["ram", "free -m | awk '/Mem:/ {print $2\" MB\"}'"],
+      ["last", "uptime"],
     ];
     for (const [name, script] of checks) {
       const done = await sandbox.runCommand("sh", ["-lc", script]);
