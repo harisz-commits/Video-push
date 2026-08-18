@@ -15,6 +15,7 @@ import {
   type RenderJob,
 } from "../../../lib/store";
 import { restoreSnapshot } from "./restore-snapshot";
+import { planSegments, startSegments } from "./segments";
 
 export const runtime = "nodejs";
 /**
@@ -67,6 +68,46 @@ export async function POST(req: Request) {
   const totalFrames = totalFramesOf(project);
 
   try {
+    // Long videos are rendered in pieces, because one sandbox cannot finish
+    // them: it is capped near forty-five minutes and this renderer manages
+    // about three frames a second. See ./segments.ts for the measurements.
+    const ranges = planSegments(totalFrames);
+    if (ranges.length > 0) {
+      const { segments, lifetimeMs } = await startSegments({
+        renderId,
+        project,
+        ranges,
+        blobToken: blob.value,
+      });
+
+      const job: RenderJob = {
+        renderId,
+        // The first piece stands in wherever a single sandbox id is expected;
+        // everything that matters for a sectioned render reads `segments`.
+        sandboxId: segments[0].sandboxId,
+        cmdId: segments[0].cmdId,
+        totalFrames,
+        startedAt: Date.now(),
+        lifetimeMs,
+        segments,
+        stage: "segments",
+      };
+      await writeJson(progressPath(renderId), job);
+
+      if (projectId) {
+        await attachRender(projectId, { renderId, at: Date.now() }).catch(
+          () => undefined,
+        );
+      }
+
+      return Response.json({
+        renderId,
+        totalFrames,
+        durationSeconds: totalFrames / project.fps,
+        segments: segments.length,
+      });
+    }
+
     const { sandbox, lifetimeMs } = await restoreSnapshot();
 
     // Detached: the sandbox renders and uploads on its own, so nothing here

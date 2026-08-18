@@ -144,6 +144,34 @@ export type RenderJob = {
   startedAt: number;
   /** How long the sandbox was granted, so progress can say when it ran out. */
   lifetimeMs: number;
+  /**
+   * The pieces a long video is rendered in, when there is more than one.
+   *
+   * A sandbox is capped at about forty-five minutes and this renderer manages
+   * roughly three frames a second, so one pass tops out near four minutes of
+   * finished video — measured the hard way, on a sixteen-minute film that died
+   * at 8,846 of 29,175 frames after forty-nine minutes.
+   *
+   * Absent for anything short enough to render in one go, which is most
+   * things and stays exactly as simple as it was.
+   */
+  segments?: RenderSegment[];
+  /** Which phase a sectioned render is in. */
+  stage?: "segments" | "stitching" | "done";
+  /** The sandbox joining the pieces, once that has started. */
+  stitch?: { sandboxId: string; cmdId: string; startedAt: number };
+};
+
+export type RenderSegment = {
+  index: number;
+  /** Inclusive frame range handed to Remotion. */
+  from: number;
+  to: number;
+  sandboxId: string;
+  cmdId: string;
+  /** Where this piece lands in Blob storage. */
+  path: string;
+  url?: string;
 };
 
 /** What /api/progress reports to the studio. */

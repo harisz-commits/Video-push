@@ -5,12 +5,25 @@ import { stopSandbox } from "../../../lib/sandboxes";
 import {
   progressPath,
   readJson,
+  resolveBlobToken,
+  writeJson,
   type RenderJob,
   type RenderProgress,
+  type RenderSegment,
 } from "../../../lib/store";
+import { renderBlobPath } from "../../../lib/projects";
+import { stitchSegments } from "../render/segments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/**
+ * Long enough to join the pieces of a sectioned render.
+ *
+ * The join itself is a stream copy, but the pieces have to be pulled into a
+ * sandbox first, and half a gigabyte takes a while. It runs detached from the
+ * response either way; this is only the ceiling on that background work.
+ */
+export const maxDuration = 300;
 
 /**
  * Asks the sandbox how far it is, rather than reporting a copy.
@@ -42,6 +55,12 @@ export async function GET(req: Request) {
     startedAt: job.startedAt,
     updatedAt: Date.now(),
   };
+
+  // A sectioned render answers from several sandboxes at once, and its
+  // progress is their sum. See app/api/render/segments.ts.
+  if (job.segments && job.segments.length > 0) {
+    return sectioned(job, base);
+  }
 
   try {
     const p = await getRenderProgress({
@@ -182,4 +201,147 @@ function describeRenderError(stage: { stage: "error" } & Record<string, unknown>
   return typeof message === "string" && message
     ? message.slice(0, 400)
     : "Der Render ist fehlgeschlagen.";
+}
+
+
+/**
+ * How far a render in pieces has got.
+ *
+ * Every piece is asked separately and the answers are added up, so the bar
+ * moves for the whole film rather than for whichever sandbox happens to be
+ * furthest along. Once every piece has produced a file, one more sandbox joins
+ * them — started here, in the background, because there is no other moment
+ * when somebody is certainly looking.
+ */
+async function sectioned(
+  job: RenderJob,
+  base: { renderId: string; startedAt: number; updatedAt: number },
+): Promise<Response> {
+  const segments = job.segments ?? [];
+
+  // Already joined: the answer is the finished file, looked up where every
+  // finished render is looked up rather than remembered separately.
+  if (job.stage === "done") {
+    const token = resolveBlobToken()?.value;
+    const file = token
+      ? await import("@vercel/blob")
+          .then((m) => m.head(renderBlobPath(job.renderId), { token }))
+          .catch(() => null)
+      : null;
+    return Response.json({
+      ...base,
+      status: "done",
+      progress: 1,
+      phase: "Gerendert",
+      outputUrl: file?.downloadUrl ?? file?.url,
+      sizeBytes: file?.size,
+    } satisfies RenderProgress);
+  }
+
+  const states = await Promise.all(
+    segments.map(async (segment) => {
+      try {
+        const p = await getRenderProgress({
+          sandboxId: segment.sandboxId,
+          cmdId: segment.cmdId,
+        });
+        return { segment, stage: p.stage as string, progress: progressOf(p) };
+      } catch {
+        // A sandbox that cannot be reached has either finished and been
+        // reclaimed or died. Which of the two is answered by whether its file
+        // exists, not by guessing here.
+        return { segment, stage: "unreachable", progress: 0 };
+      }
+    }),
+  );
+
+  const finished = states.filter(
+    (s) => s.stage === "done" || Boolean(s.segment.url),
+  );
+  const failed = states.filter((s) => s.stage === "error");
+
+  if (failed.length > 0) {
+    return Response.json({
+      ...base,
+      status: "error",
+      progress: 0,
+      phase: "Abgebrochen",
+      error: `${failed.length} von ${segments.length} Teilen sind fehlgeschlagen. Starte den Render neu.`,
+    } satisfies RenderProgress);
+  }
+
+  const done = states.reduce((sum, s) => sum + s.progress, 0) / segments.length;
+
+  // Every piece finished and nothing is joining them yet.
+  if (finished.length === segments.length && job.stage === "segments") {
+    const token = resolveBlobToken()?.value;
+    if (token) {
+      // Marked before the work starts, so the next poll a second later does
+      // not start a second join of the same pieces.
+      await writeJson(progressPath(job.renderId), {
+        ...job,
+        stage: "stitching",
+      } satisfies RenderJob).catch(() => undefined);
+
+      waitUntil(
+        (async () => {
+          try {
+            const urls = await Promise.all(
+              segments.map(async (segment) => ({
+                ...segment,
+                url: segment.url ?? (await blobUrl(segment, token)),
+              })),
+            );
+            const result = await stitchSegments({
+              renderId: job.renderId,
+              segments: urls,
+              blobToken: token,
+            });
+            await writeJson(progressPath(job.renderId), {
+              ...job,
+              segments: urls,
+              stage: "done",
+            } satisfies RenderJob);
+            // eslint-disable-next-line no-console
+            console.log("[stitch] fertig", result.url, result.size);
+          } catch (err) {
+            await writeJson(progressPath(job.renderId), {
+              ...job,
+              stage: "segments",
+            } satisfies RenderJob).catch(() => undefined);
+            // eslint-disable-next-line no-console
+            console.error("[stitch]", err);
+          }
+        })(),
+      );
+    }
+  }
+
+  return Response.json({
+    ...base,
+    status: "rendering",
+    progress: job.stage === "stitching" ? 0.97 : done * 0.95,
+    phase:
+      job.stage === "stitching"
+        ? "Teile werden verbunden"
+        : `Teil ${finished.length + 1} von ${segments.length} — ${Math.round(done * 100)} %`,
+  } satisfies RenderProgress);
+}
+
+/** A piece's public URL, derived from where it was told to upload itself. */
+async function blobUrl(
+  segment: RenderSegment,
+  token: string,
+): Promise<string> {
+  const { head } = await import("@vercel/blob");
+  const meta = await head(segment.path, { token });
+  return meta.url;
+}
+
+/** Remotion reports progress under different names per stage. */
+function progressOf(p: unknown): number {
+  const stage = (p as { stage?: string }).stage;
+  if (stage === "done") return 1;
+  const value = (p as { progress?: number }).progress;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
