@@ -689,9 +689,29 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                   diese API lehnt Keys ab und verlangt OAuth2.
                 </Note>
               ) : null}
+              <label
+                className="mono"
+                style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "10px 0 4px" }}
+              >
+                Tempo {project.speed.toFixed(2).replace(".", ",")}
+                {provider === "elevenlabs" && project.speed > 1.2
+                  ? " — ElevenLabs kann nur bis 1,20, mehr wird dort gekappt"
+                  : ""}
+              </label>
+              <input
+                type="range"
+                min={0.9}
+                max={provider === "google" ? 1.6 : 1.2}
+                step={0.05}
+                value={Math.min(project.speed, provider === "google" ? 1.6 : 1.2)}
+                onChange={(e) =>
+                  setProject((p) => ({ ...p, speed: Number(e.target.value) }))
+                }
+                style={{ width: "100%" }}
+                aria-label="Sprechtempo"
+              />
               <Note tone="info">
-                Tempo {project.speed.toFixed(2).replace(".", ",")} — etwa{" "}
-                {WORDS_PER_MINUTE} Wörter pro Minute.{" "}
+                Gemessen: ElevenLabs bei 1,15 ergab 146 Wörter pro Minute.{" "}
                 {provider === "google"
                   ? `Etwa ${estimatedChars.toLocaleString("de-DE")} Zeichen, nach Verbrauch abgerechnet.`
                   : `Kostet ungefähr ${estimatedChars.toLocaleString("de-DE")} Zeichen vom ElevenLabs-Kontingent.`}

@@ -95,14 +95,20 @@ export const StoryProject = z.object({
   images: z.array(StoryImage).min(1),
   shots: z.array(StoryShot).min(1),
   /**
-   * How fast it is read, as ElevenLabs' multiplier.
+   * How fast it is read.
    *
-   * Above one on purpose. A normal reading lands near 130 words a minute in
-   * German, which for this format is slow enough to lose people; 1.15 puts it
-   * around 155-165, the pace of someone who is interested in what they are
-   * saying rather than dictating it. ElevenLabs refuses anything above 1.2.
+   * Above one on purpose: a normal German reading lands near 130 words a
+   * minute, slow enough for this format to lose people.
+   *
+   * The range is wider than ElevenLabs allows because the two providers do not
+   * agree on it. Measured on a two-minute film, ElevenLabs at 1.15 produced
+   * 146 words a minute — under the 150 this format is aiming for, and it
+   * cannot be fixed by asking for more, because 1.2 is its ceiling and lands
+   * near 152. Google takes up to 4.0 and reaches 160-170 without strain.
+   * Clamping therefore happens in each client against its own limit rather
+   * than here against the stricter of the two.
    */
-  speed: z.number().min(0.7).max(1.2).default(1.15),
+  speed: z.number().min(0.5).max(2).default(1.2),
   /**
    * Which voice read it.
    *
