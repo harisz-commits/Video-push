@@ -1,5 +1,10 @@
 /**
- * Image generation, for thumbnails only.
+ * Image generation for the studio: thumbnails, and the pictures a video is
+ * made of.
+ *
+ * It was written for thumbnails alone, and the video format later helped
+ * itself to it — which is how every video picture came to carry a thumbnail's
+ * instructions. See PHOTO_STYLE.
  *
  * The reasoning that kept image models out of the videos does not apply here.
  * There it would have been forty images per film, each replacing a layer of
@@ -41,13 +46,24 @@ export class GeminiError extends Error {
 }
 
 /**
- * The style every thumbnail image is asked for.
+ * The style a THUMBNAIL image is asked for. Only a thumbnail.
  *
  * Written as instructions about the *photograph* rather than about the design:
  * asked for a "thumbnail", the model draws its idea of one — complete with
  * invented text, arrows and borders that then fight with the real ones.
+ *
+ * It used to be appended to every request this module made, including the
+ * seventy-five pictures of a video — so each of those was ordered as an
+ * illustration and as a photograph in the same breath: "never photographic"
+ * from the film's own style text, "Photorealistic, studio lighting, shot on a
+ * wide lens" from here. They came out as illustrations mostly because the
+ * film's half is longer and more insistent, and occasionally they did not.
+ * One picture in a fourteen-picture Egypt film came back a photograph, and the
+ * cause was assumed to be the subject; it was this.
+ *
+ * A video brings its own complete style. It gets nothing from here.
  */
-const STYLE = [
+const PHOTO_STYLE = [
   "Photorealistic, bright, high contrast, vivid saturated colours.",
   "Simple clear subject, uncluttered composition.",
   "Studio lighting, sharp focus, shot on a wide lens.",
@@ -141,6 +157,9 @@ export async function generateImage({
   ): Promise<{ data: Buffer; mimeType: string }> {
     const framing = (layout && FRAMING[layout]) ?? FRAMING.split;
     const aspectRatio = (layout && ASPECT[layout]) ?? ASPECT.split;
+    // The video format states its own look in full and would only be
+    // contradicted by a second one. Everything else is a thumbnail.
+    const house = layout === "story" ? "" : PHOTO_STYLE;
 
     const ask = (options: { withAspect: boolean; withText: boolean }) =>
       fetch(`${ENDPOINT}/${encodeURIComponent(modelId)}:generateContent`, {
@@ -150,7 +169,15 @@ export async function generateImage({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `${prompt}\n\n${STYLE} ${framing}` }] }],
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${prompt}\n\n${[house, framing].filter(Boolean).join(" ")}`,
+                },
+              ],
+            },
+          ],
           generationConfig: {
             // Some models in this family will not emit an image unless they are
             // also allowed to talk. Asked for IMAGE alone they answer with an
