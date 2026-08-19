@@ -11,7 +11,7 @@ import {
   type RenderProgress,
 } from "../../../lib/store";
 import { renderBlobPath } from "../../../lib/projects";
-import { stitchSegments } from "../render/segments";
+import { startStitch } from "../render/segments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -349,7 +349,7 @@ async function sectioned(
 
   // A join that already failed is not retried on every poll. Trying again
   // every four seconds would hide the reason behind a wall of identical
-  // failures and keep nine sandboxes' worth of files being downloaded again.
+  // failures and pull nine files down again each time.
   if (job.stitchError) {
     return Response.json({
       ...base,
@@ -361,54 +361,84 @@ async function sectioned(
     } satisfies RenderProgress);
   }
 
-  // Every piece finished and nothing is joining them yet.
-  if (finished.length === segments.length && job.stage === "segments") {
-    const token = resolveBlobToken()?.value;
+  const token = resolveBlobToken()?.value;
+
+  // Joining, started earlier. The finished file is the only signal worth
+  // trusting — the sandbox doing the work is reclaimed shortly after it
+  // succeeds, so its silence means nothing either way.
+  if (job.stage === "stitching") {
     if (token) {
-      // The finished pieces name their own files, so nothing has to be looked
-      // up afterwards.
-      const withUrls = states.map((s) => ({
-        ...s.segment,
-        url: s.url ?? s.segment.url,
-      }));
-      // Marked before the work starts, so the next poll a second later does
-      // not start a second join of the same pieces.
+      const { head } = await import("@vercel/blob");
+      const file = await head(renderBlobPath(job.renderId), { token }).catch(
+        () => null,
+      );
+      if (file) {
+        await writeJson(progressPath(job.renderId), {
+          ...job,
+          stage: "done",
+        } satisfies RenderJob).catch(() => undefined);
+        return Response.json({
+          ...base,
+          status: "done",
+          progress: 1,
+          phase: "Gerendert",
+          outputUrl: file.downloadUrl ?? file.url,
+          sizeBytes: file.size,
+        } satisfies RenderProgress);
+      }
+    }
+
+    // Twenty minutes is far more than fetching and rewrapping a gigabyte
+    // needs. Past that, the sandbox is gone and the file is not coming.
+    const stitchingFor = Date.now() - (job.stitch?.startedAt ?? job.startedAt);
+    if (stitchingFor > 20 * 60_000) {
       await writeJson(progressPath(job.renderId), {
         ...job,
-        stage: "stitching",
+        stitchError:
+          "Das Verbinden lief zwanzig Minuten ohne Ergebnis. Die Sandbox ist beendet worden, bevor die Datei fertig war.",
       } satisfies RenderJob).catch(() => undefined);
+    }
 
-      waitUntil(
-        (async () => {
-          try {
-            const result = await stitchSegments({
-              renderId: job.renderId,
-              segments: withUrls,
-              blobToken: token,
-            });
-            await writeJson(progressPath(job.renderId), {
-              ...job,
-              segments: withUrls,
-              stage: "done",
-            } satisfies RenderJob);
-            // eslint-disable-next-line no-console
-            console.log("[stitch] fertig", result.url, result.size);
-          } catch (err) {
-            // Recorded on the job rather than only in a log nobody deployed
-            // here can read. Without this a failing join simply reset itself
-            // and was tried again on the next poll — which looks exactly like
-            // a render sitting at ninety-five per cent forever.
-            await writeJson(progressPath(job.renderId), {
-              ...job,
-              segments: withUrls,
-              stage: "segments",
-              stitchError: (err as Error).message.slice(0, 500),
-            } satisfies RenderJob).catch(() => undefined);
-            // eslint-disable-next-line no-console
-            console.error("[stitch]", err);
-          }
-        })(),
-      );
+    return Response.json({
+      ...base,
+      status: "rendering",
+      progress: 0.97,
+      phase: `Teile werden verbunden (${Math.round(stitchingFor / 1000)} s)`,
+      parts,
+    } satisfies RenderProgress);
+  }
+
+  // Every piece finished and nothing is joining them yet.
+  if (finished.length === segments.length && token) {
+    const withUrls = states.map((s) => ({
+      ...s.segment,
+      url: s.url ?? s.segment.url,
+    }));
+    try {
+      const stitch = await startStitch({
+        renderId: job.renderId,
+        segments: withUrls,
+        blobToken: token,
+      });
+      await writeJson(progressPath(job.renderId), {
+        ...job,
+        segments: withUrls,
+        stage: "stitching",
+        stitch: { ...stitch, startedAt: Date.now() },
+      } satisfies RenderJob);
+      return Response.json({
+        ...base,
+        status: "rendering",
+        progress: 0.96,
+        phase: "Teile werden verbunden (0 s)",
+        parts,
+      } satisfies RenderProgress);
+    } catch (err) {
+      await writeJson(progressPath(job.renderId), {
+        ...job,
+        segments: withUrls,
+        stitchError: (err as Error).message.slice(0, 400),
+      } satisfies RenderJob).catch(() => undefined);
     }
   }
 
@@ -416,10 +446,7 @@ async function sectioned(
     ...base,
     status: "rendering",
     parts,
-    progress: job.stage === "stitching" ? 0.97 : done * 0.95,
-    phase:
-      job.stage === "stitching"
-        ? "Teile werden verbunden"
-        : `${finished.length} von ${segments.length} Teilen fertig — ${Math.round(done * 100)} %`,
+    progress: done * 0.95,
+    phase: `${finished.length} von ${segments.length} Teilen fertig — ${Math.round(done * 100)} %`,
   } satisfies RenderProgress);
 }

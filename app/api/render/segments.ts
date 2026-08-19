@@ -1,5 +1,4 @@
 import { renderMediaOnVercel } from "@remotion/vercel";
-import { uploadToVercelBlob } from "@remotion/vercel";
 import type { AnyProject } from "../../../lib/formats";
 import { compositionFor } from "../../../lib/formats";
 import { renderBlobPath } from "../../../lib/projects";
@@ -115,74 +114,69 @@ export async function startSegments(args: {
 }
 
 /**
- * Join the pieces into one file.
+ * Join the pieces into one file — detached, inside the sandbox.
  *
- * ffmpeg is not on the sandbox's PATH, but Remotion ships a real one inside
- * its compositor package — checked rather than hoped for. The concat demuxer
- * with `-c copy` rewraps the streams without re-encoding, so this is a matter
- * of moving bytes rather than of rendering again.
+ * It used to run as a background task of the progress route, and that could
+ * not work: such a task is killed after five minutes, so a join that had to
+ * pull a gigabyte through the network died halfway and left the render sitting
+ * at "Teile werden verbunden" with nobody to notice. So the whole job — fetch,
+ * concatenate, upload — is one detached command in the sandbox, exactly the way
+ * the render itself already worked.
+ *
+ * ffmpeg is not on the PATH, but Remotion ships a real one inside its
+ * compositor package; the concat demuxer with `-c copy` rewraps the streams
+ * without re-encoding. The upload uses the sandbox's own upload-blob.mjs, which
+ * takes its configuration as a JSON argument.
  */
-export async function stitchSegments(args: {
+export async function startStitch(args: {
   renderId: string;
   segments: RenderSegment[];
   blobToken: string;
-}): Promise<{ url: string; size: number }> {
-  const { sandbox } = await restoreSnapshot();
+}): Promise<{ sandboxId: string; cmdId: string }> {
+  const urls = args.segments
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((s) => s.url)
+    .filter((u): u is string => Boolean(u));
 
-  try {
-    const urls = args.segments
-      .slice()
-      .sort((a, b) => a.index - b.index)
-      .map((s) => s.url)
-      .filter((u): u is string => Boolean(u));
-
-    if (urls.length !== args.segments.length) {
-      throw new Error("Nicht alle Teile sind fertig — nichts zu verbinden.");
-    }
-
-    // Written as one script so the whole join is a single command: fetch each
-    // piece, list them for the demuxer, rewrap. Quoted with single quotes
-    // because the URLs carry query strings.
-    //
-    // Absolute paths throughout, and that is not tidiness. The concat demuxer
-    // resolves the entries of its list relative to the DIRECTORY THE LIST IS
-    // IN — so a list at parts/list.txt saying "file 'parts/000.mp4'" sends
-    // ffmpeg looking for parts/parts/000.mp4, and every join failed on it.
-    const dir = "/vercel/sandbox/stitch";
-    const script = [
-      "set -e",
-      `rm -rf ${dir} && mkdir -p ${dir}`,
-      ...urls.map(
-        (url, i) =>
-          `curl -fsSL '${url}' -o ${dir}/${String(i).padStart(3, "0")}.mp4`,
-      ),
-      `for f in ${dir}/*.mp4; do echo "file '$f'" >> ${dir}/list.txt; done`,
-      "FF=$(ls /vercel/sandbox/node_modules/@remotion/compositor-linux-*/ffmpeg 2>/dev/null | head -1)",
-      '[ -n "$FF" ] || { echo "kein ffmpeg im Compositor-Paket" >&2; exit 1; }',
-      `"$FF" -y -f concat -safe 0 -i ${dir}/list.txt -c copy ${dir}/stitched.mp4`,
-      `ls -l ${dir}/stitched.mp4`,
-    ].join("\n");
-
-    const done = await sandbox.runCommand("sh", ["-lc", script]);
-    if (done.exitCode !== 0) {
-      const err = (await done.stderr()).trim().slice(-500);
-      const out = (await done.stdout()).trim().slice(-200);
-      throw new Error(
-        `Das Verbinden der Teile ist fehlgeschlagen (Exit ${done.exitCode}). ${err || out}`,
-      );
-    }
-
-    return await uploadToVercelBlob({
-      sandbox,
-      sandboxFilePath: `${dir}/stitched.mp4`,
-      blobPath: renderBlobPath(args.renderId),
-      contentType: "video/mp4",
-      blobToken: args.blobToken,
-      access: BLOB_ACCESS,
-    });
-  } finally {
-    // Unlike a render sandbox, this one has nothing left to do the moment the
-    // upload returns, and leaving it running would bill for silence.
-    await sandbox.stop().catch(() => undefined);
+  if (urls.length !== args.segments.length) {
+    throw new Error("Nicht alle Teile sind fertig — nichts zu verbinden.");
   }
+
+  const { sandbox } = await restoreSnapshot();
+  const dir = "/vercel/sandbox/stitch";
+
+  // Absolute paths throughout, and that is not tidiness: the concat demuxer
+  // resolves the entries of its list relative to the directory the LIST is in,
+  // so a list in parts/ naming "parts/000.mp4" sends ffmpeg looking for
+  // parts/parts/000.mp4. That broke every join.
+  const upload = JSON.stringify({
+    sandboxFilePath: `${dir}/stitched.mp4`,
+    blobPath: renderBlobPath(args.renderId),
+    access: BLOB_ACCESS,
+    contentType: "video/mp4",
+    blobToken: args.blobToken,
+  });
+
+  const script = [
+    "set -e",
+    `rm -rf ${dir} && mkdir -p ${dir}`,
+    ...urls.map(
+      (url, i) =>
+        `curl -fsSL '${url}' -o ${dir}/${String(i).padStart(3, "0")}.mp4`,
+    ),
+    `for f in ${dir}/*.mp4; do echo "file '$f'" >> ${dir}/list.txt; done`,
+    "FF=$(ls /vercel/sandbox/node_modules/@remotion/compositor-linux-*/ffmpeg 2>/dev/null | head -1)",
+    '[ -n "$FF" ] || { echo "kein ffmpeg im Compositor-Paket" >&2; exit 1; }',
+    `"$FF" -y -f concat -safe 0 -i ${dir}/list.txt -c copy ${dir}/stitched.mp4`,
+    `node /vercel/sandbox/upload-blob.mjs '${upload.replace(/'/g, "'\\''")}'`,
+  ].join("\n");
+
+  const cmd = await sandbox.runCommand({
+    cmd: "sh",
+    args: ["-lc", script],
+    detached: true,
+  });
+
+  return { sandboxId: sandbox.sandboxId, cmdId: cmd.cmdId };
 }
