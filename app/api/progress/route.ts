@@ -41,12 +41,34 @@ export async function GET(req: Request) {
   const limited = rateLimit(clientKey(req, "progress"), 120, 60_000);
   if (!limited.ok) return errorResponse(limited.error, limited.status);
 
-  const job = await readJson<RenderJob>(progressPath(renderId));
+  let job = await readJson<RenderJob>(progressPath(renderId));
   if (!job) {
     return errorResponse(
       "Zu dieser renderId gibt es keinen Render. Entweder ist er noch nicht gestartet oder er ist älter als die Aufbewahrungsfrist.",
       404,
     );
+  }
+
+  /**
+   * Try the join again, keeping the pieces.
+   *
+   * Rendering nine pieces takes twelve minutes and they survive in storage; a
+   * join that failed for its own reasons should not cost them. Explicit rather
+   * than automatic, because a join that fails on every attempt would otherwise
+   * loop forever — which is exactly how the first broken one behaved.
+   */
+  if (
+    new URL(req.url).searchParams.get("retry") === "1" &&
+    job.segments &&
+    (job.stitchError || job.stage === "stitching")
+  ) {
+    job = {
+      ...job,
+      stage: "segments",
+      stitchError: undefined,
+      stitch: undefined,
+    };
+    await writeJson(progressPath(renderId), job).catch(() => undefined);
   }
 
   const base = {
