@@ -486,7 +486,90 @@ export function undrawnImages(project: StoryProject): StoryImage[] {
 }
 
 /**
- * The camera move over a still, worked out once per shot.
+ * One continuous appearance of a picture: a take.
+ *
+ * The unit the screen actually shows, and it is not the shot. A shot is a
+ * sentence — it decides when the narration moves on and where a subtitle
+ * breaks. A picture very often carries several of them in a row, and when it
+ * does, the viewer is looking at ONE take, not at three cuts to the same
+ * image.
+ *
+ * Treating those as separate shots is what the composition used to do, and it
+ * was visibly wrong: the picture cross-faded into itself while the camera
+ * jumped back to the start of a fresh move. Cutting to a picture that is
+ * already on screen is the one edit that has no meaning at all — there is
+ * nothing new to see, so the eye reads it as a mistake.
+ *
+ * Grouped rather than written this way by the model, because the model is
+ * writing sentences and should not have to think about the cut; and because
+ * the same grouping has to survive a script being re-timed by a new voice.
+ */
+export type StoryTake = {
+  /** The first shot's id. Also the seed for the camera move. */
+  id: string;
+  image: string;
+  url?: string;
+  motion: ShotMotion;
+  from: number;
+  durationInFrames: number;
+  /** How many shots it spans. One is the ordinary case. */
+  shots: number;
+};
+
+/**
+ * Consecutive shots on the same picture, collapsed into one appearance.
+ *
+ * The same reduction the sound beds get, for the same reason: a wind that
+ * restarted every three seconds would give the slideshow away, and so would a
+ * picture that cut to itself.
+ *
+ * Only CONSECUTIVE runs. A motif that comes back later in the film is a real
+ * return and gets a real cut — that is the recurrence the format is built on.
+ */
+export function storyTakes(timing: StoryTiming): StoryTake[] {
+  const takes: StoryTake[] = [];
+
+  for (const shot of timing.shots) {
+    const open = takes[takes.length - 1];
+    // Contiguous, not merely adjacent in the list — but tested as "starts no
+    // later than this take ends" rather than as exact equality. Exactness
+    // fails on the very shots this format asks for most: a three-word sentence
+    // is under MIN_SHOT_FRAMES, gets stretched to it, and its take then
+    // overruns the next shot's start by a few frames. Demanding equality there
+    // would refuse the merge and put back the cut this whole function exists
+    // to remove.
+    if (
+      open &&
+      open.image === shot.image &&
+      shot.from <= open.from + open.durationInFrames
+    ) {
+      open.durationInFrames = Math.max(
+        open.durationInFrames,
+        shot.from + shot.durationInFrames - open.from,
+      );
+      open.shots += 1;
+      continue;
+    }
+
+    takes.push({
+      id: shot.id,
+      image: shot.image,
+      url: shot.url,
+      // The first shot's move governs the whole take. The writer chose it for
+      // the sentence that introduces the picture, which is the moment the move
+      // has to answer to.
+      motion: shot.motion,
+      from: shot.from,
+      durationInFrames: shot.durationInFrames,
+      shots: 1,
+    });
+  }
+
+  return takes;
+}
+
+/**
+ * The camera move over a still, worked out once per take.
  *
  * Every picture gets one — that is the requirement, and it is not decoration.
  * A format with no real animation has exactly three things carrying tension:
@@ -498,9 +581,11 @@ export function undrawnImages(project: StoryProject): StoryImage[] {
  * 1. The strength varies per shot, from a hash of the shot's id. Constant
  *    amplitude on a hundred shots is its own kind of monotony — the eye
  *    learns the speed within a minute and stops seeing the movement at all.
- * 2. It scales with how long the shot is up. The same travel that is a gentle
- *    drift across five seconds is a whip-pan across one, and a long shot with
- *    a short move sits dead for its second half.
+ * 2. It scales with how long the picture is up. The same travel that is a
+ *    gentle drift across five seconds is a whip-pan across one, and a long
+ *    take with a short move sits dead for its second half. This is also what
+ *    makes a held picture work: three sentences on one still become a single
+ *    eight-second move rather than three restarts of a three-second one.
  *
  * Derived from the id rather than drawn at random, because Remotion renders
  * frames in parallel processes: a random number would differ between the

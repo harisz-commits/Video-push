@@ -10,9 +10,10 @@ import {
 import {
   resolveStoryTiming,
   shotMove,
-  type ResolvedShot,
+  storyTakes,
   type StoryProject,
   type StorySound,
+  type StoryTake,
 } from "../../lib/story";
 
 /**
@@ -43,22 +44,28 @@ const FADE = 9;
  * it moved. See shotMove().
  */
 
-const Shot: React.FC<{ shot: ResolvedShot; first: boolean; fps: number }> = ({
-  shot,
+const Take: React.FC<{ take: StoryTake; first: boolean; fps: number }> = ({
+  take,
   first,
   fps,
 }) => {
   const frame = useCurrentFrame();
+
+  // Every take but the first begins FADE frames before its nominal start, so
+  // that its opening overlaps the outgoing picture. The move has to be
+  // measured from the nominal start, not from the sequence's — otherwise the
+  // camera sits still through the whole cross-fade and then sets off.
+  const offset = first ? 0 : FADE;
   const progress = Math.min(
     1,
-    Math.max(0, (frame - FADE) / Math.max(1, shot.durationInFrames)),
+    Math.max(0, (frame - offset) / Math.max(1, take.durationInFrames)),
   );
 
   // Smoothstep, so the move eases in and out instead of starting and stopping
   // dead. A linear pan is the other reliable way to make this read as software
   // rather than as a camera.
   const eased = progress * progress * (3 - 2 * progress);
-  const move = shotMove(shot, fps);
+  const move = shotMove(take, fps);
   const at = (from: number, to: number) => from + (to - from) * eased;
 
   // The first picture has nothing to fade up from, so it simply starts.
@@ -69,12 +76,12 @@ const Shot: React.FC<{ shot: ResolvedShot; first: boolean; fps: number }> = ({
         extrapolateRight: "clamp",
       });
 
-  if (!shot.url) return null;
+  if (!take.url) return null;
 
   return (
     <AbsoluteFill style={{ opacity }}>
       <Img
-        src={shot.url}
+        src={take.url}
         style={{
           width: "100%",
           height: "100%",
@@ -99,6 +106,7 @@ const Shot: React.FC<{ shot: ResolvedShot; first: boolean; fps: number }> = ({
 
 export const StoryVideo: React.FC<{ project: StoryProject }> = ({ project }) => {
   const timing = resolveStoryTiming(project);
+  const takes = storyTakes(timing);
   const byKey = new Map((project.sounds ?? []).map((s) => [s.key, s]));
 
   /**
@@ -150,18 +158,24 @@ export const StoryVideo: React.FC<{ project: StoryProject }> = ({ project }) => 
         backgroundColor: project.style.palette[0] ?? "#1a1512",
       }}
     >
-      {timing.shots.map((shot, i) => (
+      {/*
+        One sequence per TAKE, not per shot. Several sentences on the same
+        picture are one continuous appearance with one continuous camera move —
+        no cross-fade of the picture into itself, no camera snapping back to
+        the start of a new move. See storyTakes().
+      */}
+      {takes.map((take, i) => (
         <Sequence
-          key={`${shot.id}-${i}`}
+          key={`${take.id}-${i}`}
           // Started early by the length of the fade so the incoming picture
           // overlaps the outgoing one. Sequences that merely abut cannot
           // cross-fade; they can only cut.
-          from={Math.max(0, shot.from - (i === 0 ? 0 : FADE))}
-          durationInFrames={shot.durationInFrames + FADE}
-          name={`${i + 1}. ${shot.image}`}
+          from={Math.max(0, take.from - (i === 0 ? 0 : FADE))}
+          durationInFrames={take.durationInFrames + FADE}
+          name={`${i + 1}. ${take.image}${take.shots > 1 ? ` (${take.shots} Sätze)` : ""}`}
           layout="none"
         >
-          <Shot shot={shot} first={i === 0} fps={project.fps} />
+          <Take take={take} first={i === 0} fps={project.fps} />
         </Sequence>
       ))}
 

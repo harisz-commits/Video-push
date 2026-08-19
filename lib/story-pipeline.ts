@@ -702,11 +702,17 @@ function reconcile(
 
     const wanted = typeof s.image === "string" ? slugify(s.image) : "";
     const image = known.has(wanted) ? wanted : previous;
+    const held = shots.length > 0 && image === previous;
     previous = image;
 
-    const motion =
-      typeof s.motion === "string" &&
-      ["in", "out", "left", "right", "up", "down"].includes(s.motion)
+    // A run of shots on one picture is ONE take with one continuous move, and
+    // only the first shot's motion is consulted. Inheriting it here rather
+    // than rotating on means the studio's scene list shows what will actually
+    // happen instead of a direction that is quietly discarded.
+    const motion = held
+      ? shots[shots.length - 1].motion
+      : typeof s.motion === "string" &&
+          ["in", "out", "left", "right", "up", "down"].includes(s.motion)
         ? (s.motion as StoryShot["motion"])
         : MOTIONS[shots.length % MOTIONS.length];
 

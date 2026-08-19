@@ -241,6 +241,10 @@ DIE BILDER:
   von dreien greift auf ein Bild zurück, das es schon gibt. Das ist keine
   Notlösung, sondern gibt dem Video wiederkehrende Motive — und jedes neue
   Bild kostet Geld.
+- WICHTIG: Schreibst du bei ZWEI ODER DREI Einstellungen HINTEREINANDER
+  dasselbe Bild, entsteht KEIN Schnitt. Das Bild bleibt einfach stehen und die
+  Kamerafahrt läuft weiter — aus drei Sätzen wird eine ruhige Einstellung von
+  sieben bis acht Sekunden. Das ist dein Mittel für lange Einstellungen.
 - "prompt" beschreibt NUR den Inhalt: was zu sehen ist, aus welchem Blickwinkel.
   Auf Englisch. Kein Wort über Stil, Farben oder Technik — das kommt aus dem
   Stil-Text und würde sich sonst widersprechen.
@@ -258,15 +262,25 @@ DIE BILDER:
   Bindestriche, Umlaute ausgeschrieben. "lehmziegelhaus-von-der-seite".
 
 TEMPO — das ist die wichtigste Regel dieses Abschnitts:
-- Die Standzeit eines Bildes IST die Länge deines Satzes. Es gibt kein anderes
-  Mittel, das Tempo zu steuern.
-- Ein Satz mit drei bis fünf Wörtern ist ein harter, schneller Schnitt. Drei
-  davon hintereinander treiben an. Ein Satz mit zwölf bis vierzehn Wörtern
-  lässt das Bild stehen und beruhigt.
+- Du steuerst das Tempo über ZWEI Dinge, und beide zusammen: die Länge deiner
+  Sätze und die Frage, ob der nächste Satz dasselbe Bild behält.
+- Die Standzeit eines Bildes ist die Summe der Sätze, die es tragen. Ein Satz
+  mit acht Wörtern sind rund drei Sekunden. Zwei Sätze auf demselben Bild sind
+  sechs, drei sind acht — ohne einen einzigen Schnitt dazwischen.
+- Ein Satz mit drei bis fünf Wörtern auf einem NEUEN Bild ist ein harter,
+  schneller Schnitt. Drei davon hintereinander treiben an. Zwei bis drei Sätze
+  auf demselben Bild beruhigen.
+- WANN das Bild wechselt, entscheidet allein der Inhalt: Es wechselt, wenn der
+  Satz von etwas spricht, das im aktuellen Bild nicht zu sehen ist. Es bleibt,
+  solange das Bild noch trägt. Wechsle NIEMALS nach Gefühl für Abwechslung —
+  ein Schnitt auf etwas, das der Zuschauer schon sieht, ist ein Fehler, und ein
+  Bild, das zu einem Satz nicht mehr passt, ist einer.
 - Bau den Wechsel absichtlich: vor einer wichtigen Aussage eine kurze, harte
-  Einstellung; nach einer Reihe kurzer ein langer Satz, der sie auffängt.
-- Prüf deinen Abschnitt am Ende selbst: liegen alle Sätze in einer engen
-  Spanne, hast du kein Tempo gebaut, sondern es vermieden. Schreib ihn um.
+  Einstellung auf ein neues Bild; nach einer Reihe kurzer zwei bis drei Sätze
+  auf einem Bild, die sie auffangen.
+- Prüf deinen Abschnitt am Ende selbst: liegen alle Sätze in einer engen Spanne
+  und wechselt jede Einstellung das Bild, hast du kein Tempo gebaut, sondern es
+  vermieden. Schreib ihn um.
 
 BEWEGUNG:
 - "motion" bewegt das Standbild langsam: "in" (heran), "out" (weg),
@@ -275,8 +289,12 @@ BEWEGUNG:
   Detail, auf das es ankommt; "out" wenn sich etwas als größer herausstellt
   als gedacht; "left"/"right" bei Landschaften und Wegen; "up" bei Höhe,
   "down" bei Schnitten in den Boden oder in die Tiefe.
-- Zwei gleiche Bewegungen hintereinander wirken wie ein Fehler, und dasselbe
-  Bild mit anderer Bewegung wirkt wie eine neue Einstellung.
+- Bei mehreren Einstellungen HINTEREINANDER auf demselben Bild zählt nur die
+  Bewegung der ersten — die anderen laufen in derselben Fahrt weiter. Setz
+  dort trotzdem dieselbe Bewegung ein, damit klar ist, dass es eine
+  Einstellung ist.
+- Zwei gleiche Bewegungen auf zwei VERSCHIEDENEN Bildern hintereinander wirken
+  dagegen wie ein Fehler.
 
 KLANG:
 - "ambience" nennt den Klangteppich, der unter dieser Einstellung läuft — mit

@@ -10,6 +10,7 @@ import {
 } from "../lib/speech-models";
 import {
   resolveStoryTiming,
+  storyTakes,
   StoryProject,
   type StoryCharacter,
   type StoryProject as Story,
@@ -186,6 +187,9 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const lastSaved = useRef<string | null>(null);
 
   const timing = useMemo(() => resolveStoryTiming(project), [project]);
+  // What the screen actually shows: consecutive sentences on one picture are
+  // one continuous appearance, not several cuts to the same image.
+  const takes = useMemo(() => storyTakes(timing), [timing]);
 
   /**
    * The video to offer for download.
@@ -936,9 +940,9 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           */}
           <label className="mono" style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "12px 0 6px" }}>
             {imagesPerMinute.toFixed(1).replace(".", ",")} Bilder pro Minute ={" "}
-            {imageBudget} Bilder · {formatCents(imageBudget * imageModel.cents)} ·
-            jedes etwa {Math.max(1, Math.round((minutes * 60) / 3 / imageBudget))}
-            × zu sehen
+            {imageBudget} verschiedene Bilder ·{" "}
+            {formatCents(imageBudget * imageModel.cents)} · jedes zusammen etwa{" "}
+            {((minutes * 60) / imageBudget).toFixed(0)} s im Video
           </label>
           <input
             type="range"
@@ -951,8 +955,10 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             aria-label="Bilder pro Minute"
           />
           <div className="mono" style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}>
-            Jedes Bild bekommt seine eigene Kamerafahrt, unabhängig von der
-            Anzahl — bei wenigen Bildern steht eins nur länger im Bild.
+            Das ist die Anzahl, nicht der Takt. Wie lange ein Bild am Stück
+            stehen bleibt, entscheidet der Text: mal drei Sekunden, mal acht,
+            je nachdem wie lange es zum Gesagten passt. Bleibt es stehen, läuft
+            die Kamerafahrt einfach weiter — ohne Schnitt.
           </div>
 
           <select
@@ -1757,8 +1763,8 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             style={{ fontSize: 11, color: "#5b6672", padding: "10px 2px" }}
           >
             {formatTimecode(timing.totalFrames / project.fps)} ·{" "}
-            {project.shots.length} Einstellungen · {project.images.length} Bilder
-            ·{" "}
+            {takes.length} Einstellungen aus {project.shots.length} Sätzen ·{" "}
+            {project.images.length} Bilder ·{" "}
             {timing.estimated
               ? "Zeiten geschätzt, bis die Stimme da ist"
               : "Zeiten aus der Aufnahme"}
@@ -1793,6 +1799,22 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                 {timing.shots[i]
                   ? formatTimecode(timing.shots[i].from / project.fps)
                   : ""}
+              </span>
+              {/*
+                Which sentences share one picture, and therefore one
+                uninterrupted camera move. Without this the list reads as one
+                cut per line, which is exactly what it is not.
+              */}
+              <span
+                className="mono"
+                style={{ fontSize: 10, color: "#5b6672", minWidth: 12 }}
+                title={
+                  i > 0 && project.shots[i - 1].image === shot.image
+                    ? "bleibt auf demselben Bild — kein Schnitt"
+                    : shot.image
+                }
+              >
+                {i > 0 && project.shots[i - 1].image === shot.image ? "│" : "▸"}
               </span>
               <span style={{ flex: 1 }}>{shot.text}</span>
             </div>
