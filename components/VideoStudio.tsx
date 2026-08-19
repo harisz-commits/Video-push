@@ -9,6 +9,7 @@ import {
   type StoryProject as Story,
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
+import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
 import { StoryVideo } from "../remotion/story/StoryVideo";
 import { getJson, postJson } from "./api";
 import { DownloadButton } from "./DownloadButton";
@@ -491,6 +492,28 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     };
   }, [voiceJobId]);
 
+  /**
+   * Hand over a subtitle file.
+   *
+   * Built in the browser from data the project already holds — the cut this
+   * format wrote itself plus the written sentences — so it costs nothing and
+   * needs no round trip. Same-origin, so the download attribute is enough
+   * here, unlike the videos which live on the blob domain.
+   */
+  function downloadSubtitles() {
+    const blob = new Blob([toSrt(project)], {
+      type: "application/x-subrip;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = subtitleFilename(project);
+    a.click();
+    // Revoked on the next tick rather than immediately: revoking before the
+    // click has been handled cancels the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   // ---- Render -------------------------------------------------------------
   async function startRender() {
     const result = await postJson<{ renderId: string }>("/api/render", {
@@ -824,6 +847,28 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                 gibt ElevenLabs nicht her. Kostet ungefähr{" "}
                 {estimatedChars.toLocaleString("de-DE")} Zeichen vom Kontingent.
               </Note>
+
+              {/*
+                Only once the voice exists. Before that the cut is estimated
+                from word counts, and subtitles built on a guess would drift
+                away from the audio they are supposed to accompany — silently,
+                which is the worst way for a subtitle file to be wrong.
+              */}
+              {project.cues?.length === project.shots.length ? (
+                <>
+                  <div style={{ height: 10 }} />
+                  <Button variant="ghost" onClick={downloadSubtitles}>
+                    ↓ Untertitel für YouTube ({subtitleCues(project).length} Zeilen)
+                  </Button>
+                  <div
+                    className="mono"
+                    style={{ fontSize: 11, color: "#5b6672", marginTop: 6 }}
+                  >
+                    SubRip (.srt), deutsch, Zeiten aus der Aufnahme. Bei YouTube
+                    unter Untertitel → Datei hochladen.
+                  </div>
+                </>
+              ) : null}
             </Panel>
 
             <Panel step="04" title="Rendern">
