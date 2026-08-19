@@ -118,6 +118,13 @@ export async function POST(req: Request) {
       detached: true,
       compositionId: compositionFor(project),
       inputProps: { project },
+      // Remotion's default lands near 8.4 Mbit/s, which for a film of drawn
+      // stills with slow drifts is roughly four times what it needs: two
+      // minutes came out at 135 MB, sixteen minutes at a gigabyte. Between two
+      // frames of this format almost nothing changes, so a higher CRF costs
+      // very little visibly and divides the file by four or five — which the
+      // download, the storage and every later step all feel.
+      crf: 24,
       vercelBlob: {
         blobToken: blob.value,
         access: BLOB_ACCESS,

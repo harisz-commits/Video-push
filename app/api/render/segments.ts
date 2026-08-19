@@ -27,20 +27,31 @@ import { restoreSnapshot } from "./restore-snapshot";
 /**
  * Frames per piece.
  *
- * Two minutes of video, which at the measured rate is about twenty minutes of
- * rendering — comfortably inside the forty-five a sandbox gets, with room for
- * a slower film than the one that was measured.
+ * Ten minutes of video. At the measured 31 frames a second that is about five
+ * minutes of rendering, so even a much slower film stays far inside the
+ * forty-five minutes a sandbox gets.
  */
-export const SEGMENT_FRAMES = 3_600;
+export const SEGMENT_FRAMES = 18_000;
 
 /**
- * Below this, nothing is split.
+ * Below this, nothing is split — and that is now nearly everything.
  *
- * A single pass is simpler, cheaper and has no join to go wrong, so it stays
- * the path for anything that fits. One and a half segments' worth is the point
- * where splitting starts to buy more than it costs.
+ * This number was 5,400 frames, and it was right for the machine we thought we
+ * had: two cores, three frames a second, a single pass topping out near four
+ * minutes of video. Then it turned out the render sandbox had been asking for
+ * no cores at all and getting the default; with eight it manages 31 frames a
+ * second, measured on the same film.
+ *
+ * At that rate a twenty-five minute video renders in twenty-four minutes —
+ * inside the cap, in ONE pass, with no pieces to join. Which matters, because
+ * joining is where this went wrong: nine pieces of a sixteen-minute film
+ * rendered in twelve minutes and then sat for four hours in a stitch that
+ * moved a gigabyte through a sandbox and never finished.
+ *
+ * So the split stays, for films longer than a sandbox can manage, and stops
+ * being the path everything takes. The simplest thing that works is one pass.
  */
-export const SPLIT_ABOVE = Math.round(SEGMENT_FRAMES * 1.5);
+export const SPLIT_ABOVE = 40_000;
 
 export function planSegments(totalFrames: number): { from: number; to: number }[] {
   if (totalFrames <= SPLIT_ABOVE) return [];
@@ -83,6 +94,10 @@ export async function startSegments(args: {
         compositionId: compositionFor(args.project),
         inputProps: { project: args.project },
         frameRange: [range.from, range.to],
+        // Same reasoning as the single-pass route: a stills film does not need
+        // eight megabits, and every megabyte here is moved twice — once to
+        // storage, once back into the sandbox that joins the pieces.
+        crf: 24,
         // Without this the audio of each piece is padded out to a frame
         // boundary, and every join would click audibly.
         forSeamlessAacConcatenation: true,

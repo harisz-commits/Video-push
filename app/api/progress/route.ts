@@ -410,15 +410,30 @@ async function sectioned(
       }
     }
 
-    // Twenty minutes is far more than fetching and rewrapping a gigabyte
-    // needs. Past that, the sandbox is gone and the file is not coming.
+    // A sandbox is reclaimed near forty-five minutes, so a join still running
+    // past thirty is not slow — it is a zombie. Its command still answers when
+    // asked and will never report an exit code, which is precisely how one sat
+    // at "Teile werden verbunden" for four hours.
+    //
+    // Reported in the same response that records it, not on the next poll: the
+    // previous version wrote the reason and then answered "läuft noch" anyway,
+    // so it took a second request to tell anyone — and if nobody polled twice,
+    // never.
     const stitchingFor = Date.now() - (job.stitch?.startedAt ?? job.startedAt);
-    if (stitchingFor > 20 * 60_000) {
+    if (stitchingFor > 30 * 60_000) {
+      const reason = `Das Verbinden lief ${Math.round(stitchingFor / 60000)} Minuten ohne Ergebnis. Die Sandbox wird nach etwa 45 Minuten eingesammelt; der Befehl läuft ins Leere.`;
       await writeJson(progressPath(job.renderId), {
         ...job,
-        stitchError:
-          "Das Verbinden lief zwanzig Minuten ohne Ergebnis. Die Sandbox ist beendet worden, bevor die Datei fertig war.",
+        stitchError: reason,
       } satisfies RenderJob).catch(() => undefined);
+      return Response.json({
+        ...base,
+        status: "error",
+        progress: 0.95,
+        phase: "Verbinden fehlgeschlagen",
+        parts,
+        error: `Alle ${segments.length} Teile sind gerendert, aber das Zusammenfügen ist gescheitert: ${reason}`,
+      } satisfies RenderProgress);
     }
 
     return Response.json({
