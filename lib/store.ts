@@ -392,7 +392,15 @@ export type StoryVoiceJob = {
   cues?: number[];
   audioSeconds?: number;
   characters?: number;
+  /** The voice id that read it. */
   voice?: string;
+  /** What that id is called, so the studio can show it without the list. */
+  voiceLabel?: string;
+  /** Which speaking model. See lib/speech-models.ts. */
+  model?: string;
+  modelLabel?: string;
+  /** The language it was told to read, where the model accepts one. */
+  language?: string;
   error?: string;
   startedAt: number;
   updatedAt: number;

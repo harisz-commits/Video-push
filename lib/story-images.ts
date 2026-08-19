@@ -2,7 +2,7 @@ import { generateImage } from "./gemini";
 import { resolveModel, type ImageModel } from "./image-models";
 import { lookup, noteUse, remember } from "./image-library";
 import { imagePrompt } from "./story-prompt";
-import type { StoryProject } from "./story";
+import { styleFingerprint, type StoryCharacter, type StoryProject } from "./story";
 
 /**
  * Drawing the pictures.
@@ -51,6 +51,15 @@ export async function drawStoryImages(args: {
 }): Promise<DrawResult> {
   const model = args.model ?? resolveModel();
   const style = args.project.style;
+  const cast = new Map(
+    (args.project.characters ?? []).map((c) => [c.key, c] as const),
+  );
+
+  /** The figures actually visible in one picture, in a stable order. */
+  const castFor = (keys: string[] | undefined): StoryCharacter[] =>
+    (keys ?? [])
+      .map((k) => cast.get(k))
+      .filter((c): c is StoryCharacter => Boolean(c));
 
   // Only what is still missing. Re-running after a partial failure therefore
   // costs the remainder rather than the whole film — which matters when the
@@ -80,7 +89,12 @@ export async function drawStoryImages(args: {
       // in a cold blue style is the wrong picture for a sand-coloured film,
       // and putting it in would produce exactly the mismatch this format
       // exists to avoid.
-      const known = await lookup(image.key, style.name).catch(() => null);
+      const figures = castFor(image.characters);
+      const fingerprint = styleFingerprint(style, figures);
+
+      const known = await lookup(image.key, style.name, fingerprint).catch(
+        () => null,
+      );
       if (known) {
         drawn.set(image.key, { url: known.url, model: known.model, reused: true });
         reused += 1;
@@ -91,7 +105,7 @@ export async function drawStoryImages(args: {
 
       try {
         const result = await generateImage({
-          prompt: imagePrompt(image.prompt, style),
+          prompt: imagePrompt(image.prompt, style, figures),
           apiKey: args.apiKey,
           // "story", not "wide": an unknown layout falls back to the split
           // one, which asks for a square and warns that the sides will be cut
@@ -107,6 +121,7 @@ export async function drawStoryImages(args: {
           name: image.name,
           prompt: image.prompt,
           style: style.name,
+          fingerprint,
           model: result.model,
           bytes: result.data,
           contentType: result.mimeType,

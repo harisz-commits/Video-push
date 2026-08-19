@@ -2,6 +2,10 @@ import { waitUntil } from "@vercel/functions";
 import { errorResponse, guard } from "../../../lib/guardrails";
 import { keyFor, keyNameFor } from "../../../lib/llm";
 import { DEFAULT_STORY_MODEL, generateStory } from "../../../lib/story-pipeline";
+import { noteCharacterUse } from "../../../lib/characters";
+import { noteLookUse, readLooks } from "../../../lib/looks";
+import { slugify } from "../../../lib/image-library";
+import { StoryStyle } from "../../../lib/story";
 import { resolveTextModel, type TextModel } from "../../../lib/text-models";
 import { readJson, storyJobPath, writeJson, type StoryJob } from "../../../lib/store";
 
@@ -21,12 +25,20 @@ export async function POST(req: Request) {
   let topic: string;
   let minutes: number;
   let imageBudget: number;
+  let imagesPerMinute: number | undefined;
+  let styleWish: string | undefined;
+  let lookId: string | undefined;
+  let characters: { key: string; name: string; description: string }[];
   let model: TextModel;
   try {
     const body = (await req.json()) as {
       topic?: unknown;
       minutes?: unknown;
       imageBudget?: unknown;
+      imagesPerMinute?: unknown;
+      styleWish?: unknown;
+      lookId?: unknown;
+      characters?: unknown;
       model?: unknown;
     };
     if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
@@ -46,6 +58,42 @@ export async function POST(req: Request) {
     // The money knob. Every picture beyond this is one the writer has to do
     // without by making a motif come back instead.
     imageBudget = Math.min(400, Math.max(4, Number(body.imageBudget) || 60));
+
+    // Only carried through so the studio can say what the film was built to.
+    // The budget above is what actually binds the writer.
+    imagesPerMinute =
+      Number.isFinite(Number(body.imagesPerMinute)) && Number(body.imagesPerMinute) > 0
+        ? Math.min(20, Math.max(0.5, Number(body.imagesPerMinute)))
+        : undefined;
+
+    styleWish =
+      typeof body.styleWish === "string" && body.styleWish.trim()
+        ? body.styleWish.trim().slice(0, 600)
+        : undefined;
+
+    lookId =
+      typeof body.lookId === "string" && /^[a-zA-Z0-9_-]{4,64}$/.test(body.lookId)
+        ? body.lookId
+        : undefined;
+
+    // Read from the request rather than looked up by key alone, because a
+    // figure may be typed in for one film and never saved. The saved ones are
+    // sent the same way — the library is a convenience for the person, not a
+    // second source of truth for the server.
+    characters = (Array.isArray(body.characters) ? body.characters : [])
+      .slice(0, 6)
+      .map((item) => item as { key?: unknown; name?: unknown; description?: unknown })
+      .map((c) => {
+        const name = typeof c.name === "string" ? c.name.trim().slice(0, 80) : "";
+        const description =
+          typeof c.description === "string" ? c.description.trim().slice(0, 600) : "";
+        return {
+          key: slugify(typeof c.key === "string" && c.key ? c.key : name),
+          name: name || "Figur",
+          description,
+        };
+      })
+      .filter((c) => c.description.length >= 3);
 
     model = resolveTextModel(
       typeof body.model === "string" ? body.model : DEFAULT_STORY_MODEL,
@@ -79,8 +127,35 @@ export async function POST(req: Request) {
     updatedAt: startedAt,
   } satisfies StoryJob);
 
+  // A kept look is fetched here rather than trusted from the request: the
+  // style is what every image prompt is built from, and a caller that could
+  // post one could make this account draw a hundred pictures to any
+  // instruction it liked.
+  const look = lookId
+    ? (await readLooks().catch(() => null))?.looks.find((l) => l.id === lookId)
+    : undefined;
+  const style = look ? StoryStyle.safeParse(look.style) : undefined;
+
   waitUntil(
-    generateStory({ jobId, topic, minutes, imageBudget, apiKey, model, startedAt }),
+    (async () => {
+      await generateStory({
+        jobId,
+        topic,
+        minutes,
+        imageBudget,
+        imagesPerMinute,
+        styleWish,
+        style: style?.success ? style.data : undefined,
+        characters,
+        apiKey,
+        model,
+        startedAt,
+      });
+      // Counted after the fact and never awaited by the caller: these are for
+      // showing what earns its keep, and a failure here must not cost a film.
+      if (look) await noteLookUse(look.id).catch(() => undefined);
+      await noteCharacterUse(characters.map((c) => c.key)).catch(() => undefined);
+    })(),
   );
 
   return Response.json({ jobId });

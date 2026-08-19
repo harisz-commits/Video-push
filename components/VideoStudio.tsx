@@ -4,9 +4,16 @@ import { Player, type PlayerRef } from "@remotion/player";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IMAGE_MODELS, resolveModel } from "../lib/image-models";
 import {
+  DEFAULT_SPEECH_MODEL_ID,
+  resolveSpeechModel,
+  SPEECH_MODELS,
+} from "../lib/speech-models";
+import {
   resolveStoryTiming,
   StoryProject,
+  type StoryCharacter,
   type StoryProject as Story,
+  type StoryStyle,
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
 import { soundCost } from "../lib/sfx";
@@ -55,6 +62,24 @@ type ImageJobState = {
   cents?: number;
 };
 
+/** A look kept for reuse. See lib/looks.ts. */
+type Look = { id: string; label: string; style: StoryStyle; uses: number };
+
+/** A figure kept for reuse. See lib/characters.ts. */
+type Saved = { key: string; name: string; description: string; uses: number };
+
+/** The cast being assembled for the NEXT film, before it is written. */
+type Seed = { key: string; name: string; description: string };
+
+type VoiceRow = {
+  voiceId: string;
+  name: string;
+  category?: string;
+  labels?: Record<string, string>;
+  languages?: string[];
+  models?: string[];
+};
+
 type Summary = {
   id: string;
   title: string;
@@ -84,9 +109,39 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const [project, setProject] = useState<Story>(seed);
   const [topic, setTopic] = useState("");
   const [minutes, setMinutes] = useState(5);
-  const [imageBudget, setImageBudget] = useState(60);
+  /**
+   * The picture rate, not the picture count.
+   *
+   * The count was the wrong knob: sixty pictures is generous for a five minute
+   * film and threadbare for a twenty-five minute one, so moving the length
+   * slider silently changed how often a viewer sees the same drawing. A rate
+   * holds that constant, and the budget the writer is given follows from it.
+   */
+  const [imagesPerMinute, setImagesPerMinute] = useState(4);
+  const imageBudget = Math.min(
+    400,
+    Math.max(4, Math.round(imagesPerMinute * minutes)),
+  );
   const [imageModelId, setImageModelId] = useState("gemini-3.1-flash-lite-image");
   const imageModel = resolveModel(imageModelId);
+
+  // ---- What the look should be, before there is one -----------------------
+  const [styleWish, setStyleWish] = useState("");
+  const [lookId, setLookId] = useState("");
+  const [looks, setLooks] = useState<Look[]>([]);
+  const [lookNote, setLookNote] = useState<string | null>(null);
+
+  const [saved, setSaved] = useState<Saved[]>([]);
+  const [cast, setCast] = useState<Seed[]>([]);
+
+  // ---- Who reads it -------------------------------------------------------
+  const [voices, setVoices] = useState<VoiceRow[]>([]);
+  const [voiceId, setVoiceId] = useState("");
+  const [speechModelId, setSpeechModelId] = useState(DEFAULT_SPEECH_MODEL_ID);
+  const [languages, setLanguages] = useState<{ id: string; name: string }[]>([]);
+  const [language, setLanguage] = useState("de");
+  const speechModel = resolveSpeechModel(speechModelId);
+  const chosenVoice = voices.find((v) => v.voiceId === voiceId);
 
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
@@ -156,6 +211,57 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     [project.images],
   );
   const drawnCount = project.images.length - undrawn.length;
+
+  // ---- The kept things ----------------------------------------------------
+  const refreshLooks = useCallback(async () => {
+    const result = await getJson<{ looks: Look[] }>("/api/story/looks");
+    if (result.ok) setLooks(result.data.looks);
+  }, []);
+
+  const refreshSaved = useCallback(async () => {
+    const result = await getJson<{ characters: Saved[] }>(
+      "/api/story/characters",
+    );
+    if (result.ok) setSaved(result.data.characters);
+  }, []);
+
+  useEffect(() => {
+    void refreshLooks();
+    void refreshSaved();
+  }, [refreshLooks, refreshSaved]);
+
+  // The voice list, and the languages of whichever model is selected. Both are
+  // conveniences: without either, the route still falls back to the configured
+  // voice and lets the model guess the language, which is what it did before
+  // there was anything to pick.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await getJson<{
+        voices: VoiceRow[];
+        defaultVoiceId: string | null;
+      }>("/api/story/voice");
+      if (cancelled || !result.ok) return;
+      setVoices(result.data.voices ?? []);
+      setVoiceId((current) => current || result.data.defaultVoiceId || "");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await getJson<{ languages: { id: string; name: string }[] }>(
+        `/api/languages?model=${encodeURIComponent(speechModelId)}`,
+      );
+      if (!cancelled && result.ok) setLanguages(result.data.languages ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [speechModelId]);
 
   // ---- Autosave -----------------------------------------------------------
   const refreshProjects = useCallback(async () => {
@@ -249,6 +355,71 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     return () => window.clearTimeout(id);
   }, [project, projectId, save, seed]);
 
+  // ---- Keeping a figure or a look ----------------------------------------
+  async function keepCharacter(seed: Seed) {
+    setLookNote(null);
+    const result = await postJson<{ character: Saved }>(
+      "/api/story/characters",
+      { key: seed.key || undefined, name: seed.name, description: seed.description },
+    );
+    if (!result.ok) {
+      setLookNote(result.error);
+      return;
+    }
+    // The key comes back from the server, which is what makes a figure the
+    // same figure across films: the studio never invents one.
+    const kept = result.data.character;
+    setCast((list) =>
+      list.map((c) => (c === seed ? { ...c, key: kept.key } : c)),
+    );
+    setLookNote(`„${kept.name}“ gemerkt.`);
+    await refreshSaved();
+  }
+
+  async function keepLook() {
+    setLookNote(null);
+    const result = await postJson<{ look: Look }>("/api/story/looks", {
+      label: project.style.name,
+      style: project.style,
+    });
+    if (!result.ok) {
+      setLookNote(result.error);
+      return;
+    }
+    setLookNote(
+      `„${result.data.look.label}“ gemerkt. Das nächste Video kann oben damit anfangen.`,
+    );
+    await refreshLooks();
+  }
+
+  /**
+   * Forget every drawing, keeping the list.
+   *
+   * What makes an edited style worth editing — nothing else redraws, because
+   * the drawing step only ever touches pictures with no url. Behind a
+   * confirmation because it is the one control here that turns a free edit
+   * into a real bill.
+   */
+  function discardImages() {
+    const price = formatCents(project.images.length * imageModel.cents);
+    if (
+      !window.confirm(
+        `Alle ${project.images.length} Bilder verwerfen? Neu zeichnen kostet ${price} — außer für Motive, die schon in der Bibliothek liegen.`,
+      )
+    ) {
+      return;
+    }
+    setProject((p) => ({
+      ...p,
+      images: p.images.map((i) => ({
+        ...i,
+        url: undefined,
+        model: undefined,
+        reused: undefined,
+      })),
+    }));
+  }
+
   // ---- Writing ------------------------------------------------------------
   async function generate() {
     setBusy(true);
@@ -259,6 +430,12 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       topic,
       minutes,
       imageBudget,
+      imagesPerMinute,
+      // Ignored by the route when a look is chosen — a kept look is already a
+      // decision, and asking for both would be asking for two.
+      styleWish: lookId ? undefined : styleWish.trim() || undefined,
+      lookId: lookId || undefined,
+      characters: cast.filter((c) => c.description.trim().length >= 3),
     });
     if (!result.ok) {
       setError(result.error);
@@ -497,6 +674,10 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     setVoiceNote(null);
     const result = await postJson<{ jobId: string }>("/api/story/voice", {
       project,
+      voice: voiceId || undefined,
+      voiceLabel: chosenVoice?.name,
+      model: speechModelId,
+      language: speechModel.language ? language : undefined,
     });
     if (!result.ok) {
       setVoiceError(result.error);
@@ -518,6 +699,10 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
         audioSeconds?: number;
         characters?: number;
         voice?: string;
+        voiceLabel?: string;
+        model?: string;
+        modelLabel?: string;
+        language?: string;
         error?: string;
       }>(`/api/story/voice?jobId=${encodeURIComponent(voiceJobId)}`);
       if (cancelled) return;
@@ -551,10 +736,23 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           // and the timing code prefers cues — so the stale one would sit
           // there being wrong and invisible.
           alignment: undefined,
-          voice: { provider: "elevenlabs", name: data.voice },
+          voice: {
+            provider: "elevenlabs",
+            name: data.voice,
+            label: data.voiceLabel,
+            model: data.model,
+            language: data.language,
+          },
         }));
         setVoiceNote(
-          `${(data.characters ?? 0).toLocaleString("de-DE")} Zeichen gesprochen · ${(data.audioSeconds ?? 0).toFixed(0)} s`,
+          [
+            `${(data.characters ?? 0).toLocaleString("de-DE")} Zeichen gesprochen`,
+            `${(data.audioSeconds ?? 0).toFixed(0)} s`,
+            data.modelLabel,
+            data.voiceLabel,
+          ]
+            .filter(Boolean)
+            .join(" · "),
         );
       } else {
         setVoiceError(result.data.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
@@ -730,27 +928,32 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           />
 
           {/*
-            The budget and the length together decide how often a viewer sees
-            the same picture, and that is the number worth showing. Sixty
-            images across twenty-five minutes sounds generous and means every
-            picture comes back ten times — which nobody works out from the two
-            sliders on their own.
+            A rate, not a count. The two together decide how often a viewer
+            sees the same drawing, and that is the number worth showing — a
+            budget of sixty across twenty-five minutes sounds generous and
+            means every picture comes back ten times, which nobody works out
+            from two sliders on their own.
           */}
           <label className="mono" style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "12px 0 6px" }}>
-            höchstens {imageBudget} verschiedene Bilder ·{" "}
-            {formatCents(imageBudget * imageModel.cents)} · jedes etwa{" "}
-            {Math.max(1, Math.round((minutes * 60) / 3 / imageBudget))}× zu sehen
+            {imagesPerMinute.toFixed(1).replace(".", ",")} Bilder pro Minute ={" "}
+            {imageBudget} Bilder · {formatCents(imageBudget * imageModel.cents)} ·
+            jedes etwa {Math.max(1, Math.round((minutes * 60) / 3 / imageBudget))}
+            × zu sehen
           </label>
           <input
             type="range"
-            min={4}
-            max={200}
-            step={2}
-            value={imageBudget}
-            onChange={(e) => setImageBudget(Number(e.target.value))}
+            min={1}
+            max={12}
+            step={0.5}
+            value={imagesPerMinute}
+            onChange={(e) => setImagesPerMinute(Number(e.target.value))}
             style={{ width: "100%" }}
-            aria-label="Bildbudget"
+            aria-label="Bilder pro Minute"
           />
+          <div className="mono" style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}>
+            Jedes Bild bekommt seine eigene Kamerafahrt, unabhängig von der
+            Anzahl — bei wenigen Bildern steht eins nur länger im Bild.
+          </div>
 
           <select
             value={imageModelId}
@@ -771,6 +974,201 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               </option>
             ))}
           </select>
+
+          {/*
+            The look, before there is one. Two mutually exclusive ways to
+            decide it: reuse a kept one, or say what it should be. Exclusive on
+            purpose — a wish next to a saved look would be an instruction to
+            change something that was saved precisely so it would not change.
+          */}
+          <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+            BILDSTIL
+          </div>
+          <select
+            value={lookId}
+            onChange={(e) => setLookId(e.target.value)}
+            aria-label="Gespeicherter Bildstil"
+            style={{
+              width: "100%",
+              padding: "9px 10px",
+              border: "1px solid var(--grid)",
+              background: "#fff",
+              fontSize: 13,
+            }}
+          >
+            <option value="">— Stil neu festlegen lassen —</option>
+            {looks.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.label}
+                {l.uses > 0 ? ` · ${l.uses}× benutzt` : ""}
+              </option>
+            ))}
+          </select>
+
+          {lookId ? (
+            <Note tone="info">
+              Der gespeicherte Stil wird unverändert übernommen. Das ist der
+              Punkt: Videos mit demselben Stil teilen sich die Bild-Bibliothek,
+              ein neu erfundener Stil teilt sich nichts.
+            </Note>
+          ) : (
+            <textarea
+              value={styleWish}
+              placeholder="Stilwunsch, optional: „wärmere Erdtöne, keine Strichmännchen, mehr Papierschnitt“"
+              onChange={(e) => setStyleWish(e.target.value)}
+              aria-label="Stilwunsch"
+              rows={2}
+              style={{
+                width: "100%",
+                padding: "9px 10px",
+                border: "1px solid var(--grid)",
+                background: "#fff",
+                fontSize: 13,
+                lineHeight: 1.4,
+                resize: "vertical",
+                marginTop: 8,
+              }}
+            />
+          )}
+
+          {/*
+            The cast. Optional, and empty by default, because the format's
+            normal answer for people — anonymous stick figures — is the right
+            one for an explainer. A figure is for a series that wants a face.
+          */}
+          <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+            FIGUREN ({cast.length})
+          </div>
+
+          {cast.map((c, i) => (
+            <div
+              key={i}
+              style={{
+                border: "1px solid var(--grid)",
+                padding: 8,
+                marginBottom: 6,
+                background: "#fff",
+              }}
+            >
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  value={c.name}
+                  placeholder="Name, z. B. Der Forscher"
+                  onChange={(e) =>
+                    setCast((list) =>
+                      list.map((x, j) =>
+                        j === i ? { ...x, name: e.target.value } : x,
+                      ),
+                    )
+                  }
+                  aria-label="Name der Figur"
+                  style={{
+                    flex: 1,
+                    padding: "6px 8px",
+                    border: "1px solid var(--grid)",
+                    fontSize: 13,
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  onClick={() => void keepCharacter(c)}
+                  disabled={c.name.trim().length < 2 || c.description.trim().length < 3}
+                >
+                  merken
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setCast((list) => list.filter((_, j) => j !== i))}
+                >
+                  ✕
+                </Button>
+              </div>
+              <textarea
+                value={c.description}
+                placeholder="Wie sie aussieht: „schmale Gestalt im roten Anorak, Klemmbrett unter dem Arm, keine Gesichtszüge“"
+                onChange={(e) =>
+                  setCast((list) =>
+                    list.map((x, j) =>
+                      j === i ? { ...x, description: e.target.value } : x,
+                    ),
+                  )
+                }
+                aria-label="Beschreibung der Figur"
+                rows={2}
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  padding: "6px 8px",
+                  border: "1px solid var(--grid)",
+                  fontSize: 12.5,
+                  lineHeight: 1.4,
+                  resize: "vertical",
+                }}
+              />
+            </div>
+          ))}
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setCast((list) =>
+                  list.length >= 6
+                    ? list
+                    : [...list, { key: "", name: "", description: "" }],
+                )
+              }
+              disabled={cast.length >= 6}
+            >
+              + Figur
+            </Button>
+            {saved.length > 0 ? (
+              <select
+                value=""
+                onChange={(e) => {
+                  const found = saved.find((c) => c.key === e.target.value);
+                  if (!found) return;
+                  setCast((list) =>
+                    list.some((c) => c.key === found.key) || list.length >= 6
+                      ? list
+                      : [
+                          ...list,
+                          {
+                            key: found.key,
+                            name: found.name,
+                            description: found.description,
+                          },
+                        ],
+                  );
+                }}
+                aria-label="Gespeicherte Figur übernehmen"
+                style={{
+                  flex: 1,
+                  minWidth: 160,
+                  padding: "8px 10px",
+                  border: "1px solid var(--grid)",
+                  background: "#fff",
+                  fontSize: 12.5,
+                }}
+              >
+                <option value="">— gemerkte Figur übernehmen —</option>
+                {saved.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.name}
+                    {c.uses > 0 ? ` · ${c.uses}×` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
+          {lookNote ? <Note tone="info">{lookNote}</Note> : null}
+          {cast.length > 0 ? (
+            <Note tone="info">
+              Beschreib sie in deinen Worten. Beim Festlegen des Stils wird
+              jede Figur in genau diesen Look übersetzt — dieselbe Figur sieht
+              in einem anderen Video deshalb anders aus, und das ist gewollt.
+            </Note>
+          ) : null}
 
           <div style={{ height: 10 }} />
           <Button onClick={() => void generate()} disabled={busy || topic.trim().length < 3}>
@@ -803,8 +1201,144 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
         {project.shots.length > 0 && project.id !== seed.id ? (
           <>
+            {/*
+              The look, after there is one — and editable, which is the whole
+              addition. The directive is pasted verbatim into every image
+              prompt, so this textarea is not a description of the style; it IS
+              the style. Nothing redraws by itself: an edit costs nothing until
+              the pictures are discarded below.
+            */}
             <Panel
               step="02"
+              title="Stil"
+              right={
+                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                  {drawnCount > 0 ? `${drawnCount} gezeichnet` : "nichts gezeichnet"}
+                </span>
+              }
+            >
+              <input
+                value={project.style.name}
+                onChange={(e) =>
+                  setProject((p) => ({
+                    ...p,
+                    style: { ...p.style, name: e.target.value.slice(0, 80) },
+                  }))
+                }
+                aria-label="Name des Stils"
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  border: "1px solid var(--grid)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              />
+
+              <div style={{ display: "flex", gap: 6, margin: "10px 0", flexWrap: "wrap" }}>
+                {project.style.palette.map((c, i) => (
+                  <input
+                    key={i}
+                    type="color"
+                    value={c}
+                    title={c}
+                    onChange={(e) =>
+                      setProject((p) => ({
+                        ...p,
+                        style: {
+                          ...p.style,
+                          palette: p.style.palette.map((old, j) =>
+                            j === i ? e.target.value : old,
+                          ),
+                        },
+                      }))
+                    }
+                    aria-label={`Farbe ${i + 1}`}
+                    style={{
+                      width: 34,
+                      height: 30,
+                      padding: 0,
+                      border: "1px solid var(--grid)",
+                      background: "#fff",
+                      cursor: "pointer",
+                    }}
+                  />
+                ))}
+                <span className="mono" style={{ fontSize: 10.5, color: "#5b6672", alignSelf: "center" }}>
+                  wird als verbindliche Palette an jedes Bild gehängt
+                </span>
+              </div>
+
+              <textarea
+                value={project.style.directive}
+                onChange={(e) =>
+                  setProject((p) => ({
+                    ...p,
+                    style: { ...p.style, directive: e.target.value.slice(0, 1200) },
+                  }))
+                }
+                aria-label="Stiltext"
+                rows={7}
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  border: "1px solid var(--grid)",
+                  background: "#fff",
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  fontFamily: "var(--mono, ui-monospace), monospace",
+                  resize: "vertical",
+                }}
+              />
+
+              {(project.characters ?? []).length > 0 ? (
+                <div style={{ marginTop: 10 }}>
+                  {(project.characters ?? []).map((c: StoryCharacter) => (
+                    <details
+                      key={c.key}
+                      style={{
+                        borderBottom: "1px solid var(--grid)",
+                        padding: "5px 0",
+                        fontSize: 12,
+                      }}
+                    >
+                      <summary style={{ cursor: "pointer" }}>
+                        {c.name}
+                        <span className="mono" style={{ fontSize: 10, color: "#5b6672" }}>
+                          {" "}
+                          · {project.images.filter((i) => i.characters?.includes(c.key)).length} Bilder
+                        </span>
+                      </summary>
+                      <p style={{ margin: "6px 0 0", color: "#5b6672", lineHeight: 1.45 }}>
+                        {c.appearance ?? c.description}
+                      </p>
+                    </details>
+                  ))}
+                </div>
+              ) : null}
+
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                <Button variant="ghost" onClick={() => void keepLook()}>
+                  Stil merken
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={discardImages}
+                  disabled={drawnCount === 0}
+                >
+                  Bilder verwerfen
+                </Button>
+              </div>
+              {lookNote ? <Note tone="info">{lookNote}</Note> : null}
+              <Note tone="info">
+                Änderungen wirken nur auf Bilder, die noch nicht gezeichnet
+                sind. Damit ein geänderter Stil sichtbar wird, musst du die
+                vorhandenen verwerfen — das kostet erneut.
+              </Note>
+            </Panel>
+
+            <Panel
+              step="03"
               title="Bilder"
               right={
                 <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
@@ -885,7 +1419,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             </Panel>
 
             <Panel
-              step="03"
+              step="04"
               title="Klang"
               right={
                 <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
@@ -973,7 +1507,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             </Panel>
 
             <Panel
-              step="04"
+              step="05"
               title="Stimme"
               right={
                 <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
@@ -981,6 +1515,81 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                 </span>
               }
             >
+              {/*
+                Which model, which voice, which language — in that order,
+                because the model decides what the other two mean. Flash bills
+                at half of Multilingual v2 and takes four times as much text in
+                one request; Multilingual v2 is the more expressive read and
+                cannot be told a language at all. That last asymmetry is why
+                the picker has to explain itself rather than just sit there.
+              */}
+              <select
+                value={speechModelId}
+                onChange={(e) => setSpeechModelId(e.target.value)}
+                aria-label="Sprachmodell"
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  border: "1px solid var(--grid)",
+                  background: "#fff",
+                  fontSize: 13,
+                  marginBottom: 8,
+                }}
+              >
+                {SPEECH_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {m.credits === 1 ? "voller Preis" : `${m.credits}× Preis`}
+                  </option>
+                ))}
+              </select>
+
+              {voices.length > 0 ? (
+                <select
+                  value={voiceId}
+                  onChange={(e) => setVoiceId(e.target.value)}
+                  aria-label="Stimme"
+                  style={{
+                    width: "100%",
+                    padding: "9px 10px",
+                    border: "1px solid var(--grid)",
+                    background: "#fff",
+                    fontSize: 13,
+                    marginBottom: 8,
+                  }}
+                >
+                  <option value="">— Stimme aus der Konfiguration —</option>
+                  {voices.map((v) => (
+                    <option key={v.voiceId} value={v.voiceId}>
+                      {v.name}
+                      {v.labels?.gender ? ` · ${v.labels.gender}` : ""}
+                      {v.labels?.accent ? ` · ${v.labels.accent}` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              {speechModel.language && languages.length > 0 ? (
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  aria-label="Sprache"
+                  style={{
+                    width: "100%",
+                    padding: "9px 10px",
+                    border: "1px solid var(--grid)",
+                    background: "#fff",
+                    fontSize: 13,
+                    marginBottom: 8,
+                  }}
+                >
+                  {languages.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
               <Button onClick={() => void speak()} disabled={voiceBusy}>
                 {voiceBusy
                   ? "wird gesprochen…"
@@ -988,6 +1597,47 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                     ? "Neu sprechen"
                     : "Sprechen"}
               </Button>
+
+              {/*
+                Three separate things can be true at once, so they are three
+                separate notes rather than one paragraph that tries to cover
+                all of them and covers none.
+              */}
+              {!speechModel.language ? (
+                <Note tone="info">
+                  {speechModel.label} nimmt keine Sprachangabe entgegen — es
+                  erkennt die Sprache am Text. Für Deutsch ist das in Ordnung;
+                  eine Sprachauswahl gibt es nur bei{" "}
+                  {SPEECH_MODELS.filter((m) => m.language)
+                    .map((m) => m.label)
+                    .join(", ")}
+                  .
+                </Note>
+              ) : null}
+
+              {chosenVoice &&
+              chosenVoice.models?.length &&
+              !chosenVoice.models.includes(speechModelId) ? (
+                <Note tone="alert">
+                  „{chosenVoice.name}“ ist für {speechModel.label} nicht als
+                  hochwertig ausgewiesen. Sie spricht trotzdem, klingt aber
+                  womöglich schlechter als auf{" "}
+                  {chosenVoice.models
+                    .map((id) => resolveSpeechModel(id).label)
+                    .join(", ")}
+                  .
+                </Note>
+              ) : null}
+
+              {speechModel.language &&
+              chosenVoice?.languages?.length &&
+              !chosenVoice.languages.includes(language) ? (
+                <Note tone="alert">
+                  „{chosenVoice.name}“ ist nur für{" "}
+                  {chosenVoice.languages.join(", ")} geprüft — für die gewählte
+                  Sprache also nicht. Erwarte einen Akzent.
+                </Note>
+              ) : null}
               {voiceError ? <Note tone="alert">{voiceError}</Note> : null}
               {voiceNote ? <Note tone="info">{voiceNote}</Note> : null}
               <label
@@ -1011,7 +1661,17 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               <Note tone="info">
                 Gemessen: 1,15 ergab 146 Wörter pro Minute, 1,20 etwa 152. Mehr
                 gibt ElevenLabs nicht her. Kostet ungefähr{" "}
-                {estimatedChars.toLocaleString("de-DE")} Zeichen vom Kontingent.
+                {Math.round(estimatedChars * speechModel.credits).toLocaleString("de-DE")}{" "}
+                Zeichen vom Kontingent
+                {speechModel.credits === 1
+                  ? ""
+                  : ` (${estimatedChars.toLocaleString("de-DE")} × ${speechModel.credits.toLocaleString("de-DE")})`}
+                {" · "}
+                {Math.max(1, Math.ceil(estimatedChars / speechModel.maxChars))}{" "}
+                {Math.ceil(estimatedChars / speechModel.maxChars) === 1
+                  ? "Aufnahme"
+                  : "Aufnahmen"}
+                .
               </Note>
 
               {/*
@@ -1037,7 +1697,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               ) : null}
             </Panel>
 
-            <Panel step="05" title="Rendern">
+            <Panel step="06" title="Rendern">
               <Button
                 onClick={() => void startRender()}
                 disabled={Boolean(render && render.status !== "done" && render.status !== "error")}
@@ -1057,7 +1717,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             </Panel>
 
             <ThumbnailPanel
-              step="06"
+              step="07"
               // No flags in this format — it has no country questions, and an
               // unrelated flag on the cover would be a promise the video does
               // not keep.

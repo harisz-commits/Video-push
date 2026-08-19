@@ -42,6 +42,33 @@ export const StoryStyle = z.object({
 export type StoryStyle = z.infer<typeof StoryStyle>;
 
 /**
+ * A figure that comes back.
+ *
+ * Optional, and described by the person making the video rather than invented
+ * by the model — "ein Forscher mit rotem Anorak und Klemmbrett". Without one
+ * the format draws people as anonymous stick figures, which is the right
+ * default for an explainer and the wrong one for a series that wants a face.
+ *
+ * Two descriptions, and the split is the point. `description` is what the user
+ * wrote, in their own words and their own language; it is what gets saved to
+ * the library and what survives being reused in a completely different film.
+ * `appearance` is that same figure translated into the film's own look, in
+ * English, at the time the style is decided — so the same character is a
+ * silk-screen silhouette in one video and a watercolour figure in the next,
+ * which is what makes reuse across styles possible at all.
+ */
+export const StoryCharacter = z.object({
+  key: z.string().regex(/^[a-z0-9][a-z0-9-]{2,79}$/),
+  /** How the studio names it. German, as written. */
+  name: z.string().min(2).max(80),
+  /** What the user asked for, verbatim. The source of truth for reuse. */
+  description: z.string().min(3).max(600),
+  /** The same figure in this film's style, English, for the image prompts. */
+  appearance: z.string().max(700).optional(),
+});
+export type StoryCharacter = z.infer<typeof StoryCharacter>;
+
+/**
  * One generated picture, and its name.
  *
  * The name is the point. An image called "aegypten-lehmziegelhaus-seitlich"
@@ -62,6 +89,15 @@ export const StoryImage = z.object({
   model: z.string().optional(),
   /** True when this came out of the library instead of being paid for again. */
   reused: z.boolean().optional(),
+  /**
+   * Which recurring figures appear in it, by key.
+   *
+   * Named by the writer rather than detected from the prompt text, for the
+   * same reason ambience and accent are: matching a German character name
+   * against an English subject description would work most of the time, and
+   * the times it did not would be silent.
+   */
+  characters: z.array(z.string()).optional(),
 });
 export type StoryImage = z.infer<typeof StoryImage>;
 
@@ -136,9 +172,20 @@ export const StoryProject = z.object({
   topic: z.string(),
   title: z.string(),
   style: StoryStyle,
+  /** Figures that recur, if the film was given any. See StoryCharacter. */
+  characters: z.array(StoryCharacter).default([]),
   images: z.array(StoryImage).min(1),
   sounds: z.array(StorySound).default([]),
   shots: z.array(StoryShot).min(1),
+  /**
+   * How many distinct pictures a minute was asked for.
+   *
+   * Kept on the project so the number survives a reload and so the studio can
+   * say what a film was built to, rather than inferring it from a count that
+   * the writer was free to undershoot. Purely informational — the budget it
+   * produced is already baked into the image list.
+   */
+  imagesPerMinute: z.number().min(0.5).max(20).optional(),
   /**
    * How loud the beds and hits sit under the voice.
    *
@@ -164,8 +211,14 @@ export const StoryProject = z.object({
   voice: z
     .object({
       provider: z.enum(["elevenlabs"]).default("elevenlabs"),
-      /** The ElevenLabs voice id. */
+      /** The ElevenLabs voice id. Named `name` since before there was a label. */
       name: z.string().max(120).optional(),
+      /** What that id is called, so the studio need not hold the list to show it. */
+      label: z.string().max(120).optional(),
+      /** Which speaking model read it. See lib/speech-models.ts. */
+      model: z.string().max(80).optional(),
+      /** The language it was told to read, where the model accepts one. */
+      language: z.string().max(16).optional(),
     })
     .optional(),
   /**
@@ -430,4 +483,159 @@ export function storyDurationSeconds(project: StoryProject): number {
 /** How many pictures this project would have to pay for right now. */
 export function undrawnImages(project: StoryProject): StoryImage[] {
   return project.images.filter((i) => !i.url);
+}
+
+/**
+ * The camera move over a still, worked out once per shot.
+ *
+ * Every picture gets one — that is the requirement, and it is not decoration.
+ * A format with no real animation has exactly three things carrying tension:
+ * the cut, the sound, and the fact that the frame is never at rest. A picture
+ * held still for four seconds reads as a slideshow no matter how good it is.
+ *
+ * Two things make it look deliberate rather than mechanical:
+ *
+ * 1. The strength varies per shot, from a hash of the shot's id. Constant
+ *    amplitude on a hundred shots is its own kind of monotony — the eye
+ *    learns the speed within a minute and stops seeing the movement at all.
+ * 2. It scales with how long the shot is up. The same travel that is a gentle
+ *    drift across five seconds is a whip-pan across one, and a long shot with
+ *    a short move sits dead for its second half.
+ *
+ * Derived from the id rather than drawn at random, because Remotion renders
+ * frames in parallel processes: a random number would differ between the
+ * process that drew frame 40 and the one that drew frame 41, and the picture
+ * would jump. Same input, same move, every time.
+ */
+export type ShotMove = {
+  /** Percent of frame width/height, applied as translate(). */
+  fromX: number;
+  toX: number;
+  fromY: number;
+  toY: number;
+  fromScale: number;
+  toScale: number;
+};
+
+/** How far a picture zooms over its whole stay, as a fraction of its size. */
+const ZOOM = 0.16;
+/** How far it travels sideways or vertically, likewise. */
+const PAN = 0.13;
+/**
+ * Oversize kept beyond whatever the move needs.
+ *
+ * Without it a picture panned to its limit shows the background at the edge
+ * for one frame, which is the single most obvious way this effect goes wrong.
+ */
+const EDGE = 0.05;
+/** How much of a pan is applied on the other axis during a pure zoom. */
+const CROSS = 0.34;
+/** Nothing moves further than this, whatever the arithmetic says. */
+const MAX_ZOOM = 0.26;
+const MAX_PAN = 0.2;
+
+export function shotMove(
+  shot: { id: string; motion: ShotMotion; durationInFrames: number },
+  fps: number,
+): ShotMove {
+  const seconds = Math.max(0.4, shot.durationInFrames / fps);
+  // A shot up for three and a half seconds moves at the reference amount;
+  // shorter ones are held back, longer ones are given more ground to cover.
+  const pace = Math.min(1.5, Math.max(0.55, seconds / 3.5));
+  const varied = 0.7 + 0.6 * hash01(shot.id);
+  const amp = pace * varied;
+
+  // Which way the secondary drift goes during a pure zoom. Stable per shot,
+  // so the same picture used twice with the same motion still differs.
+  const side = hash01(`${shot.id}~`) < 0.5 ? -1 : 1;
+
+  let zoom = Math.min(MAX_ZOOM, ZOOM * amp);
+  const pan = Math.min(MAX_PAN, PAN * amp);
+  let px = 0;
+  let py = 0;
+
+  switch (shot.motion) {
+    case "out":
+      zoom = -zoom;
+      px = side * pan * CROSS;
+      break;
+    case "left":
+      px = -pan;
+      zoom *= 0.45;
+      break;
+    case "right":
+      px = pan;
+      zoom *= 0.45;
+      break;
+    case "up":
+      py = -pan;
+      zoom *= 0.45;
+      break;
+    case "down":
+      py = pan;
+      zoom *= 0.45;
+      break;
+    case "in":
+    default:
+      // A push that also drifts. Pure centred zoom is the one move that still
+      // reads as a slideshow effect rather than as a camera.
+      px = side * pan * CROSS;
+      break;
+  }
+
+  // Big enough that the frame stays covered at the furthest point of the pan:
+  // the picture is displaced by at most half the travel, and the overhang at
+  // scale s is (s - 1) / 2 on each side.
+  const cover = 1 + Math.max(Math.abs(px), Math.abs(py)) + EDGE;
+
+  return {
+    fromX: (-px / 2) * 100,
+    toX: (px / 2) * 100,
+    fromY: (-py / 2) * 100,
+    toY: (py / 2) * 100,
+    fromScale: zoom >= 0 ? cover : cover - zoom,
+    toScale: zoom >= 0 ? cover + zoom : cover,
+  };
+}
+
+/** A stable number in [0, 1) from a string. See shotMove() for why. */
+function hash01(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100_000) / 100_000;
+}
+
+/**
+ * A short, stable tag for everything about a look that a picture depends on.
+ *
+ * Not the name: the name is what a person reads and what groups a series, and
+ * it deliberately survives small edits. This is what a cached picture is
+ * checked against, so it has to move whenever the drawing would.
+ *
+ * The characters are folded in per image rather than per film — two pictures
+ * in the same film differ if one of them has a figure in it and the other does
+ * not. See lib/image-library.ts.
+ */
+export function styleFingerprint(
+  style: StoryStyle,
+  characters: StoryCharacter[] = [],
+): string {
+  const source = [
+    style.directive.trim(),
+    style.palette.join(","),
+    ...characters
+      .slice()
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map((c) => `${c.key}:${c.appearance?.trim() || c.description.trim()}`),
+  ].join("|");
+
+  let h = 2166136261;
+  for (let i = 0; i < source.length; i++) {
+    h ^= source.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
 }

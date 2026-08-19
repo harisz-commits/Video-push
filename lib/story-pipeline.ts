@@ -3,14 +3,17 @@ import { slugify } from "./image-library";
 import {
   StoryProject,
   StoryStyle,
+  type StoryCharacter,
   type StoryImage,
   type StoryShot,
   type StorySound,
 } from "./story";
 import {
+  buildCharacterPrompt,
   buildOutlinePrompt,
   buildSectionPrompt,
   buildStylePrompt,
+  STORY_CHARACTER_SYSTEM_PROMPT,
   STORY_OUTLINE_SYSTEM_PROMPT,
   STORY_SCRIPT_SYSTEM_PROMPT,
   STORY_STYLE_SYSTEM_PROMPT,
@@ -43,6 +46,24 @@ export async function generateStory(args: {
   minutes: number;
   /** Hard ceiling on distinct pictures. This is the money knob. */
   imageBudget: number;
+  /** Only carried through to the project, for the studio to show later. */
+  imagesPerMinute?: number;
+  /**
+   * What the person asked the look to be, in their own words.
+   *
+   * Ignored when `style` is given — a saved look is already a decision.
+   */
+  styleWish?: string;
+  /**
+   * A look decided earlier and kept.
+   *
+   * When present the style step is skipped entirely, which is the point: two
+   * films sharing a look share their picture library, and a style generated
+   * afresh would be a near-miss that shares nothing.
+   */
+  style?: StoryStyle;
+  /** Figures the film should keep coming back to. See StoryCharacter. */
+  characters?: { key: string; name: string; description: string }[];
   apiKey: string;
   model?: TextModel;
   startedAt: number;
@@ -61,13 +82,40 @@ export async function generateStory(args: {
     } satisfies StoryJob).catch(() => undefined);
 
   try {
-    await progress("Bildstil wird festgelegt");
-    const style = await writeStyle({
-      model,
-      apiKey: args.apiKey,
-      spent,
-      topic: args.topic,
-    });
+    // A kept look skips the style call entirely. Not merely to save the call:
+    // regenerating a style from the same topic produces something adjacent
+    // rather than identical, and adjacent is exactly what breaks both the
+    // series and the picture library.
+    let style: { title: string; style: StoryStyle; characters: StoryCharacter[] };
+    if (args.style) {
+      await progress("Bildstil steht fest");
+      style = {
+        title: args.topic.slice(0, 60),
+        style: args.style,
+        // Still translated into the look, because the saved look knows nothing
+        // about figures that were never in it.
+        characters: args.characters?.length
+          ? await describeCharacters({
+              model,
+              apiKey: args.apiKey,
+              spent,
+              topic: args.topic,
+              style: args.style,
+              characters: args.characters,
+            })
+          : [],
+      };
+    } else {
+      await progress("Bildstil wird festgelegt");
+      style = await writeStyle({
+        model,
+        apiKey: args.apiKey,
+        spent,
+        topic: args.topic,
+        wish: args.styleWish,
+        characters: args.characters,
+      });
+    }
 
     const script = await writeScript({
       model,
@@ -75,6 +123,7 @@ export async function generateStory(args: {
       spent,
       topic: args.topic,
       style: style.style,
+      characters: style.characters,
       minutes: args.minutes,
       imageBudget: args.imageBudget,
       deadline: args.startedAt + WRITING_DEADLINE_MS,
@@ -87,6 +136,8 @@ export async function generateStory(args: {
       topic: args.topic,
       title: style.title,
       style: style.style,
+      characters: style.characters,
+      imagesPerMinute: args.imagesPerMinute,
       images: script.images,
       sounds: script.sounds,
       shots: script.shots,
@@ -133,17 +184,30 @@ export async function generateStory(args: {
   }
 }
 
+type CharacterSeed = { key: string; name: string; description: string };
+
 async function writeStyle(args: {
   model: TextModel;
   apiKey: string;
   spent: { input: number; output: number };
   topic: string;
-}): Promise<{ title: string; style: StoryStyle }> {
+  wish?: string;
+  characters?: CharacterSeed[];
+}): Promise<{ title: string; style: StoryStyle; characters: StoryCharacter[] }> {
   const reply = await complete({
     model: args.model,
     apiKey: args.apiKey,
     system: STORY_STYLE_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildStylePrompt(args.topic) }],
+    messages: [
+      {
+        role: "user",
+        content: buildStylePrompt({
+          topic: args.topic,
+          wish: args.wish,
+          characters: args.characters,
+        }),
+      },
+    ],
     maxTokens: 4000,
     effort: "medium",
   });
@@ -155,6 +219,7 @@ async function writeStyle(args: {
     styleName?: unknown;
     directive?: unknown;
     palette?: unknown;
+    characters?: unknown;
   };
 
   const parsed = StoryStyle.safeParse({
@@ -176,7 +241,83 @@ async function writeStyle(args: {
         ? json.title.trim().slice(0, 60)
         : args.topic.slice(0, 60),
     style: parsed.data,
+    characters: mergeAppearances(args.characters ?? [], json.characters),
   };
+}
+
+/**
+ * Describe already-decided figures in an already-decided look.
+ *
+ * Only reached when a saved look is reused: the look was kept without these
+ * figures, so nothing has yet said what they look like in it. Its own call
+ * rather than a flag on writeStyle(), because writeStyle() would otherwise be
+ * asked to invent a style it has been handed.
+ */
+async function describeCharacters(args: {
+  model: TextModel;
+  apiKey: string;
+  spent: { input: number; output: number };
+  topic: string;
+  style: StoryStyle;
+  characters: CharacterSeed[];
+}): Promise<StoryCharacter[]> {
+  try {
+    const reply = await complete({
+      model: args.model,
+      apiKey: args.apiKey,
+      system: STORY_CHARACTER_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: buildCharacterPrompt({
+            topic: args.topic,
+            style: args.style,
+            characters: args.characters,
+          }),
+        },
+      ],
+      maxTokens: 3000,
+      effort: "medium",
+    });
+    args.spent.input += reply.usage.input;
+    args.spent.output += reply.usage.output;
+
+    const json = parseObject(reply.text) as { characters?: unknown };
+    return mergeAppearances(args.characters, json.characters);
+  } catch {
+    // The figures still exist and still reach the image prompts — just in the
+    // words the person wrote rather than translated into the look. Worse, and
+    // far better than losing them.
+    return mergeAppearances(args.characters, []);
+  }
+}
+
+/**
+ * Attach each returned appearance to the figure it belongs to.
+ *
+ * Keyed rather than positional, and every seed survives whether or not the
+ * model answered for it: a figure that silently vanished here would leave the
+ * script naming a character key that no longer exists.
+ */
+function mergeAppearances(
+  seeds: CharacterSeed[],
+  raw: unknown,
+): StoryCharacter[] {
+  const byKey = new Map<string, string>();
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const c = item as { key?: unknown; appearance?: unknown };
+    if (typeof c.key !== "string" || typeof c.appearance !== "string") continue;
+    const appearance = c.appearance.trim();
+    if (appearance.length < 10) continue;
+    byKey.set(slugify(c.key), appearance.slice(0, 700));
+  }
+
+  return seeds.map((seed) => ({
+    key: seed.key,
+    name: seed.name,
+    description: seed.description,
+    appearance: byKey.get(seed.key),
+  }));
 }
 
 /**
@@ -215,6 +356,7 @@ async function writeScript(args: {
   spent: { input: number; output: number };
   topic: string;
   style: StoryStyle;
+  characters: StoryCharacter[];
   minutes: number;
   imageBudget: number;
   deadline: number;
@@ -290,6 +432,7 @@ async function writeScript(args: {
               motifs: plan.motifs,
               beds: plan.beds,
               imageBudget: perSection,
+              characters: args.characters,
             }),
           },
         ],
@@ -311,6 +454,7 @@ async function writeScript(args: {
           plan.motifs,
           json.accents,
           plan.beds,
+          args.characters,
         );
       } catch {
         // One section that will not parse must not cost the other twelve. The
@@ -474,19 +618,37 @@ function reconcile(
   rawAccents: unknown = [],
   /** Beds defined for the whole film that a shot may name. */
   beds: StorySound[] = [],
+  /** Figures a picture may name. Anything else is dropped. */
+  characters: StoryCharacter[] = [],
 ): { images: StoryImage[]; sounds: StorySound[]; shots: StoryShot[] } {
+  const cast = new Set(characters.map((c) => c.key));
   const images = new Map<string, StoryImage>();
   for (const item of Array.isArray(rawImages) ? rawImages : []) {
-    const i = item as { key?: unknown; name?: unknown; prompt?: unknown };
+    const i = item as {
+      key?: unknown;
+      name?: unknown;
+      prompt?: unknown;
+      characters?: unknown;
+    };
     const name = typeof i.name === "string" ? i.name.trim() : "";
     const prompt = typeof i.prompt === "string" ? i.prompt.trim() : "";
     if (prompt.length < 10) continue;
     const key = slugify(typeof i.key === "string" && i.key ? i.key : name);
     if (images.has(key)) continue;
+
+    // A figure the film does not have is dropped rather than carried: it would
+    // append nothing to the image prompt and make the picture's fingerprint
+    // depend on a name that means nothing.
+    const inShot = (Array.isArray(i.characters) ? i.characters : [])
+      .filter((c): c is string => typeof c === "string")
+      .map((c) => slugify(c))
+      .filter((c) => cast.has(c));
+
     images.set(key, {
       key,
       name: name.slice(0, 120) || key,
       prompt: prompt.slice(0, 700),
+      ...(inShot.length ? { characters: [...new Set(inShot)] } : {}),
     });
   }
   // The shared motifs count as known keys without being re-declared here —

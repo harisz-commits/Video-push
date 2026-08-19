@@ -9,6 +9,7 @@ import {
 } from "remotion";
 import {
   resolveStoryTiming,
+  shotMove,
   type ResolvedShot,
   type StoryProject,
   type StorySound,
@@ -33,54 +34,32 @@ import {
 const FADE = 9;
 
 /**
- * How far a picture travels while it is up, as a fraction of its size.
+ * The move itself lives in lib/story.ts.
  *
- * Raised from 0.06. At the old value the movement was there but not felt —
- * and in a format with no real animation, the drift is one of only three
- * things carrying tension, alongside the cut and the sound. It still has to
- * stay slow: a still that visibly races is worse than one that sits.
+ * It used to be here as two constants and a switch, which meant every picture
+ * travelled exactly as far as every other one at exactly the same speed —
+ * correct, and after a minute invisible. Working it out per shot from its own
+ * length and id needs no React and is worth being able to test on its own, so
+ * it moved. See shotMove().
  */
-const DRIFT = 0.1;
 
-/**
- * The zoom a picture starts and ends at.
- *
- * Never one. A still rendered at exactly its natural size shows its edges the
- * moment it moves, so every picture is oversized and the movement happens
- * inside that margin.
- */
-const BASE_SCALE = 1.1;
-const TRAVEL = 0.12;
-
-function transformFor(shot: ResolvedShot, progress: number): string {
-  const eased = progress * progress * (3 - 2 * progress);
-
-  switch (shot.motion) {
-    case "out":
-      return `scale(${BASE_SCALE + TRAVEL - eased * TRAVEL})`;
-    case "left":
-      return `scale(${BASE_SCALE + DRIFT}) translateX(${(0.5 - eased) * DRIFT * 100}%)`;
-    case "right":
-      return `scale(${BASE_SCALE + DRIFT}) translateX(${(eased - 0.5) * DRIFT * 100}%)`;
-    case "up":
-      return `scale(${BASE_SCALE + DRIFT}) translateY(${(0.5 - eased) * DRIFT * 100}%)`;
-    case "down":
-      return `scale(${BASE_SCALE + DRIFT}) translateY(${(eased - 0.5) * DRIFT * 100}%)`;
-    case "in":
-    default:
-      return `scale(${BASE_SCALE + eased * TRAVEL})`;
-  }
-}
-
-const Shot: React.FC<{ shot: ResolvedShot; first: boolean }> = ({
+const Shot: React.FC<{ shot: ResolvedShot; first: boolean; fps: number }> = ({
   shot,
   first,
+  fps,
 }) => {
   const frame = useCurrentFrame();
   const progress = Math.min(
     1,
     Math.max(0, (frame - FADE) / Math.max(1, shot.durationInFrames)),
   );
+
+  // Smoothstep, so the move eases in and out instead of starting and stopping
+  // dead. A linear pan is the other reliable way to make this read as software
+  // rather than as a camera.
+  const eased = progress * progress * (3 - 2 * progress);
+  const move = shotMove(shot, fps);
+  const at = (from: number, to: number) => from + (to - from) * eased;
 
   // The first picture has nothing to fade up from, so it simply starts.
   const opacity = first
@@ -100,7 +79,15 @@ const Shot: React.FC<{ shot: ResolvedShot; first: boolean }> = ({
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          transform: transformFor(shot, progress),
+          // Translate written before scale on purpose: transforms compose
+          // outermost-first, so this displaces the already-scaled picture by a
+          // percentage of the FRAME. The other order would scale the
+          // displacement too, and the edge-safety margin in shotMove() —
+          // which assumes the plain percentage — would be too small.
+          transform: `translate(${at(move.fromX, move.toX).toFixed(3)}%, ${at(
+            move.fromY,
+            move.toY,
+          ).toFixed(3)}%) scale(${at(move.fromScale, move.toScale).toFixed(4)})`,
           // The transform is applied every frame, so the browser is told once
           // that this layer moves rather than working it out repeatedly.
           willChange: "transform",
@@ -174,7 +161,7 @@ export const StoryVideo: React.FC<{ project: StoryProject }> = ({ project }) => 
           name={`${i + 1}. ${shot.image}`}
           layout="none"
         >
-          <Shot shot={shot} first={i === 0} />
+          <Shot shot={shot} first={i === 0} fps={project.fps} />
         </Sequence>
       ))}
 

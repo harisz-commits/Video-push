@@ -1,4 +1,4 @@
-import type { StoryStyle } from "./story";
+import type { StoryCharacter, StoryStyle } from "./story";
 
 /**
  * What the model is told when it writes a video.
@@ -43,20 +43,99 @@ Der Stil-Text ist eine Anweisung an einen Zeichner, kein Werbetext. Schreib ihn
 auf Englisch — die Bildmodelle folgen englischen Anweisungen zuverlässiger.
 400 bis 900 Zeichen.
 
+WENN FIGUREN VORGEGEBEN SIND:
+- Übersetz jede vorgegebene Figur in DIESEN Stil und beschreib sie auf
+  Englisch so, wie ein Zeichner sie zeichnen würde: Silhouette, Kleidung,
+  Farben aus der Palette, Kopfform, was sie bei sich trägt.
+- Die Beschreibung wird jedem Bildauftrag angehängt, in dem die Figur
+  vorkommt. Sie muss also für sich allein stehen und dieselbe Figur zweimal
+  gleich aussehen lassen — 200 bis 500 Zeichen, konkret, keine Stimmung.
+- Behalte den "key" unverändert bei. Er verbindet die Figur mit dem Skript.
+
 Antworte mit einem JSON-Objekt, sonst nichts:
-{"title":"…","styleName":"…","directive":"…","palette":["#rrggbb","#rrggbb","#rrggbb"]}
+{"title":"…","styleName":"…","directive":"…","palette":["#rrggbb","#rrggbb","#rrggbb"],
+ "characters":[{"key":"…","appearance":"…"}]}
 
 - "title": maximal 60 Zeichen, deutsch, macht neugierig.
 - "styleName": kurzer deutscher Name des Looks, z. B. "Sand und Indigo,
   Siebdruck". Er wird zum Schlüssel, unter dem Bilder dieses Looks später
   wiedergefunden werden — also beschreibend, nicht poetisch.
-- "palette": 3 bis 5 Hexwerte, dieselben, die im directive genannt sind.`;
+- "palette": 3 bis 5 Hexwerte, dieselben, die im directive genannt sind.
+- "characters": nur wenn Figuren vorgegeben sind, sonst weglassen.`;
 
-export function buildStylePrompt(topic: string): string {
+export function buildStylePrompt(args: {
+  topic: string;
+  /**
+   * What the person making the video asked for, in their own words.
+   *
+   * Placed after the topic and before the instruction, and marked as binding,
+   * because the model's own first instinct about a subject is strong: asked
+   * for Egypt it will reach for sand and ochre whatever else it is told, and a
+   * wish mentioned in passing loses.
+   */
+  wish?: string;
+  /** Figures to translate into this look. See StoryCharacter. */
+  characters?: { key: string; name: string; description: string }[];
+}): string {
+  const wish = args.wish?.trim()
+    ? `
+
+VORGABE — die hat Vorrang vor deinem eigenen Geschmack:
+${args.wish.trim()}`
+    : "";
+
+  const characters = args.characters?.length
+    ? `
+
+DIESE FIGUREN KOMMEN VOR. Beschreib jede in diesem Stil auf Englisch:
+${args.characters.map((c) => `- ${c.key} — ${c.name}: ${c.description}`).join("\n")}`
+    : "";
+
   return `Thema des Videos:
-${topic}
+${args.topic}${wish}${characters}
 
 Leg den Bildstil fest, der zu diesem Thema passt.`;
+}
+
+/**
+ * Figures, described in a look that was decided before they existed.
+ *
+ * Reached only when a saved look is reused. The style call normally does this
+ * as part of deciding the look; here the look is already fixed and only the
+ * figures need translating into it.
+ */
+export const STORY_CHARACTER_SYSTEM_PROMPT = `Du beschreibst wiederkehrende Figuren für ein Erklärvideo, dessen Bildstil schon feststeht.
+
+- Übersetz jede Figur in DIESEN Stil. Der Stil-Text ist bindend; deine
+  Beschreibung darf ihm nicht widersprechen.
+- Schreib auf Englisch — die Bildmodelle folgen englischen Anweisungen
+  zuverlässiger.
+- Beschreib, was ein Zeichner braucht: Silhouette, Kleidung, Farben aus der
+  Palette, Kopfform, Haltung, was die Figur bei sich trägt.
+- Die Beschreibung wird jedem Bildauftrag angehängt, in dem die Figur
+  vorkommt. Sie muss also allein stehen können und dieselbe Figur zweimal
+  gleich aussehen lassen. 200 bis 500 Zeichen, konkret, keine Stimmung.
+- Kein Text im Bild, keine Schrift, keine Beschriftungen.
+- Behalte jeden "key" unverändert bei.
+
+Antworte mit einem JSON-Objekt, sonst nichts:
+{"characters":[{"key":"…","appearance":"…"}]}`;
+
+export function buildCharacterPrompt(args: {
+  topic: string;
+  style: StoryStyle;
+  characters: { key: string; name: string; description: string }[];
+}): string {
+  return `Thema des Videos:
+${args.topic}
+
+DER BILDSTIL STEHT FEST — „${args.style.name}":
+${args.style.directive.trim()}
+
+Palette: ${args.style.palette.join(", ")}
+
+DIESE FIGUREN. Beschreib jede in diesem Stil:
+${args.characters.map((c) => `- ${c.key} — ${c.name}: ${c.description}`).join("\n")}`;
 }
 
 /**
@@ -168,6 +247,11 @@ DIE BILDER:
 - Keine Schrift im Bild. Beschreibe niemals Text, Zahlen oder Beschriftungen.
 - Menschen sparsam und nur als reduzierte Strichfiguren. Zeig lieber die Sache
   selbst: Gebäude, Werkzeuge, Landschaften, Gegenstände, Schnittbilder.
+- WIEDERKEHRENDE FIGUREN: Bekommst du eine Figurenliste, dann trag in
+  "characters" die "key"-Werte der Figuren ein, die in DIESEM Bild zu sehen
+  sind. Beschreib ihr Aussehen NICHT in "prompt" — das steht schon fest und
+  wird angehängt. Schreib in "prompt" nur, was die Figur tut und wo sie steht.
+  Kommt keine Figur vor, lass "characters" weg.
 - "name" ist ein kurzer deutscher Name des Bildes, an dem man es in einer Liste
   wiedererkennt: "Lehmziegelhaus von der Seite", "Wasserkrug im Schatten".
 - "key" ist derselbe Name als Kleinbuchstaben-Slug: nur a-z, 0-9 und
@@ -208,7 +292,7 @@ KLANG:
   Einstellungen später.
 
 Antworte mit einem JSON-Objekt, sonst nichts:
-{"images":[{"key":"…","name":"…","prompt":"…"}],
+{"images":[{"key":"…","name":"…","prompt":"…","characters":["…"]}],
  "accents":[{"key":"…","name":"…","prompt":"…","seconds":2}],
  "shots":[{"text":"…","image":"…","motion":"in","ambience":"…","accent":"…"}]}
 
@@ -267,12 +351,24 @@ export function buildSectionPrompt(args: {
   beds: { key: string; name: string }[];
   /** How many NEW pictures this section may invent on top of the motifs. */
   imageBudget: number;
+  /** Recurring figures, so a section can put one in a picture. */
+  characters?: { key: string; name: string }[];
 }): string {
   const plan = args.sections
     .map((s, i) => `${i + 1}. ${s.title} — ${s.brief}${i === args.index ? "   <<< DIESEN schreibst du" : ""}`)
     .join("\n");
 
   const shots = Math.max(2, Math.round(args.words / 8));
+
+  const cast = args.characters?.length
+    ? `
+
+DIESE FIGUREN GIBT ES. Ihr Aussehen steht fest und wird angehängt — nenn in
+"characters" nur die Schlüssel derer, die im jeweiligen Bild zu sehen sind:
+${args.characters.map((c) => `- ${c.key} (${c.name})`).join("\n")}
+Zwing sie nicht in jedes Bild. Eine Figur, die überall auftaucht, hört auf,
+etwas zu bedeuten.`
+    : "";
 
   return `Thema des Videos:
 ${args.topic}
@@ -304,7 +400,7 @@ Motiv wiederkehren.
 
 DIESE KLANGTEPPICHE STEHEN ZUR VERFÜGUNG. Setz einen davon auf jede
 Einstellung, meist über viele Einstellungen denselben:
-${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n") || "- keine"}`;
+${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n") || "- keine"}${cast}`;
 }
 
 /**
@@ -324,13 +420,47 @@ ${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n") || "- keine"}`;
  * abstraction "no photorealism" — which a photograph does not recognise itself
  * as.
  */
-export function imagePrompt(subject: string, style: StoryStyle): string {
+export function imagePrompt(
+  subject: string,
+  style: StoryStyle,
+  /** The figures visible in this picture, already translated into the look. */
+  characters: StoryCharacter[] = [],
+): string {
+  // Stated separately and marked as binding, because the palette is the one
+  // part of the style a person can now change by hand. The directive names its
+  // colours in prose as well, and a hand-edited palette would otherwise be
+  // contradicted by a sentence written before the change — an unresolvable
+  // order, which a model resolves by picking one at random per image.
+  // Placed last, after the characters, and not merely after the directive.
+  // Both of those name colours in prose, and both can now be edited by hand
+  // while the other is not — so the one statement that wins has to be the one
+  // the model reads last as well as the one that calls itself authoritative.
+  const palette = style.palette.length
+    ? `
+
+PALETTE (authoritative — use these exact colours; they override every colour
+named anywhere above, including in a character description):
+${style.palette.join(", ")}`
+    : "";
+
+  const cast = characters
+    .map((c) => c.appearance?.trim() || c.description.trim())
+    .filter(Boolean);
+
+  const figures = cast.length
+    ? `
+
+RECURRING CHARACTERS IN THIS IMAGE (draw them exactly as described — they
+appear across the whole film and must be recognisably the same each time):
+${cast.map((c) => `- ${c}`).join("\n")}`
+    : "";
+
   return `A flat 2D illustration — a drawing, not a photograph.
 
 SUBJECT: ${subject.trim()}
 
 STYLE (follow exactly; this is the house style for every image in this film):
-${style.directive.trim()}
+${style.directive.trim()}${figures}${palette}
 
 HARD CONSTRAINTS:
 - This is an illustration. It is NOT a photograph, NOT a photo studio shot,

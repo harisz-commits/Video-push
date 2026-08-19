@@ -42,6 +42,21 @@ export type LibraryEntry = {
   style: string;
   url: string;
   model: string;
+  /**
+   * What the look was when this was drawn, beyond its name.
+   *
+   * The style name alone stopped being enough the moment the directive, the
+   * palette and the characters became editable by hand. A film can now keep
+   * the name "Sand und Indigo, Siebdruck" and mean something visibly
+   * different — and a lookup on the name alone would answer with the old
+   * picture, silently, which is the exact failure the style match was added to
+   * prevent.
+   *
+   * Optional because entries written before this existed have no fingerprint
+   * and are trusted: they were drawn when a style could not be edited, so
+   * their name really did pin their look.
+   */
+  fingerprint?: string;
   createdAt: number;
   /** How often it has been used since. Only for showing what is earning its keep. */
   uses: number;
@@ -67,9 +82,20 @@ export async function readLibrary(): Promise<LibraryIndex> {
 export async function lookup(
   key: string,
   style: string,
+  /** The look's fingerprint. See LibraryEntry.fingerprint. */
+  fingerprint?: string,
 ): Promise<LibraryEntry | null> {
   const { entries } = await readLibrary();
-  return entries.find((e) => e.key === key && e.style === style) ?? null;
+  return (
+    entries.find(
+      (e) =>
+        e.key === key &&
+        e.style === style &&
+        (e.fingerprint === undefined ||
+          fingerprint === undefined ||
+          e.fingerprint === fingerprint),
+    ) ?? null
+  );
 }
 
 /** Every picture drawn in one look, for offering reuse in a new video. */
@@ -91,12 +117,16 @@ export async function remember(args: {
   name: string;
   prompt: string;
   style: string;
+  fingerprint?: string;
   model: string;
   bytes: Buffer;
   contentType?: string;
 }): Promise<LibraryEntry> {
   const url = await writeBinary(
-    `${IMAGE_PREFIX}${args.key}-${hash(args.style)}.png`,
+    // The fingerprint is part of the filename as well as the index, so a
+    // redraw under an edited style writes a new file instead of overwriting
+    // the picture that other, older projects are still pointing at.
+    `${IMAGE_PREFIX}${args.key}-${hash(args.style + (args.fingerprint ?? ""))}.png`,
     args.bytes,
     args.contentType ?? "image/png",
   );
@@ -106,6 +136,7 @@ export async function remember(args: {
     name: args.name,
     prompt: args.prompt,
     style: args.style,
+    fingerprint: args.fingerprint,
     url,
     model: args.model,
     createdAt: Date.now(),
@@ -117,7 +148,12 @@ export async function remember(args: {
   // subject in the same look is a correction, and keeping both would leave the
   // old one to be found by the next lookup.
   const entries = index.entries.filter(
-    (e) => !(e.key === entry.key && e.style === entry.style),
+    (e) =>
+      !(
+        e.key === entry.key &&
+        e.style === entry.style &&
+        e.fingerprint === entry.fingerprint
+      ),
   );
   entries.push(entry);
 

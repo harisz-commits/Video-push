@@ -1,5 +1,9 @@
 import { waitUntil } from "@vercel/functions";
-import { synthesizeWithTimestamps } from "../../../../lib/elevenlabs";
+import { listVoices, synthesizeWithTimestamps } from "../../../../lib/elevenlabs";
+import {
+  DEFAULT_SPEECH_MODEL_ID,
+  resolveSpeechModel,
+} from "../../../../lib/speech-models";
 import { errorResponse, guard } from "../../../../lib/guardrails";
 import { spellNumbers } from "../../../../lib/say-numbers";
 import { mp3Duration } from "../../../../lib/mp3";
@@ -28,7 +32,20 @@ export const maxDuration = 300;
  * than at it, because the cut can only fall between shots and the last shot
  * before the boundary has to fit.
  */
-const CHARS_PER_REQUEST = 9_000;
+/**
+ * How much of a model's ceiling one request is allowed to use.
+ *
+ * Below the limit rather than at it, because the cut can only fall between
+ * shots: the last shot before the boundary has to fit, and a script whose
+ * sentences are long would otherwise overshoot by one of them. Five percent of
+ * headroom is far more than any single shot needs.
+ *
+ * This used to be one number, 9,000, sized for the only model there was. It
+ * mattered more than it looks: at 9,000 a twenty-five minute narration is four
+ * separate recordings stitched together, and on Flash v2.5 — 40,000 characters
+ * a request — the same script is one.
+ */
+const HEADROOM = 0.95;
 
 /**
  * When to give up rather than be killed mid-recording.
@@ -58,10 +75,13 @@ export async function GET(req: Request) {
   // No jobId means "can this account speak at all", which the studio asks
   // before it offers the button.
   if (!jobId) {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
     return Response.json({
-      elevenlabs: Boolean(
-        process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID,
-      ),
+      elevenlabs: Boolean(apiKey && process.env.ELEVENLABS_VOICE_ID),
+      defaultVoiceId: process.env.ELEVENLABS_VOICE_ID ?? null,
+      // Never fatal. Without the list the studio falls back to the configured
+      // voice, which is exactly what it did before there was a picker.
+      voices: apiKey ? await listVoices(apiKey).catch(() => []) : [],
     });
   }
 
@@ -89,13 +109,35 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   let project: StoryProject;
   let voiceName: string | undefined;
+  let voiceLabel: string | undefined;
+  let language: string | undefined;
+  let modelId: string;
   try {
-    const body = (await req.json()) as { project?: unknown; voice?: unknown };
+    const body = (await req.json()) as {
+      project?: unknown;
+      voice?: unknown;
+      voiceLabel?: unknown;
+      model?: unknown;
+      language?: unknown;
+    };
     project = StoryProject.parse(body.project);
     voiceName = typeof body.voice === "string" ? body.voice.slice(0, 120) : undefined;
+    voiceLabel =
+      typeof body.voiceLabel === "string" ? body.voiceLabel.slice(0, 120) : undefined;
+    // Resolved against the closed list, never passed through: an id taken on
+    // trust is permission to bill this account for whatever it names.
+    modelId = resolveSpeechModel(
+      typeof body.model === "string" ? body.model : DEFAULT_SPEECH_MODEL_ID,
+    ).id;
+    language =
+      typeof body.language === "string" && /^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(body.language)
+        ? body.language
+        : undefined;
   } catch {
     return errorResponse("Ungültige Anfrage. Erwartet wird das Video.", 400);
   }
+
+  const speech = resolveSpeechModel(modelId);
 
   // Refused up front rather than half way through: finding out that the key
   // was never set after the whole narration has been assembled helps nobody.
@@ -131,7 +173,10 @@ export async function POST(req: Request) {
         // Recorded in as many requests as the length needs, joined end to
         // end. The cut always falls between shots, where the picture changes
         // anyway, so a seam has somewhere to hide.
-        const chunks = chunkSegments(segments, CHARS_PER_REQUEST);
+        const chunks = chunkSegments(
+          segments,
+          Math.floor(speech.maxChars * HEADROOM),
+        );
         const parts: Buffer[] = [];
         const cues: number[] = [];
         let offset = 0;
@@ -157,6 +202,8 @@ export async function POST(req: Request) {
             text: chunk.segments.join(" "),
             voiceId: elevenVoice,
             apiKey: elevenKey,
+            modelId: speech.id,
+            language,
             speed: project.speed,
           });
 
@@ -186,6 +233,10 @@ export async function POST(req: Request) {
           audioSeconds: seconds,
           characters,
           voice: voiceName,
+          voiceLabel,
+          model: speech.id,
+          modelLabel: speech.label,
+          language: speech.language ? language : undefined,
           startedAt,
           updatedAt: Date.now(),
         } satisfies StoryVoiceJob);
