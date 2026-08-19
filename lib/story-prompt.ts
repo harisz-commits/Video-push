@@ -146,9 +146,13 @@ DER GESPROCHENE TEXT:
 
 DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):
 - Jede Einstellung ist EIN Bild und der Text, der dazu gesprochen wird.
-- Zwei bis vier Sekunden pro Einstellung. Bei diesem Tempo sind das
-  5 bis 11 Wörter. Halte dich daran — längere Texte stehen zu lange auf
-  demselben Bild.
+- Im DURCHSCHNITT acht Wörter je Einstellung. Nicht jede.
+- Die einzelnen dürfen zwischen 3 und 14 Wörtern liegen, und sie sollen es
+  auch: aus der Satzlänge entsteht die Standzeit des Bildes, also ist sie dein
+  einziges Mittel für Tempo. Drei Wörter sind ein harter Schnitt, vierzehn
+  lassen ein Bild stehen.
+- Gemessen an einem früheren Lauf: alle Sätze lagen zwischen sieben und neun
+  Wörtern. Das ist gleichmäßig, sicher und tot. Streu bewusst.
 - Schneide an Sinngrenzen, nicht mitten im Gedanken.
 - Aneinandergehängt ergeben alle Einstellungstexte den fertigen Fließtext.
   Schreib ihn so, dass er sich als Ganzes flüssig liest.
@@ -169,14 +173,16 @@ DIE BILDER:
 - "key" ist derselbe Name als Kleinbuchstaben-Slug: nur a-z, 0-9 und
   Bindestriche, Umlaute ausgeschrieben. "lehmziegelhaus-von-der-seite".
 
-TEMPO:
-- Die Länge der Einstellungen ergibt sich aus der Länge deiner Sätze. Nutz das.
-- Ein kurzer Satz ist ein schneller Schnitt. Drei kurze hintereinander treiben
-  an. Ein langer Satz lässt ein Bild stehen und beruhigt.
-- Bau diesen Wechsel absichtlich: nach einer Reihe kurzer Sätze ein längerer,
-  vor einer wichtigen Aussage eine kurze, harte Einstellung.
-- Gleichmäßig lange Sätze über zwanzig Einstellungen sind das Sicherste, was
-  du tun kannst, und das Langweiligste.
+TEMPO — das ist die wichtigste Regel dieses Abschnitts:
+- Die Standzeit eines Bildes IST die Länge deines Satzes. Es gibt kein anderes
+  Mittel, das Tempo zu steuern.
+- Ein Satz mit drei bis fünf Wörtern ist ein harter, schneller Schnitt. Drei
+  davon hintereinander treiben an. Ein Satz mit zwölf bis vierzehn Wörtern
+  lässt das Bild stehen und beruhigt.
+- Bau den Wechsel absichtlich: vor einer wichtigen Aussage eine kurze, harte
+  Einstellung; nach einer Reihe kurzer ein langer Satz, der sie auffängt.
+- Prüf deinen Abschnitt am Ende selbst: liegen alle Sätze in einer engen
+  Spanne, hast du kein Tempo gebaut, sondern es vermieden. Schreib ihn um.
 
 BEWEGUNG:
 - "motion" bewegt das Standbild langsam: "in" (heran), "out" (weg),
