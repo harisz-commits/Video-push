@@ -41,6 +41,11 @@ export async function GET() {
       ["cpu", "grep -m1 'model name' /proc/cpuinfo | cut -d: -f2"],
       ["ram", "free -m | awk '/Mem:/ {print $2\" MB\"}'"],
       ["last", "uptime"],
+      // The sandbox ships its own uploader. Joining the pieces has to happen
+      // detached inside the sandbox — a background task of this function is
+      // killed after five minutes — so the upload has to happen there too,
+      // and that means knowing how this script wants to be called.
+      ["upload-skript", "sed -n '1,60p' upload-blob.mjs 2>/dev/null || echo FEHLT"],
     ];
     for (const [name, script] of checks) {
       const done = await sandbox.runCommand("sh", ["-lc", script]);
