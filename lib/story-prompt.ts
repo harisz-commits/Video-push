@@ -95,9 +95,21 @@ DIE WIEDERKEHRENDEN MOTIVE:
 - "key" ist ein Kleinbuchstaben-Slug: a-z, 0-9, Bindestriche, Umlaute
   ausgeschrieben.
 
+DIE KLANGTEPPICHE:
+- Drei bis fünf Hintergrundgeräusche, die unter den Abschnitten laufen.
+- Sie tragen die Spannung, die dieses Format sonst nicht hat: es bewegt sich
+  kein Bild wirklich, also muss der Ton die Arbeit machen. Wind über Schnee,
+  ein knisterndes Feuer, tropfendes Wasser in einer Höhle, das Rauschen eines
+  Flusses.
+- Beschreib in "prompt" auf Englisch, was zu hören ist. Keine Musik, keine
+  Melodie, keine Stimmen — das würde gegen den Sprecher arbeiten.
+- Jeder Teppich passt zu MEHREREN Abschnitten. Drei gute sind besser als acht,
+  die sich kaum unterscheiden.
+
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"sections":[{"title":"…","brief":"…"}],
- "motifs":[{"key":"…","name":"…","prompt":"…"}]}`;
+ "motifs":[{"key":"…","name":"…","prompt":"…"}],
+ "beds":[{"key":"…","name":"…","prompt":"…"}]}`;
 
 export function buildOutlinePrompt(args: {
   topic: string;
@@ -105,14 +117,20 @@ export function buildOutlinePrompt(args: {
   minutes: number;
   sections: number;
   motifs: number;
+  beds: number;
 }): string {
   return `Thema des Videos:
 ${args.topic}
 
 Bildstil steht fest: „${args.style.name}"
 
-Plane genau ${args.sections} Abschnitte für ${args.minutes} Minuten Video und
-${args.motifs} wiederkehrende Motive.`;
+Plane genau ${args.sections} Abschnitte für ${args.minutes} Minuten Video,
+${args.motifs} wiederkehrende Motive und ${args.beds} Klangteppiche.
+
+Der Inhalt muss tragen. Ein Abschnitt, der nur sagt "es war kalt und schwer",
+ist verschenkt. Jeder Abschnitt braucht etwas Konkretes: eine Technik, eine
+Zahl, einen Gegenstand, eine Entscheidung, eine Folge. Wenn du zum Thema
+nichts Konkretes weißt, wähl einen anderen Abschnitt.`;
 }
 
 export const STORY_SCRIPT_SYSTEM_PROMPT = `Du schreibst ein deutsches Erklärvideo: gesprochenen Text und dazu die Bilder.
@@ -151,18 +169,48 @@ DIE BILDER:
 - "key" ist derselbe Name als Kleinbuchstaben-Slug: nur a-z, 0-9 und
   Bindestriche, Umlaute ausgeschrieben. "lehmziegelhaus-von-der-seite".
 
+TEMPO:
+- Die Länge der Einstellungen ergibt sich aus der Länge deiner Sätze. Nutz das.
+- Ein kurzer Satz ist ein schneller Schnitt. Drei kurze hintereinander treiben
+  an. Ein langer Satz lässt ein Bild stehen und beruhigt.
+- Bau diesen Wechsel absichtlich: nach einer Reihe kurzer Sätze ein längerer,
+  vor einer wichtigen Aussage eine kurze, harte Einstellung.
+- Gleichmäßig lange Sätze über zwanzig Einstellungen sind das Sicherste, was
+  du tun kannst, und das Langweiligste.
+
 BEWEGUNG:
 - "motion" bewegt das Standbild langsam: "in" (heran), "out" (weg),
   "left", "right", "up", "down".
-- Wechsle sie ab. Zwei gleiche Bewegungen hintereinander wirken wie ein Fehler,
-  und dasselbe Bild mit anderer Bewegung wirkt wie eine neue Einstellung.
+- Wähl sie nach dem Inhalt, nicht nach Abwechslung allein: "in" bei einem
+  Detail, auf das es ankommt; "out" wenn sich etwas als größer herausstellt
+  als gedacht; "left"/"right" bei Landschaften und Wegen; "up" bei Höhe,
+  "down" bei Schnitten in den Boden oder in die Tiefe.
+- Zwei gleiche Bewegungen hintereinander wirken wie ein Fehler, und dasselbe
+  Bild mit anderer Bewegung wirkt wie eine neue Einstellung.
+
+KLANG:
+- "ambience" nennt den Klangteppich, der unter dieser Einstellung läuft — mit
+  dem "key" aus der Liste, die du bekommst. Setz denselben Teppich über viele
+  Einstellungen am Stück; ein Wechsel bei jeder Einstellung wäre Lärm.
+  Ein Wechsel markiert einen Ortswechsel oder einen Gedankensprung.
+- "accent" ist ein einzelnes Geräusch genau auf dieser Einstellung: ein
+  brechender Knochen, ein Schlag Stein auf Stein, eine Böe, die ankommt.
+  SPARSAM — höchstens jede fünfte bis achte Einstellung. Ein Akzent auf jeder
+  wäre kein Sounddesign, sondern ein Schlagzeug.
+- Setz Akzente dorthin, wo der Satz sie selbst nennt. Wenn der Text von
+  splitterndem Eis spricht, gehört das Geräusch genau dahin — nicht zwei
+  Einstellungen später.
 
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"images":[{"key":"…","name":"…","prompt":"…"}],
- "shots":[{"text":"…","image":"…","motion":"in"}]}
+ "accents":[{"key":"…","name":"…","prompt":"…","seconds":2}],
+ "shots":[{"text":"…","image":"…","motion":"in","ambience":"…","accent":"…"}]}
 
 - Jeder "image"-Wert in shots MUSS als "key" in images vorkommen.
-- Jedes Bild in images MUSS von mindestens einer Einstellung benutzt werden.`;
+- Jedes Bild in images MUSS von mindestens einer Einstellung benutzt werden.
+- "ambience" nimmt nur "key"-Werte aus den vorgegebenen Klangteppichen.
+- "accent" ist optional und verweist auf einen "key" aus deiner
+  accents-Liste. "prompt" dort auf Englisch, "seconds" zwischen 1 und 4.`;
 
 export function buildScriptPrompt(args: {
   topic: string;
@@ -209,6 +257,8 @@ export function buildSectionPrompt(args: {
   words: number;
   /** Motif keys every section may reuse, chosen once for the whole film. */
   motifs: { key: string; name: string }[];
+  /** Bed keys, likewise chosen once, so the sound does not change per section. */
+  beds: { key: string; name: string }[];
   /** How many NEW pictures this section may invent on top of the motifs. */
   imageBudget: number;
 }): string {
@@ -244,7 +294,11 @@ Nimm ihre "key"-Werte direkt in den Einstellungen. Führ sie NICHT noch einmal
 in "images" auf.
 
 NEUE BILDER: höchstens ${args.imageBudget}. Jedes kostet Geld — lass lieber ein
-Motiv wiederkehren.`;
+Motiv wiederkehren.
+
+DIESE KLANGTEPPICHE STEHEN ZUR VERFÜGUNG. Setz einen davon auf jede
+Einstellung, meist über viele Einstellungen denselben:
+${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n") || "- keine"}`;
 }
 
 /**

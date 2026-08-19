@@ -83,8 +83,52 @@ export const StoryShot = z.object({
   /** Which picture, by key. Several shots may name the same one. */
   image: z.string(),
   motion: ShotMotion.default("in"),
+  /**
+   * The bed running underneath, by key.
+   *
+   * Consecutive shots naming the same bed share one continuous playback — a
+   * wind that restarted every three seconds would be the most obvious tell
+   * that this is a slideshow with noise on top.
+   */
+  ambience: z.string().optional(),
+  /**
+   * A one-shot sound fired as this shot begins, by key.
+   *
+   * This is where the format gets its punctuation: a bone cracking, a stone
+   * struck, a gust arriving. Sparingly — an accent on every shot is not sound
+   * design, it is a drum machine.
+   */
+  accent: z.string().optional(),
 });
 export type StoryShot = z.infer<typeof StoryShot>;
+
+/**
+ * A generated sound, either a bed or a hit.
+ *
+ * Named and stored exactly like the pictures, for exactly the same reason: a
+ * bed called "wind-ueber-schnee" can be recognised, reused in the next film
+ * and redrawn on purpose. See lib/image-library.ts, which this borrows.
+ */
+export const StorySound = z.object({
+  key: z.string().regex(/^[a-z0-9][a-z0-9-]{2,79}$/),
+  name: z.string().min(3).max(120),
+  /** What to generate, in English — the models follow it far more reliably. */
+  prompt: z.string().min(6).max(400),
+  kind: z.enum(["ambience", "accent"]),
+  /**
+   * Seconds asked for.
+   *
+   * Beds are short and looped rather than generated at full length: a bed
+   * under a two-minute section would cost as much as the narration itself,
+   * and a ten-second loop of wind is indistinguishable from two minutes of it.
+   */
+  seconds: z.number().min(0.5).max(22),
+  url: z.string().url().optional(),
+  /** How long the file really is, which decides where a loop restarts. */
+  audioSeconds: z.number().positive().optional(),
+  reused: z.boolean().optional(),
+});
+export type StorySound = z.infer<typeof StorySound>;
 
 export const StoryProject = z.object({
   kind: z.literal("video"),
@@ -93,7 +137,16 @@ export const StoryProject = z.object({
   title: z.string(),
   style: StoryStyle,
   images: z.array(StoryImage).min(1),
+  sounds: z.array(StorySound).default([]),
   shots: z.array(StoryShot).min(1),
+  /**
+   * How loud the beds and hits sit under the voice.
+   *
+   * Low by default and adjustable, because this is the one setting where
+   * taste and headphones disagree: what reads as atmosphere on a phone
+   * speaker is a wind tunnel in good headphones.
+   */
+  soundLevel: z.number().min(0).max(1).default(0.22),
   /**
    * How fast it is read.
    *

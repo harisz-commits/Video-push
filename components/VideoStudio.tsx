@@ -9,6 +9,7 @@ import {
   type StoryProject as Story,
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
+import { soundCost } from "../lib/sfx";
 import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
 import { StoryVideo } from "../remotion/story/StoryVideo";
 import { getJson, postJson } from "./api";
@@ -101,6 +102,12 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const [drawStep, setDrawStep] = useState<string | null>(null);
   const [drawNote, setDrawNote] = useState<string | null>(null);
   const [drawError, setDrawError] = useState<string | null>(null);
+
+  const [sfxJobId, setSfxJobId] = useState<string | null>(null);
+  const [sfxBusy, setSfxBusy] = useState(false);
+  const [sfxStep, setSfxStep] = useState<string | null>(null);
+  const [sfxNote, setSfxNote] = useState<string | null>(null);
+  const [sfxError, setSfxError] = useState<string | null>(null);
 
   const [voiceJobId, setVoiceJobId] = useState<string | null>(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
@@ -411,6 +418,77 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       window.clearInterval(id);
     };
   }, [drawJobId]);
+
+  // ---- Sound design -------------------------------------------------------
+  async function makeSounds() {
+    setSfxBusy(true);
+    setSfxError(null);
+    setSfxNote(null);
+    const result = await postJson<{ jobId: string }>("/api/story/sounds", {
+      project,
+    });
+    if (!result.ok) {
+      setSfxError(result.error);
+      setSfxBusy(false);
+      return;
+    }
+    setSfxJobId(result.data.jobId);
+  }
+
+  useEffect(() => {
+    if (!sfxJobId) return;
+    let cancelled = false;
+    let failures = 0;
+
+    const tick = async () => {
+      const result = await getJson<{
+        status: string;
+        step?: string;
+        project?: unknown;
+        error?: string;
+        warning?: string;
+        made?: number;
+        reused?: number;
+        characters?: number;
+      }>(`/api/story/sounds?jobId=${encodeURIComponent(sfxJobId)}`);
+      if (cancelled) return;
+      if (!result.ok) {
+        failures += 1;
+        if (failures > TOLERATED_POLL_FAILURES) {
+          setSfxError(result.error);
+          setSfxBusy(false);
+          setSfxJobId(null);
+        }
+        return;
+      }
+      failures = 0;
+      setSfxStep(result.data.step ?? null);
+      if (result.data.status === "running") return;
+
+      if (result.data.status === "done" && result.data.project) {
+        const parsed = StoryProject.safeParse(result.data.project);
+        if (parsed.success) setProject(parsed.data);
+        const free = result.data.reused ?? 0;
+        setSfxNote(
+          `${result.data.made ?? 0} erzeugt für ${(result.data.characters ?? 0).toLocaleString("de-DE")} Zeichen` +
+            (free > 0 ? `, ${free} aus der Bibliothek — kostenlos.` : "."),
+        );
+        if (result.data.warning) setSfxError(result.data.warning);
+      } else {
+        setSfxError(result.data.error ?? "Die Geräusche konnten nicht erzeugt werden.");
+      }
+      setSfxJobId(null);
+      setSfxStep(null);
+      setSfxBusy(false);
+    };
+
+    void tick();
+    const id = window.setInterval(() => void tick(), 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [sfxJobId]);
 
   // ---- Voice --------------------------------------------------------------
   async function speak() {
@@ -808,6 +886,94 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
             <Panel
               step="03"
+              title="Klang"
+              right={
+                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                  {(project.sounds ?? []).filter((s) => s.url).length}/
+                  {(project.sounds ?? []).length}
+                </span>
+              }
+            >
+              {(project.sounds ?? []).length === 0 ? (
+                <Note tone="info">
+                  Dieses Video hat noch kein Klangdesign. Skripte, die vor
+                  dieser Erweiterung geschrieben wurden, kennen es nicht — erzeug
+                  das Skript neu, dann plant es Klangteppiche und Akzente mit.
+                </Note>
+              ) : (
+                <>
+                  <Button
+                    onClick={() => void makeSounds()}
+                    disabled={sfxBusy || soundCost(project).sounds === 0}
+                  >
+                    {sfxBusy
+                      ? (sfxStep ?? "wird erzeugt…")
+                      : soundCost(project).sounds === 0
+                        ? "Alle Geräusche erzeugt"
+                        : `${soundCost(project).sounds} Geräusche erzeugen — ${soundCost(project).characters.toLocaleString("de-DE")} Zeichen`}
+                  </Button>
+                  {sfxError ? <Note tone="alert">{sfxError}</Note> : null}
+                  {sfxNote ? <Note tone="info">{sfxNote}</Note> : null}
+
+                  <label
+                    className="mono"
+                    style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "10px 0 4px" }}
+                  >
+                    Lautstärke unter der Stimme:{" "}
+                    {Math.round(project.soundLevel * 100)} %
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={0.6}
+                    step={0.02}
+                    value={project.soundLevel}
+                    onChange={(e) =>
+                      setProject((p) => ({
+                        ...p,
+                        soundLevel: Number(e.target.value),
+                      }))
+                    }
+                    style={{ width: "100%" }}
+                    aria-label="Klanglautstärke"
+                  />
+
+                  <div style={{ marginTop: 10, maxHeight: 200, overflowY: "auto" }}>
+                    {(project.sounds ?? []).map((snd) => (
+                      <div
+                        key={snd.key}
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                          padding: "5px 0",
+                          borderBottom: "1px solid var(--grid)",
+                          fontSize: 12,
+                        }}
+                      >
+                        <span
+                          className="mono"
+                          style={{ fontSize: 10, color: "#5b6672", minWidth: 62 }}
+                        >
+                          {snd.kind === "ambience" ? "Teppich" : "Akzent"}
+                        </span>
+                        <span style={{ flex: 1 }}>{snd.name}</span>
+                        {snd.url ? (
+                          <audio src={snd.url} controls style={{ height: 24, width: 130 }} />
+                        ) : (
+                          <span className="mono" style={{ fontSize: 10, color: "#5b6672" }}>
+                            {snd.seconds}s
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </Panel>
+
+            <Panel
+              step="04"
               title="Stimme"
               right={
                 <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
@@ -871,7 +1037,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               ) : null}
             </Panel>
 
-            <Panel step="04" title="Rendern">
+            <Panel step="05" title="Rendern">
               <Button
                 onClick={() => void startRender()}
                 disabled={Boolean(render && render.status !== "done" && render.status !== "error")}
@@ -891,7 +1057,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             </Panel>
 
             <ThumbnailPanel
-              step="05"
+              step="06"
               // No flags in this format — it has no country questions, and an
               // unrelated flag on the cover would be a promise the video does
               // not keep.

@@ -358,6 +358,25 @@ export type StoryImageJob = {
 export const storyImageJobPath = (jobId: string) =>
   `jobs/story-images/${jobId}.json`;
 
+/** Generating the sound design for a video. Same shape as the image job. */
+export type StorySoundJob = {
+  jobId: string;
+  status: "running" | "done" | "error";
+  step?: string;
+  project?: unknown;
+  error?: string;
+  warning?: string;
+  made?: number;
+  reused?: number;
+  /** Characters of the ElevenLabs allowance spent. */
+  characters?: number;
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const storySoundJobPath = (jobId: string) =>
+  `jobs/story-sounds/${jobId}.json`;
+
 /**
  * A video being spoken, by whichever provider was chosen.
  *

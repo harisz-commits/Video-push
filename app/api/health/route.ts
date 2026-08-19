@@ -59,10 +59,6 @@ export async function GET() {
     // request, not as anything you can see in advance. Asking the catalogue
     // endpoint is free and turns "which ids exist" from guesswork into a list.
     googleModels: await googleModels(),
-    // Whether this account can generate sound effects, and what one costs.
-    // Sound design is the piece the video format is missing most, and it
-    // stands or falls with this endpoint — so it is asked, not assumed.
-    sfx: await soundEffects(),
     settings: {
       // Which model writes a quiz when nobody picks one in the studio, and
       // which provider it therefore needs a key for.
@@ -183,38 +179,6 @@ async function googleModels(): Promise<unknown> {
       .sort();
   } catch (err) {
     return { error: (err as Error).message.slice(0, 120) };
-  }
-}
-
-/**
- * Whether ElevenLabs will generate sound effects for this account.
- *
- * Deliberately generates a real one — the shortest the API allows — because
- * the catalogue tells you nothing about entitlement, and a plan that refuses
- * sound generation refuses it at the moment of use. Half a second of noise is
- * a cheap way to find that out before a whole feature is built on it.
- */
-async function soundEffects(): Promise<unknown> {
-  const key = process.env.ELEVENLABS_API_KEY;
-  if (!key) return null;
-  try {
-    const res = await fetch("https://api.elevenlabs.io/v1/sound-generation", {
-      method: "POST",
-      headers: { "xi-api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: "short gust of wind",
-        duration_seconds: 0.5,
-        prompt_influence: 0.3,
-      }),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      return { ok: false, status: res.status, detail: detail.slice(0, 300) };
-    }
-    const bytes = (await res.arrayBuffer()).byteLength;
-    return { ok: true, bytes, hinweis: "0,5 s erzeugt" };
-  } catch (err) {
-    return { ok: false, fehler: (err as Error).message.slice(0, 160) };
   }
 }
 

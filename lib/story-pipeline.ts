@@ -1,6 +1,12 @@
 import { complete } from "./llm";
 import { slugify } from "./image-library";
-import { StoryProject, StoryStyle, type StoryImage, type StoryShot } from "./story";
+import {
+  StoryProject,
+  StoryStyle,
+  type StoryImage,
+  type StoryShot,
+  type StorySound,
+} from "./story";
 import {
   buildOutlinePrompt,
   buildSectionPrompt,
@@ -82,6 +88,7 @@ export async function generateStory(args: {
       title: style.title,
       style: style.style,
       images: script.images,
+      sounds: script.sounds,
       shots: script.shots,
       fps: 30,
       width: 1920,
@@ -212,7 +219,12 @@ async function writeScript(args: {
   imageBudget: number;
   deadline: number;
   onProgress: (step: string) => Promise<unknown>;
-}): Promise<{ images: StoryImage[]; shots: StoryShot[]; short: boolean }> {
+}): Promise<{
+  images: StoryImage[];
+  sounds: StorySound[];
+  shots: StoryShot[];
+  short: boolean;
+}> {
   const sectionCount = Math.max(
     1,
     Math.min(15, Math.round(args.minutes / MINUTES_PER_SECTION)),
@@ -222,6 +234,9 @@ async function writeScript(args: {
   // on; the rest is split between them. Without a shared pool the sections
   // would each invent their own vocabulary and nothing would ever recur.
   const motifBudget = Math.max(3, Math.min(8, Math.round(args.imageBudget / 3)));
+  // Three to five beds for a whole film. More would not be richer, only less
+  // recognisable — a bed earns its keep by coming back.
+  const bedBudget = args.minutes >= 8 ? 5 : 3;
   const perSection = Math.max(
     1,
     Math.floor((args.imageBudget - motifBudget) / sectionCount),
@@ -237,12 +252,15 @@ async function writeScript(args: {
     ...args,
     sections: sectionCount,
     motifs: motifBudget,
+    beds: bedBudget,
   });
 
   const words = Math.round((args.minutes * WORDS_PER_MINUTE) / sectionCount);
-  const results = new Array<{ images: StoryImage[]; shots: StoryShot[] } | null>(
-    sectionCount,
-  ).fill(null);
+  const results = new Array<{
+    images: StoryImage[];
+    sounds: StorySound[];
+    shots: StoryShot[];
+  } | null>(sectionCount).fill(null);
   let done = 0;
   let next = 0;
   let short = false;
@@ -270,6 +288,7 @@ async function writeScript(args: {
               index,
               words,
               motifs: plan.motifs,
+              beds: plan.beds,
               imageBudget: perSection,
             }),
           },
@@ -283,9 +302,16 @@ async function writeScript(args: {
       try {
         const json = parseObject(reply.text) as {
           images?: unknown;
+          accents?: unknown;
           shots?: unknown;
         };
-        results[index] = reconcile(json.images, json.shots, plan.motifs);
+        results[index] = reconcile(
+          json.images,
+          json.shots,
+          plan.motifs,
+          json.accents,
+          plan.beds,
+        );
       } catch {
         // One section that will not parse must not cost the other twelve. The
         // film is shorter by that section and says so.
@@ -302,12 +328,17 @@ async function writeScript(args: {
   // Stitched in outline order, not in the order they came back.
   const images = new Map<string, StoryImage>();
   for (const motif of plan.motifs) images.set(motif.key, motif);
+  const sounds = new Map<string, StorySound>();
+  for (const bed of plan.beds) sounds.set(bed.key, bed);
   const shots: StoryShot[] = [];
 
   for (const result of results) {
     if (!result) continue;
     for (const image of result.images) {
       if (!images.has(image.key)) images.set(image.key, image);
+    }
+    for (const sound of result.sounds) {
+      if (!sounds.has(sound.key)) sounds.set(sound.key, sound);
     }
     for (const shot of result.shots) {
       shots.push({ ...shot, id: `s${shots.length + 1}` });
@@ -320,8 +351,13 @@ async function writeScript(args: {
 
   // A motif nobody used is a picture nobody should pay for.
   const used = new Set(shots.map((s) => s.image));
+  // A sound nobody plays is a sound nobody should pay for.
+  const heard = new Set(
+    shots.flatMap((s) => [s.ambience, s.accent].filter(Boolean) as string[]),
+  );
   return {
     images: [...images.values()].filter((i) => used.has(i.key)),
+    sounds: [...sounds.values()].filter((s) => heard.has(s.key)),
     shots,
     short,
   };
@@ -336,9 +372,11 @@ async function writeOutline(args: {
   minutes: number;
   sections: number;
   motifs: number;
+  beds: number;
 }): Promise<{
   sections: { title: string; brief: string }[];
   motifs: StoryImage[];
+  beds: StorySound[];
 }> {
   const reply = await complete({
     model: args.model,
@@ -353,6 +391,7 @@ async function writeOutline(args: {
           minutes: args.minutes,
           sections: args.sections,
           motifs: args.motifs,
+          beds: args.beds,
         }),
       },
     ],
@@ -362,7 +401,11 @@ async function writeOutline(args: {
   args.spent.input += reply.usage.input;
   args.spent.output += reply.usage.output;
 
-  const json = parseObject(reply.text) as { sections?: unknown; motifs?: unknown };
+  const json = parseObject(reply.text) as {
+    sections?: unknown;
+    motifs?: unknown;
+    beds?: unknown;
+  };
 
   const sections = (Array.isArray(json.sections) ? json.sections : [])
     .map((item) => item as { title?: unknown; brief?: unknown })
@@ -389,7 +432,28 @@ async function writeOutline(args: {
     motifs.push({ key, name: name.slice(0, 120) || key, prompt: prompt.slice(0, 700) });
   }
 
-  return { sections, motifs };
+  const beds: StorySound[] = [];
+  const heard = new Set<string>();
+  for (const item of Array.isArray(json.beds) ? json.beds : []) {
+    const b = item as { key?: unknown; name?: unknown; prompt?: unknown };
+    const name = typeof b.name === "string" ? b.name.trim() : "";
+    const prompt = typeof b.prompt === "string" ? b.prompt.trim() : "";
+    if (prompt.length < 6) continue;
+    const key = slugify(typeof b.key === "string" && b.key ? b.key : name);
+    if (heard.has(key)) continue;
+    heard.add(key);
+    beds.push({
+      key,
+      name: name.slice(0, 120) || key,
+      prompt: prompt.slice(0, 400),
+      kind: "ambience",
+      // Ten seconds, looped. Long enough not to hear the seam, short enough
+      // that a bed costs a twentieth of what generating it in full would.
+      seconds: 10,
+    });
+  }
+
+  return { sections, motifs, beds };
 }
 
 /**
@@ -407,7 +471,10 @@ function reconcile(
   rawShots: unknown,
   /** Pictures defined for the whole film that a shot may name. */
   motifs: StoryImage[] = [],
-): { images: StoryImage[]; shots: StoryShot[] } {
+  rawAccents: unknown = [],
+  /** Beds defined for the whole film that a shot may name. */
+  beds: StorySound[] = [],
+): { images: StoryImage[]; sounds: StorySound[]; shots: StoryShot[] } {
   const images = new Map<string, StoryImage>();
   for (const item of Array.isArray(rawImages) ? rawImages : []) {
     const i = item as { key?: unknown; name?: unknown; prompt?: unknown };
@@ -430,12 +497,44 @@ function reconcile(
     throw new Error("Das Modell hat keine brauchbaren Bildbeschreibungen geliefert.");
   }
 
+  // The section's own one-shot sounds. Beds come from the outline and are
+  // known everywhere; accents are invented here, alongside the shot that
+  // fires them.
+  const sounds = new Map<string, StorySound>();
+  for (const item of Array.isArray(rawAccents) ? rawAccents : []) {
+    const a = item as {
+      key?: unknown;
+      name?: unknown;
+      prompt?: unknown;
+      seconds?: unknown;
+    };
+    const name = typeof a.name === "string" ? a.name.trim() : "";
+    const prompt = typeof a.prompt === "string" ? a.prompt.trim() : "";
+    if (prompt.length < 6) continue;
+    const key = slugify(typeof a.key === "string" && a.key ? a.key : name);
+    if (sounds.has(key)) continue;
+    sounds.set(key, {
+      key,
+      name: name.slice(0, 120) || key,
+      prompt: prompt.slice(0, 400),
+      kind: "accent",
+      seconds: Math.min(4, Math.max(1, Number(a.seconds) || 2)),
+    });
+  }
+  const bedKeys = new Set(beds.map((b) => b.key));
+
   const keys = [...known];
   const shots: StoryShot[] = [];
   let previous = keys[0];
 
   for (const item of Array.isArray(rawShots) ? rawShots : []) {
-    const s = item as { text?: unknown; image?: unknown; motion?: unknown };
+    const s = item as {
+      text?: unknown;
+      image?: unknown;
+      motion?: unknown;
+      ambience?: unknown;
+      accent?: unknown;
+    };
     const text = typeof s.text === "string" ? s.text.trim() : "";
     if (!text) continue;
 
@@ -449,11 +548,22 @@ function reconcile(
         ? (s.motion as StoryShot["motion"])
         : MOTIONS[shots.length % MOTIONS.length];
 
+    // A bed the outline never defined is dropped rather than carried: it
+    // would name a sound nobody generates and play silence, which is the same
+    // as none but costs a field of confusion.
+    const wantedBed = typeof s.ambience === "string" ? slugify(s.ambience) : "";
+    const ambience = bedKeys.has(wantedBed) ? wantedBed : undefined;
+
+    const wantedAccent = typeof s.accent === "string" ? slugify(s.accent) : "";
+    const accent = sounds.has(wantedAccent) ? wantedAccent : undefined;
+
     shots.push({
       id: `s${shots.length + 1}`,
       text: text.slice(0, 400),
       image,
       motion,
+      ambience,
+      accent,
     });
   }
 
@@ -464,8 +574,10 @@ function reconcile(
   // A picture nobody shows is a picture nobody should pay for. Motifs are
   // filtered at the end of writeScript(), across all sections.
   const used = new Set(shots.map((s) => s.image));
+  const fired = new Set(shots.map((s) => s.accent).filter(Boolean));
   return {
     images: [...images.values()].filter((i) => used.has(i.key)),
+    sounds: [...sounds.values()].filter((s) => fired.has(s.key)),
     shots,
   };
 }
