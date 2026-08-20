@@ -1,4 +1,5 @@
 import { complete } from "./llm";
+import { researchTopic } from "./story-research";
 import { soundLibrary, type KnownSound } from "./sfx";
 import { slugify } from "./image-library";
 import {
@@ -65,6 +66,8 @@ export async function generateStory(args: {
   style?: StoryStyle;
   /** Figures the film should keep coming back to. See StoryCharacter. */
   characters?: { key: string; name: string; description: string }[];
+  /** Whether to look the facts up before writing. See lib/story-research.ts. */
+  research?: boolean;
   apiKey: string;
   model?: TextModel;
   startedAt: number;
@@ -83,6 +86,39 @@ export async function generateStory(args: {
     } satisfies StoryJob).catch(() => undefined);
 
   try {
+    /**
+     * The facts, before anything is planned.
+     *
+     * First, and not merely early: the outline is built around these and the
+     * sections write from them, so a fact arriving after the plan would have
+     * nowhere to go. It gets its own budget and is never allowed to take the
+     * script down with it - a film written from memory is what this format
+     * did for its whole life, so falling back to that is a bad outcome and
+     * not a broken one.
+     */
+    let research = "";
+    let searches = 0;
+    if (args.research !== false) {
+      await progress("Fakten werden recherchiert");
+      const found = await researchTopic({
+        topic: args.topic,
+        minutes: args.minutes,
+        model,
+        apiKey: args.apiKey,
+        deadline: args.startedAt + RESEARCH_DEADLINE_MS,
+      }).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[story] Recherche fehlgeschlagen:", err);
+        return null;
+      });
+      if (found) {
+        research = found.facts;
+        searches = found.searches;
+        spent.input += found.usage.input;
+        spent.output += found.usage.output;
+      }
+    }
+
     // A kept look skips the style call entirely. Not merely to save the call:
     // regenerating a style from the same topic produces something adjacent
     // rather than identical, and adjacent is exactly what breaks both the
@@ -125,6 +161,7 @@ export async function generateStory(args: {
       topic: args.topic,
       style: style.style,
       characters: style.characters,
+      research,
       minutes: args.minutes,
       imageBudget: args.imageBudget,
       deadline: args.startedAt + WRITING_DEADLINE_MS,
@@ -139,6 +176,7 @@ export async function generateStory(args: {
       style: style.style,
       characters: style.characters,
       imagesPerMinute: args.imagesPerMinute,
+      research: research || undefined,
       images: script.images,
       sounds: script.sounds,
       shots: script.shots,
@@ -160,11 +198,16 @@ export async function generateStory(args: {
       // Said plainly when the film came out shorter than asked for, because
       // the alternative is a silently short video that looks finished. A
       // section can be lost to the clock or to a reply that would not parse.
-      warning: script.short
-        ? `Nicht alle Abschnitte wurden fertig — das Video ist ${Math.round(words / WORDS_PER_MINUTE)} statt ${args.minutes} Minuten lang. Erzeug es noch einmal, oder nimm eine kürzere Länge.`
-        : script.overused.length > 0
-          ? `${script.overused.length} Bilder kommen öfter als ${MAX_APPEARANCES}× vor — am häufigsten „${script.overused[0].name}“ mit ${script.overused[0].appearances} Auftritten. Mehr Bilder pro Minute wählen und neu schreiben, sonst wirkt das Video wiederholt.`
-          : undefined,
+      warning: buildWarning({
+        short: script.short,
+        words,
+        minutes: args.minutes,
+        overused: script.overused,
+        researched: args.research !== false,
+        searches,
+        facts: research ? research.split("\n").filter(Boolean).length : 0,
+      }),
+
       cost: {
         model: model.id,
         label: model.label,
@@ -188,6 +231,43 @@ export async function generateStory(args: {
 }
 
 type CharacterSeed = { key: string; name: string; description: string };
+
+/**
+ * The one line the studio shows when something is off.
+ *
+ * Several things can be wrong at once and only one line is read, so they are
+ * ordered by what costs most to ignore: a film shorter than asked for is
+ * unusable, pictures on a loop are visible in every second of it, and a script
+ * written without a single checked fact is the one fault that looks fine and
+ * is not.
+ */
+function buildWarning(args: {
+  short: boolean;
+  words: number;
+  minutes: number;
+  overused: { name: string; appearances: number }[];
+  researched: boolean;
+  searches: number;
+  facts: number;
+}): string | undefined {
+  if (args.short) {
+    return `Nicht alle Abschnitte wurden fertig — das Video ist ${Math.round(args.words / WORDS_PER_MINUTE)} statt ${args.minutes} Minuten lang. Erzeug es noch einmal, oder nimm eine kürzere Länge.`;
+  }
+
+  if (args.researched && args.searches === 0) {
+    return "Die Websuche hat nichts geliefert, also steht in diesem Skript keine geprüfte Zahl — das Modell hat aus dem Gedächtnis geschrieben. Bei Themen mit Daten und Namen solltest du es noch einmal erzeugen.";
+  }
+
+  if (args.overused.length > 0) {
+    return `${args.overused.length} Bilder kommen öfter als ${MAX_APPEARANCES}× vor — am häufigsten „${args.overused[0].name}“ mit ${args.overused[0].appearances} Auftritten. Mehr Bilder pro Minute wählen und neu schreiben, sonst wirkt das Video wiederholt.`;
+  }
+
+  if (args.researched && args.facts > 0) {
+    return undefined;
+  }
+
+  return undefined;
+}
 
 async function writeStyle(args: {
   model: TextModel;
@@ -332,6 +412,18 @@ function mergeAppearances(
  */
 const WRITING_DEADLINE_MS = 250_000;
 
+/**
+ * When the research has to hand over, whatever it has found.
+ *
+ * Eighty seconds out of the route's three hundred. The infographics format
+ * gave research a whole function of its own because searching genuinely takes
+ * minutes - but that needed a second route and a handover token, and here the
+ * writing that follows is thirteen calls rather than one. A hard budget with a
+ * partial sheet as the fallback buys most of the value for none of that
+ * machinery: five checked facts beat none, and beat a killed function.
+ */
+const RESEARCH_DEADLINE_MS = 80_000;
+
 /** Minutes of video per section. Small enough that a model actually fills it. */
 const MINUTES_PER_SECTION = 2;
 
@@ -373,6 +465,7 @@ async function writeScript(args: {
   topic: string;
   style: StoryStyle;
   characters: StoryCharacter[];
+  research: string;
   minutes: number;
   imageBudget: number;
   deadline: number;
@@ -437,6 +530,7 @@ async function writeScript(args: {
     motifs: motifBudget,
     beds: bedBudget,
     known: known.beds,
+    research: args.research,
   });
 
   const words = Math.round((args.minutes * WORDS_PER_MINUTE) / sectionCount);
@@ -479,6 +573,7 @@ async function writeScript(args: {
               maxAppearances: MAX_APPEARANCES,
               characters: args.characters,
               knownAccents: known.accents,
+              research: args.research,
             }),
           },
         ],
@@ -601,6 +696,8 @@ async function writeOutline(args: {
   beds: number;
   /** Beds already in the library, offered to the planner for reuse. */
   known?: KnownSound[];
+  /** Checked facts the outline must be built around. */
+  research?: string;
 }): Promise<{
   sections: { title: string; brief: string }[];
   motifs: StoryImage[];
@@ -621,6 +718,7 @@ async function writeOutline(args: {
           motifs: args.motifs,
           beds: args.beds,
           known: args.known,
+          research: args.research,
         }),
       },
     ],

@@ -193,6 +193,17 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
    */
   const [textModelId, setTextModelId] = useState("gemini-3.7-flash");
 
+  /**
+   * Whether to look the facts up before writing.
+   *
+   * On by default. The format wrote from memory for its whole life, which
+   * produces prose that reads well and says nothing checkable - fine for the
+   * Ice Age, useless for a topic made of dates and patch numbers. Switchable
+   * because research costs eighty seconds and a few cents, and some topics
+   * genuinely do not need it.
+   */
+  const [research, setResearch] = useState(true);
+
   // ---- What the look should be, before there is one -----------------------
   const [styleWish, setStyleWish] = useState("");
   const [lookId, setLookId] = useState("");
@@ -252,6 +263,17 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
   const playerRef = useRef<PlayerRef>(null);
   const lastSaved = useRef<string | null>(null);
+
+  /**
+   * Panel numbers, counted rather than typed in.
+   *
+   * The facts panel only exists when there was research, so every panel after
+   * it moves by one. Hardcoded numbers collided the moment it was added -
+   * there were briefly two panels called 03 - and would collide again at the
+   * next insertion.
+   */
+  const panelStep = (n: number) =>
+    String(n + (project.research ? 1 : 0)).padStart(2, "0");
 
   const timing = useMemo(() => resolveStoryTiming(project), [project]);
   // What the screen actually shows: consecutive sentences on one picture are
@@ -508,6 +530,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       lookId: lookId || undefined,
       characters: cast.filter((c) => c.description.trim().length >= 3),
       model: textModelId,
+      research,
     });
     if (!result.ok) {
       setError(result.error);
@@ -1336,6 +1359,36 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             {TEXT_MODELS.find((m) => m.id === textModelId)?.note}
           </div>
 
+          <label
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              marginTop: 10,
+              fontSize: 12.5,
+              lineHeight: 1.4,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={research}
+              onChange={(e) => setResearch(e.target.checked)}
+              style={{ marginTop: 2 }}
+            />
+            <span>
+              Fakten vorher im Web recherchieren
+              <span
+                className="mono"
+                style={{ display: "block", fontSize: 10.5, color: "#5b6672" }}
+              >
+                {research
+                  ? "Zahlen, Daten und Namen kommen dann nur aus geprüften Quellen. Dauert bis zu 80 Sekunden länger."
+                  : "Ohne Recherche schreibt das Modell aus dem Gedächtnis — flüssig, aber bei Daten und Namen oft daneben."}
+              </span>
+            </span>
+          </label>
+
           <div style={{ height: 10 }} />
           <Button onClick={() => void generate()} disabled={busy || topic.trim().length < 3}>
             {busy ? (step ?? "Wird geschrieben…") : "Skript schreiben"}
@@ -1374,8 +1427,44 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               the style. Nothing redraws by itself: an edit costs nothing until
               the pictures are discarded below.
             */}
+            {project.research ? (
+              <Panel
+                step="02"
+                title="Fakten"
+                right={
+                  <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                    {project.research.split("\n").filter(Boolean).length} belegt
+                  </span>
+                }
+              >
+                {/*
+                  Shown, not hidden behind a debug flag: these are the only
+                  claims in the video that anybody can check, and the person
+                  publishing it is the one who has to stand behind them.
+                */}
+                <div
+                  style={{
+                    maxHeight: 220,
+                    overflowY: "auto",
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    whiteSpace: "pre-wrap",
+                    border: "1px solid var(--grid)",
+                    background: "#fff",
+                    padding: "8px 10px",
+                  }}
+                >
+                  {project.research}
+                </div>
+                <Note tone="info">
+                  Aus diesen Quellen stammt jede Zahl im Skript. Was hier nicht
+                  steht, durfte das Modell nicht behaupten.
+                </Note>
+              </Panel>
+            ) : null}
+
             <Panel
-              step="02"
+              step={panelStep(2)}
               title="Stil"
               right={
                 <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
@@ -1504,7 +1593,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             </Panel>
 
             <Panel
-              step="03"
+              step={panelStep(3)}
               title="Bilder"
               right={
                 <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
@@ -1592,7 +1681,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             </Panel>
 
             <Panel
-              step="04"
+              step={panelStep(4)}
               title="Klang"
               right={
                 <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
@@ -1689,7 +1778,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             </Panel>
 
             <Panel
-              step="05"
+              step={panelStep(5)}
               title="Stimme"
               right={
                 <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
@@ -1879,7 +1968,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               ) : null}
             </Panel>
 
-            <Panel step="06" title="Rendern">
+            <Panel step={panelStep(6)} title="Rendern">
               <Button
                 onClick={() => void startRender()}
                 disabled={Boolean(render && render.status !== "done" && render.status !== "error")}
@@ -1899,7 +1988,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             </Panel>
 
             <ThumbnailPanel
-              step="07"
+              step={panelStep(7)}
               // No flags in this format — it has no country questions, and an
               // unrelated flag on the cover would be a promise the video does
               // not keep.
@@ -1924,7 +2013,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           studio's, not this video's. It is also the only place the sounds
           that every later film reuses can actually be heard.
         */}
-        <LibraryPanel step="08" />
+        <LibraryPanel step={panelStep(8)} />
       </div>
 
       <div className="studio-stage">

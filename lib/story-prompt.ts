@@ -206,6 +206,8 @@ export function buildOutlinePrompt(args: {
   beds: number;
   /** Beds already in the library, offered for reuse. See soundLibrary(). */
   known?: { key: string; name: string; description: string; seconds: number }[];
+  /** Checked facts, one per line. See lib/story-research.ts. */
+  research?: string;
 }): string {
   const known = args.known?.length
     ? `
@@ -222,8 +224,20 @@ seinen Prompt nicht um, auch nicht ein bisschen — eine geänderte Beschreibung
 gilt als neuer Klang und wird neu erzeugt.`
     : "";
 
+  const facts = args.research?.trim()
+    ? `
+
+DIESE FAKTEN WURDEN RECHERCHIERT UND BELEGT. Bau die Gliederung um sie herum:
+${args.research.trim()}
+
+Jeder Abschnitt muss auf mindestens einem dieser Fakten stehen — nenn ihn im
+"brief" beim Namen, mit Zahl oder Datum. Ein Abschnitt, der zu keinem Fakt
+gehört, gehört nicht ins Video. Verteil die Fakten, häuf sie nicht in einem
+Abschnitt.`
+    : "";
+
   return `Thema des Videos:
-${args.topic}
+${args.topic}${facts}
 
 Bildstil steht fest: „${args.style.name}"
 
@@ -243,8 +257,13 @@ DER GESPROCHENE TEXT:
 - Du-Form, niemals Sie-Form. Kurze Hauptsätze.
 - Der erste Satz muss neugierig machen, ohne etwas zu versprechen, das später
   nicht kommt. Keine Begrüßung, kein "In diesem Video".
-- Sachlich richtig. Erfinde keine Zahlen, keine Jahreszahlen, keine Rekorde.
-  Was du nicht sicher weißt, lässt du weg — es steht danach jahrelang online.
+- Sachlich richtig. Bekommst du eine Faktenliste, ist sie deine EINZIGE Quelle
+  für Zahlen, Daten, Namen und Rekorde — alles andere lässt du weg. Ohne Liste
+  gilt: was du nicht sicher weißt, kommt nicht vor. Es steht danach jahrelang
+  online.
+- Der Gehalt entsteht aus den Fakten, nicht aus der Formulierung. Ein Satz,
+  der nichts Nachprüfbares enthält, ist Füllmaterial — davon höchstens jeder
+  vierte.
 - Kein Fazit-Geschwafel am Ende. Der letzte Satz ist ein Gedanke, der bleibt.
 
 DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):
@@ -408,6 +427,8 @@ export function buildSectionPrompt(args: {
   characters?: { key: string; name: string }[];
   /** Accents already in the library, offered for reuse. See soundLibrary(). */
   knownAccents?: { key: string; name: string; description: string; seconds: number }[];
+  /** Checked facts, one per line. See lib/story-research.ts. */
+  research?: string;
 }): string {
   const plan = args.sections
     .map((s, i) => `${i + 1}. ${s.title} — ${s.brief}${i === args.index ? "   <<< DIESEN schreibst du" : ""}`)
@@ -459,8 +480,24 @@ allen Feldern WÖRTLICH so, wie sie hier stehen. Schreib den Prompt nicht um —
 eine geänderte Beschreibung gilt als neues Geräusch und wird neu erzeugt.`
     : "";
 
+  // The whole sheet, not this section's share of it. Which facts belong to
+  // which section is a judgement the writer makes while writing, and a
+  // pre-split sheet would leave a section unable to reach for the one thing
+  // that would have made its point.
+  const facts = args.research?.trim()
+    ? `
+
+BELEGTE FAKTEN. Nur aus diesen darfst du Zahlen, Daten und Namen nehmen:
+${args.research.trim()}
+
+Nimm die, die zu DEINEM Abschnitt gehören, und bau den Text darauf. Erfinde
+keine Zahl, kein Datum und keinen Namen, der hier nicht steht — was du nicht
+belegen kannst, lässt du weg. Die Quelle nach dem senkrechten Strich wird
+NICHT vorgelesen; sie sagt dir nur, dass der Fakt geprüft ist.`
+    : "";
+
   return `Thema des Videos:
-${args.topic}
+${args.topic}${facts}
 
 Bildstil steht fest: „${args.style.name}". Beschreib in "prompt" nur den Inhalt.
 

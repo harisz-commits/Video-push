@@ -183,6 +183,15 @@ export const StoryProject = z.object({
   style: StoryStyle,
   /** Figures that recur, if the film was given any. See StoryCharacter. */
   characters: z.array(StoryCharacter).default([]),
+  /**
+   * The checked facts the script was written from, one per line.
+   *
+   * Kept with the project rather than only on the generation job, which is
+   * swept after thirty days: a number in a finished video should stay
+   * traceable to a source for as long as the video exists. The same reasoning
+   * the infographics format already applied to its own research sheet.
+   */
+  research: z.string().max(20_000).optional(),
   images: z.array(StoryImage).min(1),
   sounds: z.array(StorySound).default([]),
   shots: z.array(StoryShot).min(1),

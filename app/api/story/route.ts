@@ -29,6 +29,7 @@ export async function POST(req: Request) {
   let styleWish: string | undefined;
   let lookId: string | undefined;
   let characters: { key: string; name: string; description: string }[];
+  let research: boolean;
   let model: TextModel;
   try {
     const body = (await req.json()) as {
@@ -39,6 +40,7 @@ export async function POST(req: Request) {
       styleWish?: unknown;
       lookId?: unknown;
       characters?: unknown;
+      research?: unknown;
       model?: unknown;
     };
     if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
@@ -95,6 +97,11 @@ export async function POST(req: Request) {
       })
       .filter((c) => c.description.length >= 3);
 
+    // On unless switched off. The default matters: a script written without a
+    // single checked fact is the failure that looks like success, so somebody
+    // who never touches this switch should get the researched version.
+    research = body.research !== false;
+
     model = resolveTextModel(
       typeof body.model === "string" ? body.model : DEFAULT_STORY_MODEL,
     );
@@ -147,6 +154,7 @@ export async function POST(req: Request) {
         styleWish,
         style: style?.success ? style.data : undefined,
         characters,
+        research,
         apiKey,
         model,
         startedAt,
