@@ -66,7 +66,10 @@ export async function drawStoryImages(args: {
   // whole film is three dollars.
   const wanted = args.project.images.filter((i) => !i.url);
 
-  const drawn = new Map<string, { url: string; model: string; reused: boolean }>();
+  const drawn = new Map<
+    string,
+    { url: string; thumbUrl?: string; model: string; reused: boolean }
+  >();
   let paid = 0;
   let reused = 0;
   let skipped = 0;
@@ -96,7 +99,12 @@ export async function drawStoryImages(args: {
         () => null,
       );
       if (known) {
-        drawn.set(image.key, { url: known.url, model: known.model, reused: true });
+        drawn.set(image.key, {
+          url: known.url,
+          thumbUrl: known.thumbUrl,
+          model: known.model,
+          reused: true,
+        });
         reused += 1;
         await noteUse(image.key, style.name).catch(() => undefined);
         await args.onProgress?.(drawn.size, wanted.length);
@@ -127,7 +135,12 @@ export async function drawStoryImages(args: {
           contentType: result.mimeType,
         });
 
-        drawn.set(image.key, { url: entry.url, model: result.model, reused: false });
+        drawn.set(image.key, {
+          url: entry.url,
+          thumbUrl: entry.thumbUrl,
+          model: result.model,
+          reused: false,
+        });
         paid += 1;
       } catch (err) {
         // One picture that will not draw must not cost the other ninety-nine.
@@ -153,7 +166,13 @@ export async function drawStoryImages(args: {
       images: args.project.images.map((image) => {
         const hit = drawn.get(image.key);
         return hit
-          ? { ...image, url: hit.url, model: hit.model, reused: hit.reused }
+          ? {
+              ...image,
+              url: hit.url,
+              thumbUrl: hit.thumbUrl,
+              model: hit.model,
+              reused: hit.reused,
+            }
           : image;
       }),
     },

@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { renderMediaOnVercel } from "@remotion/vercel";
 import { errorResponse, guard } from "../../../lib/guardrails";
 import {
@@ -14,6 +15,7 @@ import {
   writeJson,
   type RenderJob,
 } from "../../../lib/store";
+import { sweepSandboxes } from "../../../lib/sandboxes";
 import { restoreSnapshot } from "./restore-snapshot";
 import { planSegments, startSegments } from "./segments";
 
@@ -66,6 +68,27 @@ export async function POST(req: Request) {
 
   const renderId = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const totalFrames = totalFramesOf(project);
+
+  /**
+   * Stop whatever the last render left behind, before adding to it.
+   *
+   * The hourly cron catches these eventually; this catches them at the one
+   * moment somebody is certainly present and certainly not watching an older
+   * render — they are starting a new one. It also fixes the worst case the
+   * cron cannot: a render abandoned at 04:05 would otherwise bill provisioned
+   * memory until the following morning.
+   *
+   * Safe to run beside a render being started, because the sweep protects
+   * anything a live job names and never touches a machine under ten minutes
+   * old — and this one does not exist yet. In waitUntil so it costs the
+   * request nothing.
+   */
+  waitUntil(
+    sweepSandboxes().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error("[/api/render] Sweep fehlgeschlagen:", err);
+    }),
+  );
 
   try {
     // Long videos are rendered in pieces, because one sandbox cannot finish

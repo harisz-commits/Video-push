@@ -24,6 +24,22 @@ import { readJson, resolveBlobToken, writeBinary, writeJson } from "./store";
 
 const INDEX = "library/index.json";
 const IMAGE_PREFIX = "library/img/";
+const THUMB_PREFIX = "library/thumb/";
+
+/**
+ * How wide a stored thumbnail is.
+ *
+ * The studio shows the picture list at 48 pixels wide and was downloading the
+ * original for each row — a seventy-five picture film meant roughly a hundred
+ * megabytes of blob traffic every time somebody opened the project. Measured
+ * on one day, blob downloads were the second largest line on the bill at
+ * $1.14, or 22.8 GB.
+ *
+ * Three hundred and twenty is far more than the list needs and still about a
+ * hundredth of the original, which leaves room to show the picture bigger
+ * later without going back to the full file.
+ */
+const THUMB_WIDTH = 320;
 
 export type LibraryEntry = {
   key: string;
@@ -41,6 +57,14 @@ export type LibraryEntry = {
    */
   style: string;
   url: string;
+  /**
+   * A small copy, for lists.
+   *
+   * Optional because entries written before thumbnails existed have none, and
+   * because making one must never be able to fail a drawing that has already
+   * been paid for. Anything reading this falls back to `url`.
+   */
+  thumbUrl?: string;
   model: string;
   /**
    * What the look was when this was drawn, beyond its name.
@@ -138,6 +162,11 @@ export async function remember(args: {
     style: args.style,
     fingerprint: args.fingerprint,
     url,
+    thumbUrl: await makeThumb(
+      `${THUMB_PREFIX}${args.key}-${hash(args.style + (args.fingerprint ?? ""))}.webp`,
+      args.bytes,
+      args.contentType ?? "image/png",
+    ),
     model: args.model,
     createdAt: Date.now(),
     uses: 1,
@@ -198,6 +227,37 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 72);
   return s.length >= 3 ? s : `bild-${Date.now().toString(36)}`;
+}
+
+/**
+ * A small copy of a picture, or nothing.
+ *
+ * Never throws. The original is already written and already paid for by the
+ * time this runs, and a missing thumbnail costs bandwidth in a list — losing
+ * the picture over one would cost three and a half cents and a redraw. sharp
+ * is loaded on demand for the same reason: this module is imported by routes
+ * that never touch an image at all.
+ */
+async function makeThumb(
+  pathname: string,
+  bytes: Buffer,
+  contentType: string,
+): Promise<string | undefined> {
+  // Sounds go through remember() too, and a WebP of an MP3 is not a thing.
+  if (!contentType.startsWith("image/")) return undefined;
+
+  try {
+    const { default: sharp } = await import("sharp");
+    const thumb = await sharp(bytes)
+      .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+      .webp({ quality: 72 })
+      .toBuffer();
+    return await writeBinary(pathname, thumb, "image/webp");
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[library] Miniatur fehlgeschlagen:", err);
+    return undefined;
+  }
 }
 
 /** A short, stable tag for a style name, so one key can hold several looks. */

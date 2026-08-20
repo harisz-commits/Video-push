@@ -30,6 +30,27 @@ export async function GET(req: Request) {
     }
   }
 
+  /**
+   * Two schedules through one route.
+   *
+   * The expensive half of this job is storage — listing every blob, checking
+   * which audio a project still points at, pruning snapshots — and none of
+   * that gets meaningfully better for being done more than once a day. The
+   * half that does is stopping virtual machines: every hour one runs
+   * unnoticed costs about thirty-four cents in provisioned memory, so a daily
+   * sweep can let a single forgotten machine bill four dollars before it is
+   * caught. Measured on one day: 8.4 hours of sandbox lifetime against 48
+   * minutes of actual work.
+   *
+   * So the sandboxes are swept hourly and the storage stays daily.
+   */
+  if (new URL(req.url).searchParams.get("sandboxes") === "1") {
+    const sandboxes = await sweepSandboxes().catch((err) => ({
+      error: (err as Error).message,
+    }));
+    return Response.json({ ok: true, only: "sandboxes", sandboxes });
+  }
+
   const blob = resolveBlobToken();
   if (!blob) {
     return errorResponse("Kein Blob-Store verbunden.", 500);
@@ -85,6 +106,7 @@ export async function GET(req: Request) {
       stopped: [],
       failed: [{ id: "sweep", error: (err as Error).message }],
     }));
+
 
     // Finished videos that no project points at.
     //

@@ -29,8 +29,15 @@ import type { StoryProject, StorySound } from "./story";
 
 const ENDPOINT = "https://api.elevenlabs.io/v1/sound-generation";
 
-/** Characters billed per second, measured against the account's own counter. */
-export const CHARS_PER_SECOND = 48;
+/**
+ * How the cost is worked out lives in lib/sfx-cost.ts, and is re-exported
+ * here so callers that already had it keep it. The split is not cosmetic:
+ * this module reaches the picture library and through it an image encoder,
+ * and the studio — which only ever wanted the number — was dragging all of
+ * that into the browser bundle.
+ */
+export { CHARS_PER_SECOND, soundCost } from "./sfx-cost";
+import { CHARS_PER_SECOND } from "./sfx-cost";
 
 /**
  * How many are generated at once.
@@ -202,15 +209,4 @@ function soundKey(sound: StorySound): string {
 }
 
 /** What generating the missing sounds would cost right now. */
-export function soundCost(project: StoryProject): {
-  sounds: number;
-  characters: number;
-} {
-  const missing = project.sounds.filter((s) => !s.url);
-  return {
-    sounds: missing.length,
-    characters: Math.round(
-      missing.reduce((sum, s) => sum + s.seconds, 0) * CHARS_PER_SECOND,
-    ),
-  };
-}
+

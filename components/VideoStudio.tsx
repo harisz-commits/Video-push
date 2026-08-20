@@ -17,7 +17,7 @@ import {
   type StoryStyle,
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
-import { soundCost } from "../lib/sfx";
+import { soundCost } from "../lib/sfx-cost";
 import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
 import { StoryVideo } from "../remotion/story/StoryVideo";
 import { getJson, postJson } from "./api";
@@ -1397,10 +1397,17 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                     }}
                   >
                     {img.url ? (
+                      // The small copy, not the drawing. Seventy-five rows
+                      // pointing at full-size PNGs was about a hundred
+                      // megabytes of blob traffic every time this project was
+                      // opened — for pictures shown 48 pixels wide. Older
+                      // entries have no thumbnail and still fall back.
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={img.url}
+                        src={img.thumbUrl ?? img.url}
                         alt=""
+                        loading="lazy"
+                        decoding="async"
                         style={{ width: 48, height: 27, objectFit: "cover" }}
                       />
                     ) : (

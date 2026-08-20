@@ -85,6 +85,15 @@ export const StoryImage = z.object({
   /** What was asked for, without the style directive. Kept so it can be redrawn. */
   prompt: z.string().min(10).max(700),
   url: z.string().url().optional(),
+  /**
+   * A small copy, for the studio's list.
+   *
+   * Its own field rather than a URL the browser derives, because the list used
+   * to point at `url` — the full drawing — to fill a 48-pixel row, and paid
+   * for the whole file every time the project was opened. See
+   * lib/image-library.ts.
+   */
+  thumbUrl: z.string().url().optional(),
   /** Which model drew it, so a mixed-model project is not a mystery later. */
   model: z.string().optional(),
   /** True when this came out of the library instead of being paid for again. */
