@@ -59,23 +59,55 @@ const DRAW_KEY = "infographics-studio.storyDrawJob";
 const SFX_KEY = "infographics-studio.storySfxJob";
 const VOICE_KEY = "infographics-studio.storyVoiceJob";
 
+/**
+ * How long a remembered job is worth picking up again.
+ *
+ * Every one of these routes is capped at three hundred seconds, so a job
+ * remembered ten minutes ago has either finished or died - and a dead one that
+ * is resumed anyway is worse than forgotten. It comes back on every page load,
+ * marks its step busy, polls a job that is gone, gives up, and is still
+ * remembered for next time. The control it belongs to is then permanently
+ * unavailable, which for the voice meant the recording could never be made and
+ * the panel simply said it was missing.
+ *
+ * An expiry rather than only a careful cleanup, because cleanup has to be
+ * right on every path and this is right on all of them at once.
+ */
+const JOB_MEMORY_MS = 10 * 60 * 1000;
+
 /** Remember a running job, or forget it when it is done. */
 function rememberJob(key: string, jobId: string | null, projectId?: string) {
   try {
-    if (jobId) window.localStorage.setItem(key, `${jobId}|${projectId ?? ""}`);
-    else window.localStorage.removeItem(key);
+    if (jobId) {
+      window.localStorage.setItem(
+        key,
+        `${jobId}|${projectId ?? ""}|${Date.now()}`,
+      );
+    } else {
+      window.localStorage.removeItem(key);
+    }
   } catch {
     // The job still runs on the server; only picking it up again is lost.
   }
 }
 
-/** A remembered job, if there is one. */
+/** A remembered job, if there is one and it is still worth resuming. */
 function recallJob(key: string): { jobId: string; projectId: string } | null {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
-    const [jobId, projectId = ""] = raw.split("|");
-    return jobId ? { jobId, projectId } : null;
+    const [jobId, projectId = "", at = ""] = raw.split("|");
+    if (!jobId) return null;
+
+    // Entries written before this carried a timestamp have none. Treated as
+    // expired rather than trusted: they are by definition older than this
+    // deploy, so nothing they name can still be running.
+    const started = Number(at);
+    if (!Number.isFinite(started) || Date.now() - started > JOB_MEMORY_MS) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+    return { jobId, projectId };
   } catch {
     return null;
   }
@@ -682,6 +714,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       if (!result.ok) {
         failures += 1;
         if (failures > TOLERATED_POLL_FAILURES) {
+          rememberJob(DRAW_KEY, null);
           setDrawError(result.error);
           setDrawBusy(false);
           setDrawJobId(null);
@@ -763,6 +796,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       if (!result.ok) {
         failures += 1;
         if (failures > TOLERATED_POLL_FAILURES) {
+          rememberJob(SFX_KEY, null);
           setSfxError(result.error);
           setSfxBusy(false);
           setSfxJobId(null);
@@ -852,6 +886,14 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
         // report a wall.
         failures += 1;
         if (failures > TOLERATED_POLL_FAILURES) {
+          // Forgotten here too, not only on success. A job that ends badly and
+          // stays remembered is resumed by every later page load: the studio
+          // comes up saying "wird gesprochen…", disables the button, polls a
+          // job that is dead or long swept away, gives up, and remembers it
+          // again for next time. The recording can then never be made at all,
+          // and the panel says the voice is missing — which it is, because the
+          // one control that would produce it is permanently busy.
+          rememberJob(VOICE_KEY, null);
           setVoiceError(result.error);
           setVoiceJobId(null);
           setVoiceBusy(false);
