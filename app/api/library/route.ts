@@ -1,4 +1,8 @@
-import { deleteEntry, readLibrary } from "../../../lib/image-library";
+import {
+  deleteEntry,
+  readLibrary,
+  reindexFromProjects,
+} from "../../../lib/image-library";
 import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
 
 export const runtime = "nodejs";
@@ -67,4 +71,29 @@ export async function DELETE(req: Request) {
   const gone = await deleteEntry(key);
   if (!gone) return errorResponse("Diesen Eintrag gibt es nicht.", 404);
   return Response.json({ ok: true });
+}
+
+/**
+ * Put back what the index lost.
+ *
+ * A POST because it writes, and rate limited because it walks every saved
+ * project - but it costs nothing beyond that: no model is called, nothing is
+ * drawn, nothing is generated. It only writes down what the projects already
+ * know and the blob store already holds.
+ */
+export async function POST(req: Request) {
+  const limited = rateLimit(clientKey(req, "library-reindex"), 4, 60_000);
+  if (!limited.ok) return errorResponse(limited.error, limited.status);
+
+  try {
+    const result = await reindexFromProjects();
+    return Response.json({ ok: true, ...result });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[/api/library] reindex", err);
+    return errorResponse(
+      "Das Zurueckholen ist fehlgeschlagen. Der Index bleibt unveraendert.",
+      500,
+    );
+  }
 }

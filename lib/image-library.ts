@@ -88,6 +88,39 @@ export type LibraryEntry = {
 
 export type LibraryIndex = { entries: LibraryEntry[]; updatedAt: number };
 
+/**
+ * The queue every change to the index has to pass through.
+ *
+ * The index is one JSON document and every change is read-modify-write. Three
+ * pictures are drawn at once, so three lanes read the same index, each adds its
+ * own entry, and each writes the whole thing back — the last writer wins and
+ * the other two entries are gone. Not a theory: measured on the live library,
+ * a film that paid for seventy-five pictures had four of them indexed, and
+ * another with twelve had two. The files were all there; only the list of what
+ * exists had been overwritten into nothing.
+ *
+ * A promise chain rather than a lock, because that is all a single Node process
+ * needs: each change waits for the one before it, so read and write are never
+ * separated by another change. It does not protect against two concurrent
+ * *requests* — but drawing a film is one request with three lanes, which is the
+ * case that was losing entries every single time, rather than rarely.
+ *
+ * Every change goes through here. A single write that forgets to is enough to
+ * throw away whatever the queue was holding.
+ */
+let queue: Promise<unknown> = Promise.resolve();
+
+function serialise<T>(change: () => Promise<T>): Promise<T> {
+  const next = queue.then(change, change);
+  // Kept alive as a settled promise whatever happens, so one failed change
+  // does not deadlock every later one behind a rejection.
+  queue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
 export async function readLibrary(): Promise<LibraryIndex> {
   const index = await readJson<LibraryIndex>(INDEX).catch(() => null);
   return index && Array.isArray(index.entries)
@@ -154,14 +187,18 @@ export async function lookupAnyStyle(key: string): Promise<LibraryEntry | null> 
  * directly. Best effort — a failure costs one more fallback, not the entry.
  */
 export async function rebucket(key: string, style: string): Promise<void> {
-  const index = await readLibrary();
-  const entry = index.entries.find((e) => e.key === key);
-  if (!entry || entry.style === style) return;
-  entry.style = style;
-  await writeJson(INDEX, {
-    ...index,
-    updatedAt: Date.now(),
-  } satisfies LibraryIndex).catch(() => undefined);
+  await serialise(async () => {
+    const index = await readLibrary();
+    const entry = index.entries.find((e) => e.key === key);
+    if (!entry || entry.style === style) return;
+    entry.style = style;
+    await writeJson(INDEX, {
+      ...index,
+      updatedAt: Date.now(),
+    } satisfies LibraryIndex);
+  }).catch(() => {
+    // Costs one more fallback lookup next time, not the entry.
+  });
 }
 
 /** Every picture drawn in one look, for offering reuse in a new video. */
@@ -214,38 +251,50 @@ export async function remember(args: {
     uses: 1,
   };
 
-  const index = await readLibrary();
-  // Replaced rather than appended when it already exists: a redraw of the same
-  // subject in the same look is a correction, and keeping both would leave the
-  // old one to be found by the next lookup.
-  const entries = index.entries.filter(
-    (e) =>
-      !(
-        e.key === entry.key &&
-        e.style === entry.style &&
-        e.fingerprint === entry.fingerprint
-      ),
-  );
-  entries.push(entry);
+  // Reading the index and writing it back is one indivisible step. See
+  // serialise() — this is the write that was losing entries.
+  await serialise(async () => {
+    const index = await readLibrary();
+    // Replaced rather than appended when it already exists: a redraw of the
+    // same subject in the same look is a correction, and keeping both would
+    // leave the old one to be found by the next lookup.
+    const entries = index.entries.filter(
+      (e) =>
+        !(
+          e.key === entry.key &&
+          e.style === entry.style &&
+          e.fingerprint === entry.fingerprint
+        ),
+    );
+    entries.push(entry);
 
-  await writeJson(INDEX, {
-    entries,
-    updatedAt: Date.now(),
-  } satisfies LibraryIndex).catch(() => undefined);
+    await writeJson(INDEX, {
+      entries,
+      updatedAt: Date.now(),
+    } satisfies LibraryIndex);
+  }).catch(() => {
+    // The file is written and the caller gets its URL either way. An entry
+    // that could not be indexed is a picture the library will not offer —
+    // recoverable later from the project, which is what reindex() is for.
+  });
 
   return entry;
 }
 
 /** Note that a stored picture was used again, for the studio's list. */
 export async function noteUse(key: string, style: string): Promise<void> {
-  const index = await readLibrary();
-  const entry = index.entries.find((e) => e.key === key && e.style === style);
-  if (!entry) return;
-  entry.uses += 1;
-  await writeJson(INDEX, {
-    ...index,
-    updatedAt: Date.now(),
-  } satisfies LibraryIndex).catch(() => undefined);
+  await serialise(async () => {
+    const index = await readLibrary();
+    const entry = index.entries.find((e) => e.key === key && e.style === style);
+    if (!entry) return;
+    entry.uses += 1;
+    await writeJson(INDEX, {
+      ...index,
+      updatedAt: Date.now(),
+    } satisfies LibraryIndex);
+  }).catch(() => {
+    // A lost count costs a number on a screen.
+  });
 }
 
 /**
@@ -321,14 +370,18 @@ function hash(style: string): string {
  * entry is merely storage nobody can find, which the next sweep collects.
  */
 export async function deleteEntry(key: string): Promise<boolean> {
-  const index = await readLibrary();
-  const gone = index.entries.filter((e) => e.key === key);
-  if (gone.length === 0) return false;
+  const gone = await serialise(async () => {
+    const index = await readLibrary();
+    const found = index.entries.filter((e) => e.key === key);
+    if (found.length === 0) return [];
 
-  await writeJson(INDEX, {
-    entries: index.entries.filter((e) => e.key !== key),
-    updatedAt: Date.now(),
-  } satisfies LibraryIndex);
+    await writeJson(INDEX, {
+      entries: index.entries.filter((e) => e.key !== key),
+      updatedAt: Date.now(),
+    } satisfies LibraryIndex);
+    return found;
+  });
+  if (gone.length === 0) return false;
 
   const token = resolveBlobToken()?.value;
   if (token) {
@@ -365,4 +418,157 @@ export async function librarySummary(): Promise<{
       .sort((a, b) => b.count - a.count),
     bytes,
   };
+}
+
+/**
+ * Rebuild the index from what the saved projects know.
+ *
+ * The repair for a bug that ran for as long as this library existed: adding an
+ * entry read the whole index and wrote the whole index back, three lanes did
+ * it at once, and two of every three entries were overwritten before they had
+ * ever been read again. Measured on the live library - a film that paid for
+ * seventy-five pictures had four of them indexed, another with twelve had two.
+ * The queue in serialise() stops it happening again; this gets the lost ones
+ * back.
+ *
+ * And they genuinely can come back, because nothing was actually lost. Every
+ * file is still in the blob store, and every saved project holds the whole
+ * record of it: the key, the name, the prompt it was drawn from, its URL, the
+ * model that drew it, and the style of the film it belongs to. That is exactly
+ * an index entry. Rebuilding from the projects is not guesswork.
+ *
+ * What it does NOT do is invent. An entry already in the index is left alone,
+ * because it may carry a use count this cannot reconstruct, and nothing here
+ * is drawn, generated or paid for.
+ */
+export async function reindexFromProjects(): Promise<{
+  scanned: number;
+  images: number;
+  sounds: number;
+  already: number;
+}> {
+  const { readAllProjects } = await import("./projects");
+  const { styleFingerprint } = await import("./story");
+
+  const records = await readAllProjects();
+  const found: LibraryEntry[] = [];
+  let scanned = 0;
+
+  for (const record of records) {
+    const kind = (record.project as { kind?: string } | undefined)?.kind;
+    if (kind !== "video") continue;
+    scanned += 1;
+
+    const video = record.project as unknown as {
+      style: { name: string; directive: string; palette: string[] };
+      characters?: {
+        key: string;
+        name: string;
+        description: string;
+        appearance?: string;
+      }[];
+      images?: {
+        key: string;
+        name: string;
+        prompt: string;
+        url?: string;
+        thumbUrl?: string;
+        model?: string;
+        characters?: string[];
+      }[];
+      sounds?: {
+        key: string;
+        name: string;
+        prompt: string;
+        kind: "ambience" | "accent";
+        seconds: number;
+        audioSeconds?: number;
+        url?: string;
+      }[];
+    };
+
+    const cast = new Map((video.characters ?? []).map((c) => [c.key, c] as const));
+
+    for (const image of video.images ?? []) {
+      if (!image.url) continue;
+      found.push({
+        key: image.key,
+        name: image.name,
+        prompt: image.prompt,
+        style: video.style.name,
+        // Computed from the style this picture was actually drawn under rather
+        // than left blank. Blank matches any later edit of the same style name
+        // and would hand back a picture drawn to different instructions, which
+        // is the exact thing the fingerprint exists to prevent.
+        fingerprint: styleFingerprint(
+          video.style,
+          (image.characters ?? [])
+            .map((k) => cast.get(k))
+            .filter((c): c is NonNullable<typeof c> => Boolean(c)),
+        ),
+        url: image.url,
+        thumbUrl: image.thumbUrl,
+        model: image.model ?? "unbekannt",
+        createdAt: record.updatedAt ?? record.createdAt ?? Date.now(),
+        uses: 1,
+      });
+    }
+
+    for (const sound of video.sounds ?? []) {
+      if (!sound.url) continue;
+      found.push({
+        key: `sfx-${sound.kind}-${sound.key}`,
+        name: sound.name,
+        // The real duration lives after a pipe. See lib/sfx.ts.
+        prompt: `${sound.prompt}|${(sound.audioSeconds ?? sound.seconds).toFixed(3)}`,
+        // Sounds have no look, so they go into the sound bucket whichever film
+        // they were made for.
+        style: "sfx",
+        url: sound.url,
+        model: "eleven-sound-generation",
+        createdAt: record.updatedAt ?? record.createdAt ?? Date.now(),
+        uses: 1,
+      });
+    }
+  }
+
+  return serialise(async () => {
+    const index = await readLibrary();
+
+    // Matched on the URL, not on key and style and fingerprint.
+    //
+    // The URL is the file, and the file is what an entry is for - two entries
+    // pointing at the same blob are the same picture however they are
+    // labelled. The composite key gets this wrong in exactly the case that
+    // matters here: entries written before fingerprints existed carry none,
+    // the rebuilt ones compute theirs, and every single survivor of the old
+    // index would be duplicated. Checked against the live library: six entries
+    // survived, and all six share their URL with the project they came from.
+    const known = new Set(index.entries.map((e) => e.url));
+
+    let images = 0;
+    let sounds = 0;
+    let already = 0;
+    const added: LibraryEntry[] = [];
+
+    for (const entry of found) {
+      if (known.has(entry.url)) {
+        already += 1;
+        continue;
+      }
+      known.add(entry.url);
+      added.push(entry);
+      if (entry.key.startsWith("sfx-")) sounds += 1;
+      else images += 1;
+    }
+
+    if (added.length > 0) {
+      await writeJson(INDEX, {
+        entries: [...index.entries, ...added],
+        updatedAt: Date.now(),
+      } satisfies LibraryIndex);
+    }
+
+    return { scanned, images, sounds, already };
+  });
 }

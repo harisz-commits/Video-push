@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { getJson } from "./api";
+import { getJson, postJson } from "./api";
 import { Button, Note, Panel } from "./ui";
 
 /**
@@ -43,6 +43,8 @@ export const LibraryPanel: React.FC<{ step: string }> = ({ step }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"sounds" | "images">("sounds");
+  const [note, setNote] = useState<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -62,6 +64,39 @@ export const LibraryPanel: React.FC<{ step: string }> = ({ step }) => {
   useEffect(() => {
     if (open) void load();
   }, [open, load]);
+
+  /**
+   * Put back what the index lost.
+   *
+   * Offered as a button rather than run automatically, because it writes to
+   * the one document the whole library rests on. It cannot cost anything: it
+   * adds entries for files that already exist and never draws, generates or
+   * deletes.
+   */
+  async function recover() {
+    setRecovering(true);
+    setNote(null);
+    setError(null);
+    const result = await postJson<{
+      scanned: number;
+      images: number;
+      sounds: number;
+      already: number;
+    }>("/api/library", {});
+    if (!result.ok) {
+      setError(result.error);
+      setRecovering(false);
+      return;
+    }
+    const { images, sounds, already, scanned } = result.data;
+    setNote(
+      images + sounds === 0
+        ? `${scanned} Videos durchgesehen, nichts fehlte. Alle ${already} Einträge waren schon da.`
+        : `${images} Bilder und ${sounds} Klänge aus ${scanned} Videos zurückgeholt. Sie waren bezahlt und lagen im Speicher, nur nicht im Verzeichnis.`,
+    );
+    setRecovering(false);
+    await load();
+  }
 
   async function forget(key: string, label: string) {
     if (!window.confirm(`„${label}“ endgültig löschen? Die Datei geht mit.`)) {
@@ -116,7 +151,12 @@ export const LibraryPanel: React.FC<{ step: string }> = ({ step }) => {
             </Button>
           </div>
 
+          <Button variant="ghost" onClick={() => void recover()} disabled={recovering}>
+            {recovering ? "wird durchsucht…" : "Verlorene Einträge zurückholen"}
+          </Button>
+
           {error ? <Note tone="alert">{error}</Note> : null}
+          {note ? <Note tone="info">{note}</Note> : null}
           {busy ? <Note tone="info">wird geladen…</Note> : null}
 
           {tab === "sounds" ? (

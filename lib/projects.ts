@@ -327,6 +327,28 @@ export async function audioInUse(): Promise<Set<string>> {
  * voiceover and at every video it has produced, and sweeping either leaves a
  * project that will not play, will not render, and cannot explain why.
  */
+/**
+ * Every saved project, read raw.
+ *
+ * No render reconciliation and no writing back, unlike listProjects() - this
+ * is for jobs that only want to look at what is stored. Split out of
+ * referencedFiles(), which was already doing exactly this walk privately.
+ */
+export async function readAllProjects(limit = 1000): Promise<ProjectRecord[]> {
+  const token = resolveBlobToken()?.value;
+  if (!token) return [];
+
+  const page = await list({ prefix: PREFIX, limit, token });
+  const records = await Promise.all(
+    page.blobs.map((blob) =>
+      fetch(`${blob.url}?ts=${Date.now()}`, { cache: "no-store" })
+        .then((r) => (r.ok ? (r.json() as Promise<ProjectRecord>) : null))
+        .catch(() => null),
+    ),
+  );
+  return records.filter((r): r is ProjectRecord => Boolean(r?.id && r.project));
+}
+
 async function referencedFiles(): Promise<Set<string>> {
   const inUse = new Set<string>();
   const token = resolveBlobToken()?.value;
