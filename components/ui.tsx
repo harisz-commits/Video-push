@@ -38,9 +38,19 @@ export const Panel: React.FC<{
   </section>
 );
 
+/**
+ * `download` is not a third shade of primary.
+ *
+ * It marks the one kind of action that leaves the studio and puts a file on
+ * somebody's disk, and it is the same blue wherever that happens. Worth its
+ * own variant rather than a style override at each call site, because the
+ * value of a colour that means one thing is entirely in its being used
+ * consistently - and the last inconsistent one, a ghost-styled subtitle
+ * button, was reported as a missing feature.
+ */
 export const Button: React.FC<
   React.ButtonHTMLAttributes<HTMLButtonElement> & {
-    variant?: "primary" | "ghost";
+    variant?: "primary" | "ghost" | "download";
     title?: string;
   }
 > = ({ variant = "primary", style, disabled, ...rest }) => (
@@ -50,19 +60,33 @@ export const Button: React.FC<
     style={{
       width: "100%",
       padding: "11px 14px",
-      border: `1px solid ${variant === "primary" ? "var(--ink)" : "var(--grid)"}`,
+      border: `1px solid ${
+        variant === "download"
+          ? "var(--download)"
+          : variant === "primary"
+            ? "var(--ink)"
+            : "var(--grid)"
+      }`,
       background:
-        variant === "primary"
+        variant === "download"
           ? disabled
             ? "var(--grid)"
-            : "var(--ink)"
-          : "transparent",
+            : "var(--download)"
+          : variant === "primary"
+            ? disabled
+              ? "var(--grid)"
+              : "var(--ink)"
+            : "transparent",
       color:
-        variant === "primary"
+        variant === "download"
           ? disabled
             ? "#7c8694"
-            : "var(--field)"
-          : "var(--ink)",
+            : "#fff"
+          : variant === "primary"
+            ? disabled
+              ? "#7c8694"
+              : "var(--field)"
+            : "var(--ink)",
       cursor: disabled ? "not-allowed" : "pointer",
       fontSize: 13,
       fontWeight: 600,

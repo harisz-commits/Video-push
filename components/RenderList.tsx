@@ -68,7 +68,7 @@ export const RenderList: React.FC<{
                 download
                 style={{
                   fontWeight: 600,
-                  color: "var(--live)",
+                  color: "var(--download)",
                   textDecoration: "none",
                   whiteSpace: "nowrap",
                 }}

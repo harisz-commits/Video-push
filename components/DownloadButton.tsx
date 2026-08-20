@@ -31,8 +31,9 @@ export function toDownloadUrl(url: string): string {
  *
  * An anchor rather than a button, because saving a file is navigation and
  * should behave like it: middle-click, long-press, "save link as" all keep
- * working. It is styled as the primary action because, once a render is done,
- * it is the only thing anyone wants to do next.
+ * working. Blue like every other control that hands you a file - see
+ * --download in styles/global.css. It used to be the same green as a running
+ * render, which put "läuft" and "fertig, hier ist es" in one colour.
  */
 export const DownloadButton: React.FC<{
   url: string;
@@ -49,8 +50,8 @@ export const DownloadButton: React.FC<{
       gap: 8,
       marginTop: 10,
       padding: "13px 14px",
-      border: "1px solid var(--live)",
-      background: "var(--live)",
+      border: "1px solid var(--download)",
+      background: "var(--download)",
       color: "#fff",
       textAlign: "center",
       textDecoration: "none",

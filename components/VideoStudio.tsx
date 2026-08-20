@@ -1954,7 +1954,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               {project.cues?.length === project.shots.length ? (
                 <>
                   <div style={{ height: 10 }} />
-                  <Button variant="ghost" onClick={downloadSubtitles}>
+                  <Button variant="download" onClick={downloadSubtitles}>
                     ↓ Untertitel für YouTube ({subtitleCues(project).length} Zeilen)
                   </Button>
                   <div

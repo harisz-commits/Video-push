@@ -1036,7 +1036,7 @@ export const ThumbnailPanel: React.FC<{
       </div>
 
       <div style={{ height: 12 }} />
-      <Button onClick={download} disabled={!ready}>
+      <Button variant="download" onClick={download} disabled={!ready}>
         ↓ Thumbnail herunterladen
       </Button>
     </Panel>

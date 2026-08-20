@@ -116,6 +116,17 @@
   --wheat: #c89b3c;
   --live: #1f6f5c;
   --alert: #c4452f;
+  /*
+   * Everything that hands you a file.
+   *
+   * One colour for one meaning, and the meaning is "this saves something to
+   * your disk" - video, subtitles, thumbnail alike. They used to be three
+   * different things: the video was green like a running render, the subtitles
+   * were a ghost button so quiet they were reported missing, and the thumbnail
+   * was the same black as every other action in its panel. Nothing about the
+   * set said they belonged together.
+   */
+  --download: #1f5aa8;
 }
 
 * {
