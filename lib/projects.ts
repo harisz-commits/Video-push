@@ -403,3 +403,131 @@ async function referencedFiles(): Promise<Set<string>> {
   }
   return inUse;
 }
+
+/**
+ * Give a project back the recording it lost.
+ *
+ * The failure this repairs: a voice was made, the film was rendered with it,
+ * the video was downloaded with it - and the project in storage never got it,
+ * because the autosave carrying it failed silently. The recording itself was
+ * never lost. It sits in the blob store under a random job id, and the job
+ * document beside it still holds the URL, the cues and the length. Nothing
+ * pointed at it any more, which for a file is the same as being gone.
+ *
+ * Matched on the number of cues, because that is one per shot and therefore a
+ * fingerprint of the script it was read from: a hundred and fifty-seven is not
+ * a number two unrelated takes share by accident. Where it is ambiguous the
+ * project is left alone and counted - attaching the wrong recording would put
+ * a film's audio under a different film, which is worse than the gap it fills.
+ */
+export async function recoverVoices(): Promise<{
+  jobs: number;
+  restored: { project: string; seconds: number }[];
+  ambiguous: number;
+}> {
+  const token = resolveBlobToken()?.value;
+  if (!token) return { jobs: 0, restored: [], ambiguous: 0 };
+
+  type Take = {
+    jobId: string;
+    audioUrl: string;
+    cues: number[];
+    audioSeconds?: number;
+    voice?: string;
+    voiceLabel?: string;
+    model?: string;
+    language?: string;
+    startedAt: number;
+  };
+
+  const takes: Take[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await list({
+      prefix: "jobs/story-voice/",
+      cursor,
+      limit: 1000,
+      token,
+    });
+    const docs = await Promise.all(
+      page.blobs.map((blob) =>
+        fetch(`${blob.url}?ts=${Date.now()}`, { cache: "no-store" })
+          .then((r) => (r.ok ? (r.json() as Promise<Take & { status?: string }>) : null))
+          .catch(() => null),
+      ),
+    );
+    for (const doc of docs) {
+      if (!doc || doc.status !== "done") continue;
+      if (!doc.audioUrl || !Array.isArray(doc.cues) || doc.cues.length === 0) continue;
+      takes.push(doc);
+    }
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+
+  // A take whose file has been swept away would restore a project into a
+  // broken state, which is worse than leaving it plainly empty.
+  const alive = await Promise.all(
+    takes.map(async (take) => {
+      const ok = await fetch(take.audioUrl, { method: "HEAD" })
+        .then((r) => r.ok)
+        .catch(() => false);
+      return ok ? take : null;
+    }),
+  );
+  const usable = alive.filter((t): t is Take => Boolean(t));
+
+  const restored: { project: string; seconds: number }[] = [];
+  let ambiguous = 0;
+  const claimed = new Set<string>();
+
+  for (const record of await readAllProjects()) {
+    const video = record.project as unknown as {
+      kind?: string;
+      shots?: unknown[];
+      audioUrl?: string;
+      cues?: number[];
+    };
+    if (video.kind !== "video" || video.audioUrl) continue;
+    const shots = video.shots?.length ?? 0;
+    if (shots === 0) continue;
+
+    const fits = usable.filter(
+      (t) => t.cues.length === shots && !claimed.has(t.jobId),
+    );
+    if (fits.length === 0) continue;
+    if (fits.length > 1) {
+      ambiguous += 1;
+      continue;
+    }
+
+    const take = fits[0];
+    claimed.add(take.jobId);
+
+    const project = {
+      ...(record.project as object),
+      audioUrl: take.audioUrl,
+      cues: take.cues,
+      audioSeconds: take.audioSeconds,
+      // The character alignment belongs to whoever spoke last, and the timing
+      // code prefers cues - a stale one would sit there being wrong.
+      alignment: undefined,
+      voice: {
+        provider: "elevenlabs" as const,
+        name: take.voice,
+        label: take.voiceLabel,
+        model: take.model,
+        language: take.language,
+      },
+    } as AnyProject;
+
+    await saveProject({ ...record, project, updatedAt: Date.now() }).catch(
+      () => undefined,
+    );
+    restored.push({
+      project: record.title,
+      seconds: Math.round(take.audioSeconds ?? 0),
+    });
+  }
+
+  return { jobs: usable.length, restored, ambiguous };
+}

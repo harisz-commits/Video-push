@@ -5,6 +5,7 @@ import {
   repairSoundPaths,
 } from "../../../lib/image-library";
 import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
+import { recoverVoices } from "../../../lib/projects";
 
 export const runtime = "nodejs";
 
@@ -99,7 +100,17 @@ export async function POST(req: Request) {
     // Named `repaired`, not `sounds`: reindexFromProjects() already reports a
     // `sounds` count, and spreading a second one over it would silently
     // replace a number with an object.
-    return Response.json({ ok: true, ...result, repaired });
+    // And the recordings, which are the most expensive thing here to lose and
+    // the only one that cannot be redrawn from a path: the file is named after
+    // a random job id, so only the job document knows where it is.
+    const voices = await recoverVoices().catch((err) => ({
+      jobs: 0,
+      restored: [] as { project: string; seconds: number }[],
+      ambiguous: 0,
+      error: (err as Error).message.slice(0, 120),
+    }));
+
+    return Response.json({ ok: true, ...result, repaired, voices });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[/api/library] reindex", err);

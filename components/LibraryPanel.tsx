@@ -83,6 +83,7 @@ export const LibraryPanel: React.FC<{ step: string }> = ({ step }) => {
       sounds: number;
       already: number;
       repaired?: { moved: number; projects: number };
+      voices?: { restored: { project: string; seconds: number }[]; ambiguous: number };
     }>("/api/library", {});
     if (!result.ok) {
       setError(result.error);
@@ -98,6 +99,19 @@ export const LibraryPanel: React.FC<{ step: string }> = ({ step }) => {
     } else {
       parts.push(
         `${scanned} Videos durchgesehen, nichts fehlte. Alle ${already} Einträge waren schon da.`,
+      );
+    }
+    const voices = result.data.voices;
+    if (voices && voices.restored.length > 0) {
+      parts.push(
+        `${voices.restored.length} Aufnahme(n) wieder zugeordnet: ${voices.restored
+          .map((v) => `„${v.project}“ (${v.seconds} s)`)
+          .join(", ")}.`,
+      );
+    }
+    if (voices && voices.ambiguous > 0) {
+      parts.push(
+        `${voices.ambiguous} Video(s) hätten mehrere passende Aufnahmen — die wurden nicht angefasst, um nicht die falsche einzusetzen.`,
       );
     }
     if (repaired && repaired.moved > 0) {
