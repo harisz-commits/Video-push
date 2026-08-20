@@ -185,6 +185,23 @@ export async function reconcileRenders(
 export async function attachRender(
   projectId: string,
   render: ProjectRender,
+  /**
+   * The project exactly as it was rendered.
+   *
+   * Saved here, and this is not bookkeeping. Rendering sends the project from
+   * the browser's memory while saving it is a separate, silent background
+   * request - so the two can disagree, and did: a video was rendered with its
+   * voice, downloaded with its voice, and the stored project had no voice at
+   * all, because the autosave carrying it had failed without saying so. The
+   * next page load read storage and the recording was simply gone. The file
+   * still existed; nothing pointed at it any more.
+   *
+   * A render is the strongest statement anybody makes about a project - it
+   * costs real money and produces the deliverable - so what was rendered is
+   * what gets stored. Optional, because the quiz and infographics studios call
+   * this without one and their own saving is unaffected.
+   */
+  project?: AnyProject,
 ): Promise<void> {
   const record = await readProject(projectId);
   if (!record) return;
@@ -192,7 +209,12 @@ export async function attachRender(
   // Newest first, and bounded: a project someone has re-rendered thirty times
   // does not need thirty rows, and the old ones are swept from storage anyway.
   const renders = [render, ...(record.renders ?? [])].slice(0, 12);
-  await saveProject({ ...record, renders, updatedAt: Date.now() });
+  await saveProject({
+    ...record,
+    ...(project ? { project } : {}),
+    renders,
+    updatedAt: Date.now(),
+  });
 }
 
 export async function saveProject(record: ProjectRecord): Promise<void> {

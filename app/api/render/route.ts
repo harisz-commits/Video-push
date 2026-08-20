@@ -118,7 +118,7 @@ export async function POST(req: Request) {
       await writeJson(progressPath(renderId), job);
 
       if (projectId) {
-        await attachRender(projectId, { renderId, at: Date.now() }).catch(
+        await attachRender(projectId, { renderId, at: Date.now() }, project).catch(
           () => undefined,
         );
       }
@@ -168,7 +168,7 @@ export async function POST(req: Request) {
     // Noted on the project now, while there is certainly somebody here to note
     // it. Whether it finishes is answered later by looking for the file.
     if (projectId) {
-      await attachRender(projectId, { renderId, at: Date.now() }).catch(() => {
+      await attachRender(projectId, { renderId, at: Date.now() }, project).catch(() => {
         // A render that cannot be filed is still a render worth starting.
       });
     }

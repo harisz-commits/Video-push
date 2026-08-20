@@ -283,7 +283,22 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Summary[]>([]);
   const [renders, setRenders] = useState<ProjectRenderRow[]>([]);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  /**
+   * What the last save actually did.
+   *
+   * "failed" exists because its absence cost a recording. A save that did not
+   * work set the state back to "idle", said nothing, and was never retried -
+   * and the header, which showed "gespeichert" for any project that had an id,
+   * went on claiming the work was safe. The voice stayed in the browser, the
+   * render used it, the video came out with it, and the next page load read
+   * storage and found nothing.
+   */
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "failed"
+  >("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** Retries so far, so the backoff grows instead of hammering. */
+  const saveAttempt = useRef(0);
   const [render, setRender] = useState<{
     renderId: string;
     status: string;
@@ -405,12 +420,16 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       project,
     });
     if (!result.ok) {
-      setSaveState("idle");
+      saveAttempt.current += 1;
+      setSaveState("failed");
+      setSaveError(result.error);
       return;
     }
+    saveAttempt.current = 0;
     lastSaved.current = payload;
     setProjectId(result.data.id);
     setSaveState("saved");
+    setSaveError(null);
     try {
       window.localStorage.setItem(PROJECT_KEY, result.data.id);
     } catch {
@@ -418,6 +437,26 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     }
     void refreshProjects();
   }, [project, projectId, refreshProjects]);
+
+  /**
+   * Try a failed save again.
+   *
+   * Its own effect, and it has to be: the autosave above only runs when the
+   * project changes, and a project stops changing exactly when it is finished
+   * — which is the worst possible moment to give up on saving it. Nothing else
+   * would ever come back for it.
+   *
+   * Longer after each failure, and it stops itself: the moment save() begins
+   * it sets "saving", this effect sees a state that is no longer "failed" and
+   * clears its own timer, so there is never a second attempt in flight beside
+   * the first.
+   */
+  useEffect(() => {
+    if (saveState !== "failed") return;
+    const wait = Math.min(30_000, 3_000 * 2 ** (saveAttempt.current - 1));
+    const id = window.setTimeout(() => void save(), wait);
+    return () => window.clearTimeout(id);
+  }, [saveState, save]);
 
   /**
    * Open a saved video.
@@ -476,6 +515,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     const payload = JSON.stringify(project);
     if (lastSaved.current === payload) return;
     if (!projectId && payload === JSON.stringify(seed)) return;
+
     const id = window.setTimeout(() => void save(), 1200);
     return () => window.clearTimeout(id);
   }, [project, projectId, save, seed]);
@@ -1025,12 +1065,22 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           step="00"
           title="Projekt"
           right={
-            <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
-              {saveState === "saving"
-                ? "speichert…"
-                : projectId
-                  ? "gespeichert"
-                  : "ungespeichert"}
+            <span
+              className="mono"
+              style={{
+                fontSize: 11,
+                color: saveState === "failed" ? "var(--alert)" : "#5b6672",
+              }}
+            >
+              {saveState === "failed"
+                ? "NICHT gespeichert"
+                : saveState === "saving"
+                  ? "speichert…"
+                  : saveState === "saved"
+                    ? "gespeichert"
+                    : projectId
+                      ? "geladen"
+                      : "ungespeichert"}
             </span>
           }
         >
@@ -1073,6 +1123,14 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               </option>
             ))}
           </select>
+          {saveState === "failed" ? (
+            <Note tone="alert">
+              Das Projekt konnte nicht gespeichert werden — es liegt nur noch
+              in diesem Tab. Schließ ihn nicht, bevor hier „gespeichert“ steht.
+              {saveError ? ` (${saveError})` : ""} Es wird von selbst noch
+              einmal versucht.
+            </Note>
+          ) : null}
           {projects.length === 0 ? (
             <Note tone="info">
               Noch kein gespeichertes Video. Sobald eines erzeugt ist, landet es
