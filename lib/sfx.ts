@@ -1,5 +1,13 @@
 import { mp3Duration } from "./mp3";
-import { lookup, noteUse, remember } from "./image-library";
+import type { LibraryEntry } from "./image-library";
+import {
+  lookup,
+  lookupAnyStyle,
+  noteUse,
+  readLibrary,
+  rebucket,
+  remember,
+} from "./image-library";
 import type { StoryProject, StorySound } from "./story";
 
 /**
@@ -28,6 +36,21 @@ import type { StoryProject, StorySound } from "./story";
  */
 
 const ENDPOINT = "https://api.elevenlabs.io/v1/sound-generation";
+
+/**
+ * The bucket every sound is filed under, regardless of the film.
+ *
+ * Sounds used to be filed under the film's VISUAL style — "Sand und Indigo,
+ * Siebdruck" — with the comment that a bed of wind belongs to the film it was
+ * made for. That reasoning is right for a picture and nonsense for a sound: a
+ * picture in the wrong palette is the wrong picture, while wind sounds the
+ * same whether the film is ochre or blue. The effect was that every film with
+ * a new look regenerated its wind, its fire and its water, and paid for them
+ * again.
+ *
+ * One bucket, so a sound made for any film is available to every later one.
+ */
+const SFX_STYLE = "sfx";
 
 /**
  * How the cost is worked out lives in lib/sfx-cost.ts, and is re-exported
@@ -78,7 +101,6 @@ export async function generateSounds(args: {
   deadline?: number;
   onProgress?: (done: number, total: number) => Promise<void>;
 }): Promise<SfxResult> {
-  const style = args.project.style.name;
   const wanted = args.project.sounds.filter((s) => !s.url);
 
   const made = new Map<
@@ -104,19 +126,42 @@ export async function generateSounds(args: {
 
       const sound = wanted[index];
 
-      // The library first, keyed by sound AND style — a bed of wind belongs to
-      // the film it was made for, and the same key in a different look may
-      // well have been asked for something else entirely.
-      const known = await lookup(soundKey(sound), style).catch(() => null);
+      // The library first. In the sound bucket, and failing that anywhere at
+      // all — sounds made before the bucket existed are filed under whichever
+      // film's look happened to be current, and they are perfectly good
+      // sounds. A hit outside the bucket is moved into it on the spot, so the
+      // fallback stops being needed as the old entries get reused.
+      const key = soundKey(sound);
+      let known = await lookup(key, SFX_STYLE).catch(() => null);
+      if (!known) {
+        known = await lookupAnyStyle(key).catch(() => null);
+        if (known) await rebucket(key, SFX_STYLE).catch(() => undefined);
+      }
+
+      // Second net: the same sound under a different name.
+      //
+      // The writer is shown the library and told to copy the key verbatim, and
+      // mostly does. The failure that survives that is copying the DESCRIPTION
+      // and renaming the key — "wind-ueber-schnee" becomes
+      // "heulender-wind-eisflaeche" while the English prompt is word for word
+      // the one it was given. The key lookup misses and the identical sound is
+      // generated and paid for again.
+      //
+      // Matched on the exact description, not on similarity. A fuzzy match
+      // would sometimes substitute a sound that is merely close, and a wrong
+      // sound nobody notices until the video is finished costs far more than
+      // the four cents it saved.
+      if (!known) known = await lookupByDescription(sound).catch(() => null);
+
       if (known) {
         made.set(sound.key, {
           url: known.url,
-          // Stored in the entry's name field; see remember() below.
+          // Stored after a pipe in the prompt field; see remember() below.
           seconds: Number(known.prompt.split("|").pop()) || sound.seconds,
           reused: true,
         });
         reused += 1;
-        await noteUse(soundKey(sound), style).catch(() => undefined);
+        await noteUse(key, SFX_STYLE).catch(() => undefined);
         await args.onProgress?.(made.size + failed.length, wanted.length);
         continue;
       }
@@ -153,7 +198,7 @@ export async function generateSounds(args: {
           // The real length is carried on the entry so a reuse knows where the
           // loop restarts without fetching and measuring the file again.
           prompt: `${sound.prompt}|${seconds.toFixed(3)}`,
-          style,
+          style: SFX_STYLE,
           model: "eleven-sound-generation",
           bytes: audio,
           contentType: "audio/mpeg",
@@ -195,6 +240,130 @@ export async function generateSounds(args: {
     skipped,
   };
 }
+
+/**
+ * What the sound library already holds, in the shape a writer can use.
+ *
+ * This is the point of the whole exercise. Matching on the exact key almost
+ * never fires across films: one script calls its bed "wind-ueber-schnee" and
+ * the next calls the same thing "pfeifender-wind-eisflaeche", and both pay
+ * ElevenLabs for a sound that already exists. So the writer is shown what is
+ * there, in English, and told to reuse by name — the same mechanism that
+ * already makes motifs come back within a film, which is the one thing here
+ * that is known to work.
+ *
+ * A model reading "howling wind sweeping across an open snow field" knows
+ * perfectly well that it is the bed the next Ice Age film wants. No embedding
+ * store, no similarity threshold to tune, and it fails in the harmless
+ * direction: an unrecognised sound is simply generated as before.
+ */
+export type KnownSound = {
+  /** Without the sfx- prefix, which is what a script writes. */
+  key: string;
+  name: string;
+  /** The English description it was generated from. */
+  description: string;
+  kind: "ambience" | "accent";
+  seconds: number;
+  uses: number;
+};
+
+/** How many of each kind are offered. Enough to be useful, short enough to read. */
+const OFFERED = 40;
+
+/**
+ * One library entry read back as a sound, or null if it is not one.
+ *
+ * Exported because it is the only fiddly part: the key carries the kind in a
+ * prefix and the real duration was appended to the prompt after a pipe, both
+ * to avoid widening the library's shape for one of its two tenants. Getting
+ * either wrong offers the writer a description with a number stuck on the end,
+ * which it would then copy into a prompt and generate.
+ */
+export function parseSound(entry: {
+  key: string;
+  name: string;
+  prompt: string;
+  uses: number;
+}): KnownSound | null {
+  const match = /^sfx-(ambience|accent)-([a-z0-9][a-z0-9-]*)$/.exec(entry.key);
+  if (!match) return null;
+
+  const [, kind, key] = match;
+  // Split from the right: a description may itself contain a pipe, the
+  // duration never does.
+  const parts = entry.prompt.split("|");
+  const seconds = parts.length > 1 ? Number(parts[parts.length - 1]) : NaN;
+  const description = (
+    parts.length > 1 && Number.isFinite(seconds)
+      ? parts.slice(0, -1).join("|")
+      : entry.prompt
+  ).trim();
+  if (description.length < 4) return null;
+
+  return {
+    key,
+    name: entry.name,
+    description,
+    kind: kind as KnownSound["kind"],
+    seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 10,
+    uses: entry.uses,
+  };
+}
+
+export async function soundLibrary(): Promise<{
+  beds: KnownSound[];
+  accents: KnownSound[];
+}> {
+  const { entries } = await readLibrary().catch(() => ({ entries: [] }));
+  const beds: KnownSound[] = [];
+  const accents: KnownSound[] = [];
+
+  for (const entry of entries) {
+    const sound = parseSound(entry);
+    if (!sound) continue;
+    (sound.kind === "ambience" ? beds : accents).push(sound);
+  }
+
+  // Proven first. A sound that has already been used in three films is a
+  // better offer than one that was made once and never came back — and when
+  // the list has to be cut, that is the right end to cut from.
+  const rank = (a: KnownSound, b: KnownSound) => b.uses - a.uses;
+  return {
+    beds: beds.sort(rank).slice(0, OFFERED),
+    accents: accents.sort(rank).slice(0, OFFERED),
+  };
+}
+
+/**
+ * A stored sound whose description matches this one exactly.
+ *
+ * Normalised only for case and whitespace — a model that copies a prompt and
+ * changes its capitalisation has still copied it, while one that rewords it
+ * has asked for something else and should get something else.
+ */
+async function lookupByDescription(
+  sound: StorySound,
+): Promise<LibraryEntry | null> {
+  const wanted = normalise(sound.prompt);
+  if (wanted.length < 8) return null;
+
+  const { entries } = await readLibrary();
+  const hit = entries
+    .map((entry) => ({ entry, parsed: parseSound(entry) }))
+    .filter(
+      (row) =>
+        row.parsed &&
+        row.parsed.kind === sound.kind &&
+        normalise(row.parsed.description) === wanted,
+    )
+    .sort((a, b) => b.entry.uses - a.entry.uses)[0];
+
+  return hit ? hit.entry : null;
+}
+
+const normalise = (text: string) =>
+  text.trim().toLowerCase().replace(/\s+/g, " ");
 
 /**
  * The library key for a sound.

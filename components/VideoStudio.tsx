@@ -22,6 +22,7 @@ import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
 import { StoryVideo } from "../remotion/story/StoryVideo";
 import { getJson, postJson } from "./api";
 import { DownloadButton } from "./DownloadButton";
+import { LibraryPanel } from "./LibraryPanel";
 import { RenderList, type ProjectRenderRow } from "./RenderList";
 import { ThumbnailPanel } from "./ThumbnailPanel";
 import { Button, formatTimecode, Note, Panel } from "./ui";
@@ -1505,6 +1506,15 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                           {snd.kind === "ambience" ? "Teppich" : "Akzent"}
                         </span>
                         <span style={{ flex: 1 }}>{snd.name}</span>
+                        {snd.reused ? (
+                          <span
+                            className="mono"
+                            style={{ fontSize: 10, color: "#5b6672" }}
+                            title="kam aus der Bibliothek, kostete nichts"
+                          >
+                            Bibliothek
+                          </span>
+                        ) : null}
                         {snd.url ? (
                           <audio src={snd.url} controls style={{ height: 24, width: 130 }} />
                         ) : (
@@ -1749,6 +1759,13 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             />
           </>
         ) : null}
+
+        {/*
+          Outside the per-project block on purpose: the library is the
+          studio's, not this video's. It is also the only place the sounds
+          that every later film reuses can actually be heard.
+        */}
+        <LibraryPanel step="08" />
       </div>
 
       <div className="studio-stage">

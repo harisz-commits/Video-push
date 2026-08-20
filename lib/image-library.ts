@@ -1,4 +1,4 @@
-import { list } from "@vercel/blob";
+import { del, list } from "@vercel/blob";
 import { readJson, resolveBlobToken, writeBinary, writeJson } from "./store";
 
 /**
@@ -120,6 +120,48 @@ export async function lookup(
           e.fingerprint === fingerprint),
     ) ?? null
   );
+}
+
+/**
+ * The same lookup, ignoring the look entirely.
+ *
+ * Only safe for things that have no look. A picture asked for by key alone
+ * would come back in whatever palette it happened to be drawn in, which is the
+ * exact mistake the style match exists to prevent — but a sound has no palette.
+ * Wind does not sound different because the film is ochre instead of blue.
+ *
+ * Used for the sounds, whose keys carry an `sfx-` prefix and therefore cannot
+ * collide with a picture's.
+ */
+export async function lookupAnyStyle(key: string): Promise<LibraryEntry | null> {
+  const { entries } = await readLibrary();
+  // Most used first: when the same sound was stored under several film styles
+  // — which is what happened before sounds were given a bucket of their own —
+  // the one that has proven itself is the better answer.
+  return (
+    entries
+      .filter((e) => e.key === key)
+      .sort((a, b) => b.uses - a.uses)[0] ?? null
+  );
+}
+
+/**
+ * Move an entry into a different bucket, keeping everything else.
+ *
+ * Lazy migration, and the reason the fallback above does not have to live
+ * forever: a sound found under an old film's style name is re-filed under the
+ * sound bucket the first time it is reused, so the next lookup finds it
+ * directly. Best effort — a failure costs one more fallback, not the entry.
+ */
+export async function rebucket(key: string, style: string): Promise<void> {
+  const index = await readLibrary();
+  const entry = index.entries.find((e) => e.key === key);
+  if (!entry || entry.style === style) return;
+  entry.style = style;
+  await writeJson(INDEX, {
+    ...index,
+    updatedAt: Date.now(),
+  } satisfies LibraryIndex).catch(() => undefined);
 }
 
 /** Every picture drawn in one look, for offering reuse in a new video. */
@@ -268,6 +310,34 @@ function hash(style: string): string {
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0).toString(36).slice(0, 6);
+}
+
+/**
+ * Remove an entry and the file behind it.
+ *
+ * The index first, the file second — the opposite order from remember(), and
+ * for the same reason. An index entry pointing at a deleted file would be
+ * looked up, trusted, and put into a video as a broken image; a file with no
+ * entry is merely storage nobody can find, which the next sweep collects.
+ */
+export async function deleteEntry(key: string): Promise<boolean> {
+  const index = await readLibrary();
+  const gone = index.entries.filter((e) => e.key === key);
+  if (gone.length === 0) return false;
+
+  await writeJson(INDEX, {
+    entries: index.entries.filter((e) => e.key !== key),
+    updatedAt: Date.now(),
+  } satisfies LibraryIndex);
+
+  const token = resolveBlobToken()?.value;
+  if (token) {
+    const urls = gone.flatMap((e) => [e.url, e.thumbUrl].filter(Boolean) as string[]);
+    await del(urls, { token }).catch(() => {
+      // The entry is gone either way. This costs storage, not correctness.
+    });
+  }
+  return true;
 }
 
 /** What the library holds, for the studio to show without loading every entry. */

@@ -175,6 +175,13 @@ DIE WIEDERKEHRENDEN MOTIVE:
   ausgeschrieben.
 
 DIE KLANGTEPPICHE:
+- ZUERST: Bekommst du eine Liste bereits vorhandener Klangteppiche, dann nimm
+  daraus, was passt. Übernimm "key", "name" und "prompt" WÖRTLICH und
+  unverändert — nur dann wird die vorhandene Datei wiedergefunden statt neu
+  erzeugt. Erfinde nur, was in der Liste wirklich fehlt.
+  Ein vorhandenes „howling wind over an open snow field" ist der Wind für
+  jedes Eiszeit-, Berg- und Tundra-Video. Es muss nicht dasselbe Thema sein,
+  es muss dasselbe Geräusch sein.
 - Drei bis fünf Hintergrundgeräusche, die unter den Abschnitten laufen.
 - Sie tragen die Spannung, die dieses Format sonst nicht hat: es bewegt sich
   kein Bild wirklich, also muss der Ton die Arbeit machen. Wind über Schnee,
@@ -197,7 +204,24 @@ export function buildOutlinePrompt(args: {
   sections: number;
   motifs: number;
   beds: number;
+  /** Beds already in the library, offered for reuse. See soundLibrary(). */
+  known?: { key: string; name: string; description: string; seconds: number }[];
 }): string {
+  const known = args.known?.length
+    ? `
+
+DIESE KLANGTEPPICHE GIBT ES SCHON. Nimm sie, wo sie passen — sie sind bereits
+erzeugt und bezahlt, und derselbe Wind zweimal zu erzeugen kostet Geld ohne
+irgendetwas zu verbessern:
+${args.known
+  .map((k) => `- key: ${k.key}\n  name: ${k.name}\n  prompt: ${k.description}`)
+  .join("\n")}
+
+Übernimm einen davon WÖRTLICH mit allen drei Feldern, wenn er passt. Schreib
+seinen Prompt nicht um, auch nicht ein bisschen — eine geänderte Beschreibung
+gilt als neuer Klang und wird neu erzeugt.`
+    : "";
+
   return `Thema des Videos:
 ${args.topic}
 
@@ -209,7 +233,7 @@ ${args.motifs} wiederkehrende Motive und ${args.beds} Klangteppiche.
 Der Inhalt muss tragen. Ein Abschnitt, der nur sagt "es war kalt und schwer",
 ist verschenkt. Jeder Abschnitt braucht etwas Konkretes: eine Technik, eine
 Zahl, einen Gegenstand, eine Entscheidung, eine Folge. Wenn du zum Thema
-nichts Konkretes weißt, wähl einen anderen Abschnitt.`;
+nichts Konkretes weißt, wähl einen anderen Abschnitt.${known}`;
 }
 
 export const STORY_SCRIPT_SYSTEM_PROMPT = `Du schreibst ein deutsches Erklärvideo: gesprochenen Text und dazu die Bilder.
@@ -303,6 +327,10 @@ KLANG:
   Ein Wechsel markiert einen Ortswechsel oder einen Gedankensprung.
 - "accent" ist ein einzelnes Geräusch genau auf dieser Einstellung: ein
   brechender Knochen, ein Schlag Stein auf Stein, eine Böe, die ankommt.
+  Bekommst du eine Liste vorhandener Akzente, nimm daraus, was passt, und
+  übernimm "key", "name" und "prompt" WÖRTLICH — dann wird die vorhandene
+  Datei benutzt statt neu erzeugt. Ein brechender Ast klingt in jedem Video
+  gleich.
   SPARSAM — höchstens jede fünfte bis achte Einstellung. Ein Akzent auf jeder
   wäre kein Sounddesign, sondern ein Schlagzeug.
 - Setz Akzente dorthin, wo der Satz sie selbst nennt. Wenn der Text von
@@ -371,6 +399,8 @@ export function buildSectionPrompt(args: {
   imageBudget: number;
   /** Recurring figures, so a section can put one in a picture. */
   characters?: { key: string; name: string }[];
+  /** Accents already in the library, offered for reuse. See soundLibrary(). */
+  knownAccents?: { key: string; name: string; description: string; seconds: number }[];
 }): string {
   const plan = args.sections
     .map((s, i) => `${i + 1}. ${s.title} — ${s.brief}${i === args.index ? "   <<< DIESEN schreibst du" : ""}`)
@@ -386,6 +416,23 @@ DIESE FIGUREN GIBT ES. Ihr Aussehen steht fest und wird angehängt — nenn in
 ${args.characters.map((c) => `- ${c.key} (${c.name})`).join("\n")}
 Zwing sie nicht in jedes Bild. Eine Figur, die überall auftaucht, hört auf,
 etwas zu bedeuten.`
+    : "";
+
+  const known = args.knownAccents?.length
+    ? `
+
+DIESE AKZENTE GIBT ES SCHON. Nimm sie, wo sie passen, statt neue zu erfinden —
+sie sind bereits erzeugt und bezahlt:
+${args.knownAccents
+  .map(
+    (k) =>
+      `- key: ${k.key}\n  name: ${k.name}\n  prompt: ${k.description}\n  seconds: ${Math.round(k.seconds)}`,
+  )
+  .join("\n")}
+
+Führ einen übernommenen Akzent trotzdem in deiner "accents"-Liste auf, mit
+allen Feldern WÖRTLICH so, wie sie hier stehen. Schreib den Prompt nicht um —
+eine geänderte Beschreibung gilt als neues Geräusch und wird neu erzeugt.`
     : "";
 
   return `Thema des Videos:
@@ -418,7 +465,7 @@ Motiv wiederkehren.
 
 DIESE KLANGTEPPICHE STEHEN ZUR VERFÜGUNG. Setz einen davon auf jede
 Einstellung, meist über viele Einstellungen denselben:
-${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n") || "- keine"}${cast}`;
+${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n") || "- keine"}${cast}${known}`;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { complete } from "./llm";
+import { soundLibrary, type KnownSound } from "./sfx";
 import { slugify } from "./image-library";
 import {
   StoryProject,
@@ -372,6 +373,22 @@ async function writeScript(args: {
     Math.min(15, Math.round(args.minutes / MINUTES_PER_SECTION)),
   );
 
+  /**
+   * What the sound library already holds.
+   *
+   * Read once, before anything is written, and handed to both the outline and
+   * every section. Sounds are the most reusable thing this studio makes —
+   * wind is wind in every film — and matching them by key alone almost never
+   * fired across films, because two scripts name the same sound differently.
+   * Showing the writer what exists is what turns that into a hit.
+   *
+   * Never fatal: without the list the writer invents as it always did.
+   */
+  const known = await soundLibrary().catch(() => ({
+    beds: [] as KnownSound[],
+    accents: [] as KnownSound[],
+  }));
+
   // A third of the picture budget goes to motifs that every section may draw
   // on; the rest is split between them. Without a shared pool the sections
   // would each invent their own vocabulary and nothing would ever recur.
@@ -395,6 +412,7 @@ async function writeScript(args: {
     sections: sectionCount,
     motifs: motifBudget,
     beds: bedBudget,
+    known: known.beds,
   });
 
   const words = Math.round((args.minutes * WORDS_PER_MINUTE) / sectionCount);
@@ -433,6 +451,7 @@ async function writeScript(args: {
               beds: plan.beds,
               imageBudget: perSection,
               characters: args.characters,
+              knownAccents: known.accents,
             }),
           },
         ],
@@ -517,6 +536,8 @@ async function writeOutline(args: {
   sections: number;
   motifs: number;
   beds: number;
+  /** Beds already in the library, offered to the planner for reuse. */
+  known?: KnownSound[];
 }): Promise<{
   sections: { title: string; brief: string }[];
   motifs: StoryImage[];
@@ -536,6 +557,7 @@ async function writeOutline(args: {
           sections: args.sections,
           motifs: args.motifs,
           beds: args.beds,
+          known: args.known,
         }),
       },
     ],
