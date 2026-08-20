@@ -1,6 +1,6 @@
 import { generateImage } from "./gemini";
 import { resolveModel, type ImageModel } from "./image-models";
-import { lookup, noteUse, remember } from "./image-library";
+import { findStored, lookup, noteUse, remember } from "./image-library";
 import { imagePrompt } from "./story-prompt";
 import { styleFingerprint, type StoryCharacter, type StoryProject } from "./story";
 
@@ -95,9 +95,31 @@ export async function drawStoryImages(args: {
       const figures = castFor(image.characters);
       const fingerprint = styleFingerprint(style, figures);
 
-      const known = await lookup(image.key, style.name, fingerprint).catch(
+      let known = await lookup(image.key, style.name, fingerprint).catch(
         () => null,
       );
+
+      // The index missed - so ask storage directly, before paying.
+      //
+      // Blob paths here are deterministic, so a picture already drawn for this
+      // subject in this look occupies a path this can compute and check. That
+      // matters because the index turned out to be the part that fails: a film
+      // that paid for seventy-five pictures had four of them recorded, while
+      // all seventy-five files were sitting there untouched. A picture that
+      // exists must never be bought twice, and the file is the better witness.
+      //
+      // Two head requests at worst, which is 0.00008 cents against 3.4 for
+      // drawing it again.
+      if (!known) {
+        known = await findStored({
+          key: image.key,
+          name: image.name,
+          prompt: image.prompt,
+          style: style.name,
+          fingerprint,
+        }).catch(() => null);
+      }
+
       if (known) {
         drawn.set(image.key, {
           url: known.url,

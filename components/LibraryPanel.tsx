@@ -82,18 +82,30 @@ export const LibraryPanel: React.FC<{ step: string }> = ({ step }) => {
       images: number;
       sounds: number;
       already: number;
+      repaired?: { moved: number; projects: number };
     }>("/api/library", {});
     if (!result.ok) {
       setError(result.error);
       setRecovering(false);
       return;
     }
-    const { images, sounds, already, scanned } = result.data;
-    setNote(
-      images + sounds === 0
-        ? `${scanned} Videos durchgesehen, nichts fehlte. Alle ${already} Einträge waren schon da.`
-        : `${images} Bilder und ${sounds} Klänge aus ${scanned} Videos zurückgeholt. Sie waren bezahlt und lagen im Speicher, nur nicht im Verzeichnis.`,
-    );
+    const { images, sounds, already, scanned, repaired } = result.data;
+    const parts: string[] = [];
+    if (images + sounds > 0) {
+      parts.push(
+        `${images} Bilder und ${sounds} Klänge aus ${scanned} Videos zurückgeholt — bezahlt, im Speicher, nur nicht im Verzeichnis.`,
+      );
+    } else {
+      parts.push(
+        `${scanned} Videos durchgesehen, nichts fehlte. Alle ${already} Einträge waren schon da.`,
+      );
+    }
+    if (repaired && repaired.moved > 0) {
+      parts.push(
+        `${repaired.moved} Klänge umbenannt, damit sie beim Rendern nicht mehr stumm bleiben (${repaired.projects} Videos angepasst). Diese Videos musst du neu rendern.`,
+      );
+    }
+    setNote(parts.join(" "));
     setRecovering(false);
     await load();
   }

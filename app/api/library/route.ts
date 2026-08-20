@@ -2,6 +2,7 @@ import {
   deleteEntry,
   readLibrary,
   reindexFromProjects,
+  repairSoundPaths,
 } from "../../../lib/image-library";
 import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
 
@@ -86,8 +87,19 @@ export async function POST(req: Request) {
   if (!limited.ok) return errorResponse(limited.error, limited.status);
 
   try {
+    // Both repairs in one pass, because a person pressing "put it back" means
+    // both: entries the index lost, and sounds a renderer silently ignores.
     const result = await reindexFromProjects();
-    return Response.json({ ok: true, ...result });
+    const repaired = await repairSoundPaths().catch((err) => ({
+      moved: 0,
+      alreadyFine: 0,
+      projects: 0,
+      failed: [{ key: "repair", reason: (err as Error).message.slice(0, 120) }],
+    }));
+    // Named `repaired`, not `sounds`: reindexFromProjects() already reports a
+    // `sounds` count, and spreading a second one over it would silently
+    // replace a number with an object.
+    return Response.json({ ok: true, ...result, repaired });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[/api/library] reindex", err);

@@ -17,6 +17,7 @@ import {
   type StoryStyle,
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
+import { TEXT_MODELS } from "../lib/text-models";
 import { soundCost } from "../lib/sfx-cost";
 import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
 import { StoryVideo } from "../remotion/story/StoryVideo";
@@ -40,7 +41,49 @@ import { Button, formatTimecode, Note, Panel } from "./ui";
 
 const JOB_KEY = "infographics-studio.storyJob";
 const PROJECT_KEY = "infographics-studio.storyProjectId";
+
+/**
+ * The jobs that outlive the tab.
+ *
+ * Writing the script already survived a reload; drawing, sound and voice did
+ * not, and that is where the losses were. All three start work on the server,
+ * hand back an id, and deliver their result only to whoever polls for it - so
+ * a phone that locks its screen mid-draw leaves a finished job sitting in
+ * storage that nobody will ever read. Forty-one pictures were paid for and
+ * lost exactly this way.
+ *
+ * The project id is stored beside the job id so a resumed job cannot be
+ * applied to a different video than the one it belongs to.
+ */
+const DRAW_KEY = "infographics-studio.storyDrawJob";
+const SFX_KEY = "infographics-studio.storySfxJob";
+const VOICE_KEY = "infographics-studio.storyVoiceJob";
+
+/** Remember a running job, or forget it when it is done. */
+function rememberJob(key: string, jobId: string | null, projectId?: string) {
+  try {
+    if (jobId) window.localStorage.setItem(key, `${jobId}|${projectId ?? ""}`);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // The job still runs on the server; only picking it up again is lost.
+  }
+}
+
+/** A remembered job, if there is one. */
+function recallJob(key: string): { jobId: string; projectId: string } | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const [jobId, projectId = ""] = raw.split("|");
+    return jobId ? { jobId, projectId } : null;
+  } catch {
+    return null;
+  }
+}
 const TOLERATED_POLL_FAILURES = 3;
+
+/** Shots a minute of film holds, at the eight words a shot the writer aims for. */
+const SHOTS_PER_MINUTE = WORDS_PER_MINUTE / 8;
 
 type StoryJobState = {
   status: "running" | "done" | "error";
@@ -124,8 +167,31 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     400,
     Math.max(4, Math.round(imagesPerMinute * minutes)),
   );
+  /**
+   * How often each picture would have to appear at this rate.
+   *
+   * Derived, not guessed: the writer aims at eight words a shot and the voice
+   * reads WORDS_PER_MINUTE, so a minute holds about twenty shots. Divided by
+   * the pictures in that minute, this is the number of separate times a viewer
+   * sees the same drawing - and past three, that is what they notice instead
+   * of the film.
+   */
+  const appearances = SHOTS_PER_MINUTE / Math.max(0.5, imagesPerMinute);
   const [imageModelId, setImageModelId] = useState("gemini-3.1-flash-lite-image");
   const imageModel = resolveModel(imageModelId);
+
+  /**
+   * Which model writes the script.
+   *
+   * The quiz format has had this choice since it existed; the video format was
+   * pinned to Gemini 3.7 Flash because that is what it was built against. But
+   * the script is the one part of a video that cannot be repaired later - a
+   * flat script produces a flat film however good the pictures are - and it is
+   * also by far the cheapest part to redo. Twenty-five cents against three
+   * dollars of drawings, so it is exactly the place where paying more is worth
+   * considering.
+   */
+  const [textModelId, setTextModelId] = useState("gemini-3.7-flash");
 
   // ---- What the look should be, before there is one -----------------------
   const [styleWish, setStyleWish] = useState("");
@@ -441,6 +507,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       styleWish: lookId ? undefined : styleWish.trim() || undefined,
       lookId: lookId || undefined,
       characters: cast.filter((c) => c.description.trim().length >= 3),
+      model: textModelId,
     });
     if (!result.ok) {
       setError(result.error);
@@ -535,6 +602,32 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     }
   }, []);
 
+  /**
+   * Pick up drawing, sound and voice again after a reload.
+   *
+   * These three used to exist only in React state, so closing the tab threw
+   * away the only handle on work that was already running and already paid
+   * for. The job itself never noticed - it finished on the server and wrote
+   * its result, and nobody came back for it.
+   */
+  useEffect(() => {
+    const draw = recallJob(DRAW_KEY);
+    if (draw) {
+      setDrawJobId(draw.jobId);
+      setDrawBusy(true);
+    }
+    const sfx = recallJob(SFX_KEY);
+    if (sfx) {
+      setSfxJobId(sfx.jobId);
+      setSfxBusy(true);
+    }
+    const voice = recallJob(VOICE_KEY);
+    if (voice) {
+      setVoiceJobId(voice.jobId);
+      setVoiceBusy(true);
+    }
+  }, []);
+
   // ---- Drawing ------------------------------------------------------------
   async function draw() {
     setDrawBusy(true);
@@ -549,6 +642,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       setDrawBusy(false);
       return;
     }
+    rememberJob(DRAW_KEY, result.data.jobId, project.id);
     setDrawJobId(result.data.jobId);
   }
 
@@ -577,7 +671,14 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
       if (result.data.status === "done" && result.data.project) {
         const parsed = StoryProject.safeParse(result.data.project);
-        if (parsed.success) setProject(parsed.data);
+        // Applied only to the video it belongs to. A job picked up after a
+        // reload may finish while a different project is open, and silently
+        // replacing that one would be worse than losing the result.
+        if (parsed.success) {
+          setProject((current) =>
+            parsed.data.id === current.id ? parsed.data : current,
+          );
+        }
         const paid = result.data.drawn ?? 0;
         const free = result.data.reused ?? 0;
         setDrawNote(
@@ -588,6 +689,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       } else {
         setDrawError(result.data.error ?? "Die Bilder konnten nicht gezeichnet werden.");
       }
+      rememberJob(DRAW_KEY, null);
       setDrawJobId(null);
       setDrawStep(null);
       setDrawBusy(false);
@@ -614,6 +716,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       setSfxBusy(false);
       return;
     }
+    rememberJob(SFX_KEY, result.data.jobId, project.id);
     setSfxJobId(result.data.jobId);
   }
 
@@ -649,7 +752,11 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
       if (result.data.status === "done" && result.data.project) {
         const parsed = StoryProject.safeParse(result.data.project);
-        if (parsed.success) setProject(parsed.data);
+        if (parsed.success) {
+          setProject((current) =>
+            parsed.data.id === current.id ? parsed.data : current,
+          );
+        }
         const free = result.data.reused ?? 0;
         setSfxNote(
           `${result.data.made ?? 0} erzeugt für ${(result.data.characters ?? 0).toLocaleString("de-DE")} Zeichen` +
@@ -659,6 +766,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       } else {
         setSfxError(result.data.error ?? "Die Geräusche konnten nicht erzeugt werden.");
       }
+      rememberJob(SFX_KEY, null);
       setSfxJobId(null);
       setSfxStep(null);
       setSfxBusy(false);
@@ -689,6 +797,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       setVoiceBusy(false);
       return;
     }
+    rememberJob(VOICE_KEY, result.data.jobId, project.id);
     setVoiceJobId(result.data.jobId);
   }
 
@@ -731,7 +840,13 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
       if (result.data.status === "done" && result.data.audioUrl) {
         const data = result.data;
-        setProject((p) => ({
+        // Which video this take belongs to, remembered when it was started.
+        // A recording is the most expensive thing here to lose and the only
+        // one that cannot be found again from storage - the file is named
+        // after a random job id - so it must not be attached to the wrong
+        // project either.
+        const belongsTo = recallJob(VOICE_KEY)?.projectId;
+        setProject((p) => (belongsTo && belongsTo !== p.id ? p : {
           ...p,
           audioUrl: data.audioUrl,
           cues: data.cues,
@@ -762,6 +877,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       } else {
         setVoiceError(result.data.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
       }
+      rememberJob(VOICE_KEY, null);
       setVoiceJobId(null);
       setVoiceBusy(false);
     };
@@ -939,11 +1055,19 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             means every picture comes back ten times, which nobody works out
             from two sliders on their own.
           */}
-          <label className="mono" style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "12px 0 6px" }}>
+          {/*
+            The number that actually decides whether a film looks repetitive.
+            The rate on its own says nothing: at four pictures a minute against
+            roughly twenty shots a minute, every picture has to carry five
+            shots, and a viewer reads the fourth return of the same drawing as
+            "they ran out". Shown as appearances rather than as seconds,
+            because that is what the eye counts.
+          */}
+          <label className="mono" style={{ fontSize: 11, color: appearances > 3 ? "var(--alert)" : "#5b6672", display: "block", margin: "12px 0 6px" }}>
             {imagesPerMinute.toFixed(1).replace(".", ",")} Bilder pro Minute ={" "}
-            {imageBudget} verschiedene Bilder ·{" "}
-            {formatCents(imageBudget * imageModel.cents)} · jedes zusammen etwa{" "}
-            {((minutes * 60) / imageBudget).toFixed(0)} s im Video
+            {imageBudget} Bilder · {formatCents(imageBudget * imageModel.cents)} ·
+            rechnerisch {appearances.toFixed(1).replace(".", ",")}× je Bild zu
+            sehen
           </label>
           <input
             type="range"
@@ -957,10 +1081,18 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           />
           <div className="mono" style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}>
             Das ist die Anzahl, nicht der Takt. Wie lange ein Bild am Stück
-            stehen bleibt, entscheidet der Text: mal drei Sekunden, mal acht,
-            je nachdem wie lange es zum Gesagten passt. Bleibt es stehen, läuft
-            die Kamerafahrt einfach weiter — ohne Schnitt.
+            steht, entscheidet der Text — bleibt es stehen, läuft die
+            Kamerafahrt weiter, ohne Schnitt. Das zählt als EIN Auftritt.
           </div>
+          {appearances > 3 ? (
+            <Note tone="alert">
+              Bei dieser Rate muss jedes Bild {appearances.toFixed(1).replace(".", ",")}
+              × auftauchen. Ab dem vierten Mal wirkt es, als wären die Bilder
+              ausgegangen. Für höchstens drei Auftritte bräuchtest du{" "}
+              {Math.ceil(SHOTS_PER_MINUTE / 3)} Bilder pro Minute — das kostet{" "}
+              {formatCents(Math.ceil(SHOTS_PER_MINUTE / 3) * minutes * imageModel.cents)}.
+            </Note>
+          ) : null}
 
           <select
             value={imageModelId}
@@ -1176,6 +1308,33 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               in einem anderen Video deshalb anders aus, und das ist gewollt.
             </Note>
           ) : null}
+
+          <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+            WER SCHREIBT
+          </div>
+          <select
+            value={textModelId}
+            onChange={(e) => setTextModelId(e.target.value)}
+            aria-label="Schreibmodell"
+            style={{
+              width: "100%",
+              padding: "9px 10px",
+              border: "1px solid var(--grid)",
+              background: "#fff",
+              fontSize: 13,
+            }}
+          >
+            {TEXT_MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} — {m.provider === "anthropic" ? "Anthropic" : "Google"}
+                {" · "}
+                {m.outputPerM.toFixed(2).replace(".", ",")} $ je Mio. Wörter-Token
+              </option>
+            ))}
+          </select>
+          <div className="mono" style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}>
+            {TEXT_MODELS.find((m) => m.id === textModelId)?.note}
+          </div>
 
           <div style={{ height: 10 }} />
           <Button onClick={() => void generate()} disabled={busy || topic.trim().length < 3}>

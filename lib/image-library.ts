@@ -1,4 +1,4 @@
-import { del, list } from "@vercel/blob";
+import { del, head, list } from "@vercel/blob";
 import { readJson, resolveBlobToken, writeBinary, writeJson } from "./store";
 
 /**
@@ -25,6 +25,29 @@ import { readJson, resolveBlobToken, writeBinary, writeJson } from "./store";
 const INDEX = "library/index.json";
 const IMAGE_PREFIX = "library/img/";
 const THUMB_PREFIX = "library/thumb/";
+
+/**
+ * Where sounds go, and why they are not under library/img/ any more.
+ *
+ * They were, with a .png name, because the library was written for pictures
+ * and the sounds moved in later. The content type was set correctly to
+ * audio/mpeg, the browser played them from the header, and everything looked
+ * fine: audible in the studio, audible in the library, audible in the
+ * preview.
+ *
+ * Silent in every rendered video. Remotion decides what an asset IS from its
+ * extension, so a .png was collected as a picture and contributed nothing to
+ * the audio mix. Measured on a deliberately loud sound, identical bytes, one
+ * variable changed:
+ *
+ *   as .png -> -99.0 dB peak   (digital silence)
+ *   as .mp3 ->  -0.0 dB peak   (audible)
+ *
+ * It cost a whole rendered film its entire sound design, and it looked like a
+ * Remotion bug rather than a naming mistake because the only place it showed
+ * was the one place nobody checks twice.
+ */
+const SOUND_PREFIX = "library/sfx/";
 
 /**
  * How wide a stored thumbnail is.
@@ -225,11 +248,14 @@ export async function remember(args: {
   bytes: Buffer;
   contentType?: string;
 }): Promise<LibraryEntry> {
+  // The fingerprint is part of the filename as well as the index, so a redraw
+  // under an edited style writes a new file instead of overwriting the picture
+  // that other, older projects are still pointing at. Built by libraryPath()
+  // rather than spelled out here, because findStored() has to be able to
+  // compute the identical name - if the two ever drift, a picture that exists
+  // becomes unfindable and is paid for again.
   const url = await writeBinary(
-    // The fingerprint is part of the filename as well as the index, so a
-    // redraw under an edited style writes a new file instead of overwriting
-    // the picture that other, older projects are still pointing at.
-    `${IMAGE_PREFIX}${args.key}-${hash(args.style + (args.fingerprint ?? ""))}.png`,
+    libraryPath(args.key, args.style, args.fingerprint),
     args.bytes,
     args.contentType ?? "image/png",
   );
@@ -242,7 +268,7 @@ export async function remember(args: {
     fingerprint: args.fingerprint,
     url,
     thumbUrl: await makeThumb(
-      `${THUMB_PREFIX}${args.key}-${hash(args.style + (args.fingerprint ?? ""))}.webp`,
+      thumbPath(args.key, args.style, args.fingerprint),
       args.bytes,
       args.contentType ?? "image/png",
     ),
@@ -318,6 +344,101 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 72);
   return s.length >= 3 ? s : `bild-${Date.now().toString(36)}`;
+}
+
+/**
+ * Where a picture lands, worked out rather than remembered.
+ *
+ * Blob paths here are written with addRandomSuffix off, so the same subject in
+ * the same look always occupies the same path. That makes the file itself
+ * findable without the index - which matters far more than it sounds, because
+ * the index turned out to be the unreliable part while the files were never
+ * lost at all.
+ */
+export function libraryPath(
+  key: string,
+  style: string,
+  fingerprint?: string,
+  /** Sounds are named .mp3 and live elsewhere. See SOUND_PREFIX. */
+  sound = key.startsWith("sfx-"),
+): string {
+  const tag = hash(style + (fingerprint ?? ""));
+  return sound
+    ? `${SOUND_PREFIX}${key}-${tag}.mp3`
+    : `${IMAGE_PREFIX}${key}-${tag}.png`;
+}
+
+function thumbPath(key: string, style: string, fingerprint?: string): string {
+  return `${THUMB_PREFIX}${key}-${hash(style + (fingerprint ?? ""))}.webp`;
+}
+
+/**
+ * A picture that was already drawn and paid for, found by looking.
+ *
+ * The index says what the library believes it has; this asks storage what is
+ * actually there. They came apart badly - a film that paid for seventy-five
+ * pictures had four of them indexed - and when they disagree, the file is
+ * right. Same principle the render code settled on: the truth about a render
+ * is not a status somebody wrote down, it is whether the file exists.
+ *
+ * Two paths are tried, because a picture drawn before styles could be edited
+ * was stored under a name that had no fingerprint in it.
+ */
+export async function findStored(args: {
+  key: string;
+  name: string;
+  prompt: string;
+  style: string;
+  fingerprint?: string;
+}): Promise<LibraryEntry | null> {
+  const token = resolveBlobToken()?.value;
+  if (!token) return null;
+
+  const candidates = args.fingerprint
+    ? [libraryPath(args.key, args.style, args.fingerprint), libraryPath(args.key, args.style)]
+    : [libraryPath(args.key, args.style)];
+
+  // Pictures only. A sound found by path would need its duration parsed out
+  // of a prompt this does not have.
+  for (const [i, pathname] of candidates.entries()) {
+    const found = await head(pathname, { token }).catch(() => null);
+    if (!found) continue;
+
+    // Only the first candidate carries the fingerprint; the second is the
+    // older naming and must be recorded as having none, or the next lookup
+    // would compute a path that does not exist.
+    const fingerprint = i === 0 ? args.fingerprint : undefined;
+    const thumb = await head(thumbPath(args.key, args.style, fingerprint), {
+      token,
+    }).catch(() => null);
+
+    const entry: LibraryEntry = {
+      key: args.key,
+      name: args.name,
+      prompt: args.prompt,
+      style: args.style,
+      fingerprint,
+      url: found.url,
+      thumbUrl: thumb?.url,
+      model: "wiedergefunden",
+      createdAt: found.uploadedAt ? new Date(found.uploadedAt).getTime() : Date.now(),
+      uses: 1,
+    };
+
+    // Put it back in the index, so the next film does not have to look.
+    await serialise(async () => {
+      const index = await readLibrary();
+      if (index.entries.some((e) => e.url === entry.url)) return;
+      await writeJson(INDEX, {
+        entries: [...index.entries, entry],
+        updatedAt: Date.now(),
+      } satisfies LibraryIndex);
+    }).catch(() => undefined);
+
+    return entry;
+  }
+
+  return null;
 }
 
 /**
@@ -571,4 +692,93 @@ export async function reindexFromProjects(): Promise<{
 
     return { scanned, images, sounds, already };
   });
+}
+
+/**
+ * Move the sounds to a name a renderer recognises.
+ *
+ * Repairs what SOUND_PREFIX describes: every sound generated before that fix
+ * sits under library/img/ with a .png name and is dropped by Remotion, so
+ * every film rendered so far has no sound design at all. The bytes are fine -
+ * only the name is wrong - so this copies each one to its proper .mp3 path and
+ * points the index and the saved projects at it.
+ *
+ * The old file is left where it is. Deleting it would save a few kilobytes and
+ * risks breaking a render that is in flight against the old URL, which is a
+ * bad trade in both directions.
+ */
+export async function repairSoundPaths(): Promise<{
+  moved: number;
+  alreadyFine: number;
+  projects: number;
+  failed: { key: string; reason: string }[];
+}> {
+  const { readAllProjects, saveProject } = await import("./projects");
+
+  const failed: { key: string; reason: string }[] = [];
+  const moved = new Map<string, string>();
+  let alreadyFine = 0;
+
+  const index = await readLibrary();
+  for (const entry of index.entries) {
+    if (!entry.key.startsWith("sfx-")) continue;
+    if (entry.url.endsWith(".mp3")) {
+      alreadyFine += 1;
+      continue;
+    }
+
+    try {
+      const response = await fetch(entry.url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      const url = await writeBinary(
+        libraryPath(entry.key, entry.style, entry.fingerprint, true),
+        bytes,
+        "audio/mpeg",
+      );
+      moved.set(entry.url, url);
+    } catch (err) {
+      failed.push({ key: entry.key, reason: (err as Error).message.slice(0, 120) });
+    }
+  }
+
+  if (moved.size > 0) {
+    await serialise(async () => {
+      const current = await readLibrary();
+      await writeJson(INDEX, {
+        entries: current.entries.map((e) =>
+          moved.has(e.url) ? { ...e, url: moved.get(e.url)! } : e,
+        ),
+        updatedAt: Date.now(),
+      } satisfies LibraryIndex);
+    }).catch(() => undefined);
+  }
+
+  // The projects hold their own copy of every sound URL, and a project still
+  // pointing at the old name would render silent however tidy the index is.
+  let projects = 0;
+  for (const record of await readAllProjects()) {
+    const video = record.project as unknown as {
+      kind?: string;
+      sounds?: { url?: string }[];
+    };
+    if (video.kind !== "video" || !video.sounds?.length) continue;
+
+    let touched = false;
+    for (const sound of video.sounds) {
+      const next = sound.url ? moved.get(sound.url) : undefined;
+      if (next) {
+        sound.url = next;
+        touched = true;
+      }
+    }
+    if (!touched) continue;
+
+    await saveProject({ ...record, updatedAt: Date.now() }).catch((err) => {
+      failed.push({ key: record.id, reason: (err as Error).message.slice(0, 120) });
+    });
+    projects += 1;
+  }
+
+  return { moved: moved.size, alreadyFine, projects, failed };
 }

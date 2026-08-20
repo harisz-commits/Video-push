@@ -261,10 +261,15 @@ DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):
   Schreib ihn so, dass er sich als Ganzes flüssig liest.
 
 DIE BILDER:
-- Ein Bild kann MEHRFACH benutzt werden. Nutze das: ungefähr eine Einstellung
-  von dreien greift auf ein Bild zurück, das es schon gibt. Das ist keine
-  Notlösung, sondern gibt dem Video wiederkehrende Motive — und jedes neue
-  Bild kostet Geld.
+- Ein Bild kann MEHRFACH benutzt werden, aber SPARSAM. Zwei bis drei Auftritte
+  wirken wie ein wiederkehrendes Motiv. Sieben wirken, als wären dir die
+  Bilder ausgegangen — und genau so sieht es der Zuschauer, egal ob es stimmt.
+- HARTE GRENZE: kein Bild öfter als DREI Auftritte. Ein Auftritt ist eine
+  Stelle im Video; mehrere Sätze hintereinander auf demselben Bild sind EIN
+  Auftritt.
+- Verteile gleichmäßig. Wenn du merkst, dass ein Bild zum vierten Mal an die
+  Reihe käme, ist das der Moment für ein neues — nicht der Moment, es noch
+  einmal zu nehmen.
 - WICHTIG: Schreibst du bei ZWEI ODER DREI Einstellungen HINTEREINANDER
   dasselbe Bild, entsteht KEIN Schnitt. Das Bild bleibt einfach stehen und die
   Kamerafahrt läuft weiter — aus drei Sätzen wird eine ruhige Einstellung von
@@ -397,6 +402,8 @@ export function buildSectionPrompt(args: {
   beds: { key: string; name: string }[];
   /** How many NEW pictures this section may invent on top of the motifs. */
   imageBudget: number;
+  /** Ceiling on how often one picture may come back. See MAX_APPEARANCES. */
+  maxAppearances?: number;
   /** Recurring figures, so a section can put one in a picture. */
   characters?: { key: string; name: string }[];
   /** Accents already in the library, offered for reuse. See soundLibrary(). */
@@ -407,6 +414,23 @@ export function buildSectionPrompt(args: {
     .join("\n");
 
   const shots = Math.max(2, Math.round(args.words / 8));
+  const cap = args.maxAppearances ?? 3;
+  const available = Math.max(1, args.motifs.length + args.imageBudget);
+  const perImage = (shots / available).toFixed(1).replace(".", ",");
+
+  // Said out loud when the budget cannot satisfy the cap, because the writer
+  // would otherwise be given two rules that contradict each other and pick one
+  // silently. Fewer, longer takes is the right answer to too few pictures;
+  // hammering six of them is not.
+  const tooTight =
+    shots / available > cap
+      ? `
+
+Das Budget reicht rechnerisch nicht für die Grenze. Dann gilt: lieber ein Bild
+über zwei oder drei aufeinanderfolgende Sätze STEHEN LASSEN — das ist EIN
+langer Auftritt und kein weiterer — als dasselbe Bild später noch einmal zu
+schneiden. Lange Einstellungen sind die Lösung, Wiederholung nicht.`
+      : "";
 
   const cast = args.characters?.length
     ? `
@@ -460,8 +484,14 @@ ${args.motifs.map((m) => `- ${m.key} (${m.name})`).join("\n") || "- keine"}
 Nimm ihre "key"-Werte direkt in den Einstellungen. Führ sie NICHT noch einmal
 in "images" auf.
 
-NEUE BILDER: höchstens ${args.imageBudget}. Jedes kostet Geld — lass lieber ein
-Motiv wiederkehren.
+NEUE BILDER: höchstens ${args.imageBudget}.
+
+RECHNE NACH, BEVOR DU ANFÄNGST: du schreibst ${shots} Einstellungen und hast
+${available} Bilder zur Verfügung (${args.motifs.length} vorhandene Motive plus
+${args.imageBudget} neue). Das sind im Schnitt ${perImage} Auftritte je Bild.
+KEIN Bild darf öfter als ${cap} Auftritte haben — auch keines der Motive, die
+sind nicht dafür da, Lücken zu füllen. Führ beim Schreiben mit, wie oft du
+jedes Bild schon verwendet hast.${tooTight}
 
 DIESE KLANGTEPPICHE STEHEN ZUR VERFÜGUNG. Setz einen davon auf jede
 Einstellung, meist über viele Einstellungen denselben:

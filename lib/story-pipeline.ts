@@ -162,7 +162,9 @@ export async function generateStory(args: {
       // section can be lost to the clock or to a reply that would not parse.
       warning: script.short
         ? `Nicht alle Abschnitte wurden fertig — das Video ist ${Math.round(words / WORDS_PER_MINUTE)} statt ${args.minutes} Minuten lang. Erzeug es noch einmal, oder nimm eine kürzere Länge.`
-        : undefined,
+        : script.overused.length > 0
+          ? `${script.overused.length} Bilder kommen öfter als ${MAX_APPEARANCES}× vor — am häufigsten „${script.overused[0].name}“ mit ${script.overused[0].appearances} Auftritten. Mehr Bilder pro Minute wählen und neu schreiben, sonst wirkt das Video wiederholt.`
+          : undefined,
       cost: {
         model: model.id,
         label: model.label,
@@ -333,6 +335,19 @@ const WRITING_DEADLINE_MS = 250_000;
 /** Minutes of video per section. Small enough that a model actually fills it. */
 const MINUTES_PER_SECTION = 2;
 
+/**
+ * How often one picture may come back.
+ *
+ * Two or three appearances read as a motif. Seven read as running out of
+ * pictures, which is what a viewer sees whether or not it is true - and on the
+ * film that prompted this it was not true: thirty-five of the forty-one
+ * pictures were used once or twice while six were used to death.
+ *
+ * A ceiling, not a target. Whether the arithmetic even allows it depends on
+ * the picture rate, which is why the studio now shows what the rate implies.
+ */
+const MAX_APPEARANCES = 3;
+
 /** How many sections are written at once. See the note in writeScript(). */
 const LANES = 3;
 
@@ -367,6 +382,8 @@ async function writeScript(args: {
   sounds: StorySound[];
   shots: StoryShot[];
   short: boolean;
+  /** Pictures that come back too often, worst first. */
+  overused: { name: string; appearances: number }[];
 }> {
   const sectionCount = Math.max(
     1,
@@ -389,10 +406,17 @@ async function writeScript(args: {
     accents: [] as KnownSound[],
   }));
 
-  // A third of the picture budget goes to motifs that every section may draw
+  // A fifth of the picture budget goes to motifs that every section may draw
   // on; the rest is split between them. Without a shared pool the sections
   // would each invent their own vocabulary and nothing would ever recur.
-  const motifBudget = Math.max(3, Math.min(8, Math.round(args.imageBudget / 3)));
+  //
+  // Was a third, and that was too generous. The motifs are offered to every
+  // section as pictures that already exist, so they are the cheapest thing for
+  // a writer to reach for - and it reached. Measured on a nine-minute film
+  // with forty-one pictures: six of them carried the whole video with seven to
+  // nine appearances each, while the median picture appeared exactly once. The
+  // server rack was on screen seven separate times.
+  const motifBudget = Math.max(3, Math.min(6, Math.round(args.imageBudget / 5)));
   // Three to five beds for a whole film. More would not be richer, only less
   // recognisable — a bed earns its keep by coming back.
   const bedBudget = args.minutes >= 8 ? 5 : 3;
@@ -450,6 +474,9 @@ async function writeScript(args: {
               motifs: plan.motifs,
               beds: plan.beds,
               imageBudget: perSection,
+              // What the arithmetic allows, so the writer can spread rather
+              // than guess. See buildSectionPrompt().
+              maxAppearances: MAX_APPEARANCES,
               characters: args.characters,
               knownAccents: known.accents,
             }),
@@ -523,7 +550,43 @@ async function writeScript(args: {
     sounds: [...sounds.values()].filter((s) => heard.has(s.key)),
     shots,
     short,
+    overused: overusedImages(shots, images),
   };
+}
+
+/**
+ * Pictures that come back more often than a viewer will forgive.
+ *
+ * Counted in APPEARANCES, not in shots: several sentences in a row on one
+ * picture are a single long take with one continuous camera move, and nobody
+ * experiences that as repetition. What they do notice is the same drawing
+ * cutting back for the seventh time.
+ *
+ * Reported rather than repaired, because there is nothing honest to repair
+ * with - swapping in a different picture would put the wrong thing on screen,
+ * and the fix is either a higher picture rate or a rewrite. Both are the
+ * person's call, and neither is possible if nobody tells them.
+ */
+function overusedImages(
+  shots: StoryShot[],
+  images: Map<string, StoryImage>,
+): { name: string; appearances: number }[] {
+  const appearances = new Map<string, number>();
+  let previous: string | null = null;
+  for (const shot of shots) {
+    if (shot.image !== previous) {
+      appearances.set(shot.image, (appearances.get(shot.image) ?? 0) + 1);
+    }
+    previous = shot.image;
+  }
+
+  return [...appearances.entries()]
+    .filter(([, n]) => n > MAX_APPEARANCES)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, n]) => ({
+      name: images.get(key)?.name ?? key,
+      appearances: n,
+    }));
 }
 
 async function writeOutline(args: {
