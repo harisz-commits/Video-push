@@ -1,0 +1,379 @@
+:root {
+  --bg: #0b0e12;
+  --ink: #eef2f7;
+  --accent: #ffb43a;
+  --ally: #4ea8ff;
+  --danger: #d94f3d;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+#game-root {
+  position: fixed;
+  inset: 0;
+}
+
+#render-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+}
+
+/* UI liegt ueber dem Canvas, faengt aber nur dort Eingaben ab,
+   wo ein Element es explizit erlaubt. */
+#ui-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  padding: calc(12px + var(--safe-top)) 12px calc(12px + var(--safe-bottom));
+}
+
+#ui-root .clickable {
+  pointer-events: auto;
+}
+
+#boot-splash {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: radial-gradient(circle at 50% 40%, #1a222c, #05070a 70%);
+  transition: opacity 0.35s ease;
+  z-index: 10;
+}
+
+#boot-splash.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.boot-title {
+  font-size: clamp(28px, 9vw, 56px);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.boot-subtitle {
+  font-size: clamp(12px, 3.6vw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  color: var(--accent);
+}
+
+.boot-bar {
+  margin-top: 18px;
+  width: min(240px, 62vw);
+  height: 5px;
+  border-radius: 3px;
+  background: #ffffff1f;
+  overflow: hidden;
+}
+
+.boot-bar > i {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.boot-error {
+  max-width: 80vw;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------- Layer */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  padding: inherit;
+  display: flex;
+  flex-direction: column;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  background: #ffffff14;
+  border: 1px solid #ffffff26;
+  border-radius: 12px;
+  padding: 14px 20px;
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    background 0.15s ease;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #1a1206;
+}
+
+.btn.ghost {
+  padding: 8px 14px;
+  font-size: 12px;
+  background: #00000059;
+}
+
+/* ----------------------------------------------------------------- Menu */
+
+.layer.menu {
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  background: radial-gradient(circle at 50% 35%, #17202b, #05070a 72%);
+}
+
+.menu-header {
+  text-align: center;
+}
+
+.menu-title {
+  font-size: clamp(30px, 10vw, 60px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.menu-subtitle {
+  font-size: clamp(11px, 3.4vw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.4em;
+  color: var(--accent);
+}
+
+.menu-wallet {
+  display: flex;
+  gap: 8px;
+}
+
+.chip {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #ffffff12;
+}
+
+.menu-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(340px, 84vw);
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.mode-btn {
+  width: 100%;
+}
+
+.mode-hint {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+}
+
+.menu-footprint {
+  font-size: 11px;
+  opacity: 0.4;
+  letter-spacing: 0.08em;
+}
+
+/* ------------------------------------------------------------------ HUD */
+
+.layer.hud {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.hud-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.hud-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-shadow: 0 2px 6px #000000a6;
+}
+
+.hud-right {
+  align-items: flex-end;
+}
+
+.hud-tier {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.hud-count {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--ally);
+}
+
+.hud-power {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.hud-time {
+  font-size: 12px;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.hud-sector {
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  opacity: 0.65;
+}
+
+.hud-bar {
+  width: min(280px, 70vw);
+  height: 4px;
+  border-radius: 2px;
+  background: #ffffff1f;
+  overflow: hidden;
+}
+
+.hud-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.layer.run-controls {
+  justify-content: flex-end;
+  align-items: flex-end;
+}
+
+/* -------------------------------------------------------------- Results */
+
+.layer.results {
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: #05070ae6;
+}
+
+.results-title {
+  font-size: clamp(22px, 7vw, 38px);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.results-score {
+  font-size: clamp(34px, 12vw, 64px);
+  font-weight: 900;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.results-table {
+  width: min(340px, 84vw);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.results-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #ffffff14;
+}
+
+.results-label {
+  opacity: 0.6;
+}
+
+.results-value {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.results-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.layer.debug {
+  justify-content: flex-end;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.debug-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: #7de08a;
+  background: #000000a6;
+  padding: 3px 7px;
+  border-radius: 5px;
+}

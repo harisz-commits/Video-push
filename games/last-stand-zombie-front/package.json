@@ -1,0 +1,26 @@
+{
+  "name": "last-stand-zombie-front",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Last Stand: Zombie Front - HTML5/WebGL crowd action game for YouTube Playables",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "youtube:validate": "node scripts/validate-build.mjs",
+    "youtube:build": "npm run build && npm run youtube:validate && node scripts/pack-zip.mjs"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.22.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}
