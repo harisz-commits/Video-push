@@ -31,5 +31,7 @@
 		".next/types/**/*.ts",
 		".next/dev/types/**/*.ts"
 	],
-	"exclude": ["node_modules", "remotion.config.ts"]
+	// games/ holds standalone sub-projects with their own tsconfig, dependencies
+	// and build. They must not be pulled into this project's typecheck.
+	"exclude": ["node_modules", "remotion.config.ts", "games"]
 }

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Merge Factory: Junkyard Empire</title>
+
+    <!--
+      YouTube Playables SDK.
+
+      This tag MUST stay the first script on the page and MUST load before the
+      game bundle: `detectPlatform()` reads `ytgame.IN_PLAYABLES_ENV` during
+      boot. Outside of Playables this request simply fails and the game falls
+      back to the local platform adapter — see src/platform/detectPlatform.ts.
+      It is also the ONLY external URL the production build is allowed to
+      contain; scripts/scan-forbidden-urls.ts enforces that.
+    -->
+    <script src="https://www.youtube.com/game_api/v1"></script>
+
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        /* System stack only — no webfont, so no external request. */
+        font-family:
+          system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+          sans-serif;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+        overscroll-behavior: none;
+      }
+
+      #game-root {
+        position: fixed;
+        inset: 0;
+        /* Safe areas: notches and home indicators must never cover the board. */
+        padding: env(safe-area-inset-top) env(safe-area-inset-right)
+          env(safe-area-inset-bottom) env(safe-area-inset-left);
+      }
+
+      #game-root canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* Shown until Phaser paints its first frame, then removed by BootScene. */
+      #preloader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        color: #8b949e;
+        font-size: 14px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-root"></div>
+    <div id="preloader">Loading</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
