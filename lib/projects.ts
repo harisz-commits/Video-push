@@ -18,6 +18,14 @@ import { readJson, resolveBlobToken, writeJson } from "./store";
  */
 
 export type ProjectRender = {
+  /**
+   * Which vertical cut this render is, when it is one.
+   *
+   * Absent for the film itself. Without it the studio's download button, which
+   * offers the newest render that produced a file, would hand somebody a
+   * sixty-second vertical clip when they asked for their eight-minute video.
+   */
+  shortId?: string;
   renderId: string;
   outputUrl?: string;
   sizeBytes?: number;

@@ -10,6 +10,7 @@ import {
 } from "../lib/speech-models";
 import {
   resolveStoryTiming,
+  shortSeconds,
   storyTakes,
   StoryProject,
   type StoryCharacter,
@@ -18,6 +19,7 @@ import {
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
 import { TEXT_MODELS } from "../lib/text-models";
+import { SHORTS_PER_FILM } from "../lib/story-shorts";
 import { soundCost } from "../lib/sfx-cost";
 import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
 import { StoryVideo } from "../remotion/story/StoryVideo";
@@ -58,6 +60,7 @@ const PROJECT_KEY = "infographics-studio.storyProjectId";
 const DRAW_KEY = "infographics-studio.storyDrawJob";
 const SFX_KEY = "infographics-studio.storySfxJob";
 const VOICE_KEY = "infographics-studio.storyVoiceJob";
+const SHORTS_KEY = "infographics-studio.storyShortsJob";
 
 /**
  * How long a remembered job is worth picking up again.
@@ -275,6 +278,12 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const [sfxNote, setSfxNote] = useState<string | null>(null);
   const [sfxError, setSfxError] = useState<string | null>(null);
 
+  const [shortsJobId, setShortsJobId] = useState<string | null>(null);
+  const [shortsBusy, setShortsBusy] = useState(false);
+  const [shortsStep, setShortsStep] = useState<string | null>(null);
+  const [shortsNote, setShortsNote] = useState<string | null>(null);
+  const [shortsError, setShortsError] = useState<string | null>(null);
+
   const [voiceJobId, setVoiceJobId] = useState<string | null>(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -306,6 +315,8 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     phase?: string;
     outputUrl?: string;
     error?: string;
+    /** Which short this render belongs to, when it is not the film. */
+    shortId?: string;
   } | null>(null);
 
   const playerRef = useRef<PlayerRef>(null);
@@ -336,11 +347,14 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
    * which is the whole reason the project keeps a list of its renders.
    */
   const finishedVideo = useMemo(() => {
-    if (render?.status === "done" && render.outputUrl) {
+    if (render?.status === "done" && render.outputUrl && !render.shortId) {
       return { url: render.outputUrl, sizeBytes: undefined as number | undefined };
     }
+    // The film, never one of its vertical cuts. A short is also a finished
+    // render with a file, and offering the newest of those would hand somebody
+    // a sixty-second clip when they asked for their eight-minute video.
     const newest = renders
-      .filter((r) => r.outputUrl)
+      .filter((r) => r.outputUrl && !r.shortId)
       .sort((a, b) => b.at - a.at)[0];
     return newest?.outputUrl
       ? { url: newest.outputUrl, sizeBytes: newest.sizeBytes }
@@ -721,6 +735,11 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       setVoiceJobId(voice.jobId);
       setVoiceBusy(true);
     }
+    const shorts = recallJob(SHORTS_KEY);
+    if (shorts) {
+      setShortsJobId(shorts.jobId);
+      setShortsBusy(true);
+    }
   }, []);
 
   // ---- Drawing ------------------------------------------------------------
@@ -1017,19 +1036,102 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   }
 
   // ---- Render -------------------------------------------------------------
-  async function startRender() {
+  async function startRender(short?: Story["shorts"][number]) {
     const result = await postJson<{ renderId: string }>("/api/render", {
       project,
       // Filed against the project so the finished file is findable later,
       // whether or not this tab is still open when it lands.
       projectId: projectId ?? undefined,
+      short,
     });
     if (!result.ok) {
-      setError(result.error);
+      if (short) setShortsError(result.error);
+      else setError(result.error);
       return;
     }
-    setRender({ renderId: result.data.renderId, status: "queued", progress: 0 });
+    setRender({
+      renderId: result.data.renderId,
+      status: "queued",
+      progress: 0,
+      shortId: short?.id,
+    });
   }
+
+  // ---- Shorts -------------------------------------------------------------
+  async function makeShorts() {
+    setShortsBusy(true);
+    setShortsError(null);
+    setShortsNote(null);
+    const result = await postJson<{ jobId: string }>("/api/story/shorts", {
+      project,
+      model: textModelId,
+      voice: voiceId || undefined,
+      speechModel: speechModelId,
+    });
+    if (!result.ok) {
+      setShortsError(result.error);
+      setShortsBusy(false);
+      return;
+    }
+    rememberJob(SHORTS_KEY, result.data.jobId, project.id);
+    setShortsJobId(result.data.jobId);
+  }
+
+  useEffect(() => {
+    if (!shortsJobId) return;
+    let cancelled = false;
+    let failures = 0;
+    const tick = async () => {
+      const result = await getJson<{
+        status: string;
+        step?: string;
+        project?: unknown;
+        hooks?: number;
+        characters?: number;
+        warning?: string;
+        error?: string;
+      }>(`/api/story/shorts?jobId=${encodeURIComponent(shortsJobId)}`);
+      if (cancelled) return;
+      if (!result.ok) {
+        failures += 1;
+        if (failures > TOLERATED_POLL_FAILURES) {
+          rememberJob(SHORTS_KEY, null);
+          setShortsError(result.error);
+          setShortsJobId(null);
+          setShortsBusy(false);
+        }
+        return;
+      }
+      failures = 0;
+      setShortsStep(result.data.step ?? null);
+      if (result.data.status === "running") return;
+
+      if (result.data.status === "done" && result.data.project) {
+        const parsed = StoryProject.safeParse(result.data.project);
+        if (parsed.success) {
+          setProject((current) =>
+            parsed.data.id === current.id ? parsed.data : current,
+          );
+          setShortsNote(
+            `${parsed.data.shorts.length} Shorts geschnitten · ${result.data.hooks ?? 0} Hooks gesprochen (${(result.data.characters ?? 0).toLocaleString("de-DE")} Zeichen).`,
+          );
+        }
+        if (result.data.warning) setShortsError(result.data.warning);
+      } else {
+        setShortsError(result.data.error ?? "Die Shorts konnten nicht geschnitten werden.");
+      }
+      rememberJob(SHORTS_KEY, null);
+      setShortsJobId(null);
+      setShortsStep(null);
+      setShortsBusy(false);
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [shortsJobId]);
 
   useEffect(() => {
     if (!render || render.status === "done" || render.status === "error") return;
@@ -2087,8 +2189,106 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               <RenderList renders={renders} activeRenderId={render?.renderId} />
             </Panel>
 
-            <ThumbnailPanel
+            {/*
+              Offered only once the film has actually been rendered. Nothing
+              technical requires it - a short is cut from the project, not from
+              the MP4 - but a film nobody has watched through is not one
+              anybody should be cutting highlights from.
+            */}
+            <Panel
               step={panelStep(7)}
+              title="Shorts"
+              right={
+                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                  {project.shorts.length > 0
+                    ? `${project.shorts.length} · 9:16`
+                    : finishedVideo
+                      ? "keine"
+                      : "erst rendern"}
+                </span>
+              }
+            >
+              <Button
+                onClick={() => void makeShorts()}
+                disabled={shortsBusy || !finishedVideo}
+              >
+                {shortsBusy
+                  ? (shortsStep ?? "wird geschnitten…")
+                  : project.shorts.length > 0
+                    ? "Neu schneiden"
+                    : `${SHORTS_PER_FILM} Shorts schneiden`}
+              </Button>
+              {shortsError ? <Note tone="alert">{shortsError}</Note> : null}
+              {shortsNote ? <Note tone="info">{shortsNote}</Note> : null}
+
+              {!finishedVideo ? (
+                <Note tone="info">
+                  Erst das Video rendern. Die Ausschnitte werden aus den
+                  gemessenen Zeiten geschnitten — Bilder, Stimme und Klang sind
+                  schon da, es entsteht nur je ein gesprochener Hook.
+                </Note>
+              ) : null}
+
+              {project.shorts.map((short) => {
+                const seconds = shortSeconds(project, short.from, short.to);
+                const done = renders.find(
+                  (r) => r.shortId === short.id && r.outputUrl,
+                );
+                const running =
+                  render?.shortId === short.id &&
+                  render.status !== "done" &&
+                  render.status !== "error";
+                return (
+                  <div
+                    key={short.id}
+                    style={{
+                      borderTop: "1px solid var(--grid)",
+                      padding: "10px 0 4px",
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>{short.title}</div>
+                    <div
+                      className="mono"
+                      style={{ fontSize: 10.5, color: "#5b6672", margin: "3px 0 6px" }}
+                    >
+                      Einstellung {short.from + 1}–{short.to + 1} ·{" "}
+                      {Math.round(seconds + (short.hookSeconds ?? 0))} s
+                      {short.hookSeconds ? " · Hook gesprochen" : " · ohne Hook"}
+                    </div>
+                    <div style={{ color: "#5b6672", lineHeight: 1.4 }}>
+                      „{short.hook}“
+                    </div>
+                    <div style={{ height: 8 }} />
+                    <Button
+                      variant="ghost"
+                      onClick={() => void startRender(short)}
+                      disabled={Boolean(
+                        render &&
+                          render.status !== "done" &&
+                          render.status !== "error",
+                      )}
+                    >
+                      {running
+                        ? `${Math.round((render?.progress ?? 0) * 100)} % — ${render?.phase ?? "läuft"}`
+                        : done
+                          ? "Neu rendern"
+                          : "Short rendern"}
+                    </Button>
+                    {done?.outputUrl ? (
+                      <DownloadButton
+                        url={done.outputUrl}
+                        sizeBytes={done.sizeBytes}
+                        label={`${short.title.slice(0, 28)} herunterladen`}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </Panel>
+
+            <ThumbnailPanel
+              step={panelStep(8)}
               // No flags in this format — it has no country questions, and an
               // unrelated flag on the cover would be a promise the video does
               // not keep.
@@ -2113,7 +2313,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           studio's, not this video's. It is also the only place the sounds
           that every later film reuses can actually be heard.
         */}
-        <LibraryPanel step={panelStep(8)} />
+        <LibraryPanel step={panelStep(9)} />
       </div>
 
       <div className="studio-stage">
@@ -2152,7 +2352,15 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           GESPROCHENER TEXT
         </div>
         {project.shots.length > 0 && project.id !== seed.id ? (
-          project.shots.map((shot, i) => (
+          project.shots.map((shot, i) => {
+            // Which short, if any, this sentence ended up in. Shown in the
+            // list rather than only in the panel, because the list is where
+            // you read the film - and seeing that a passage is already a short
+            // is exactly what tells you whether the five cover it.
+            const inShort = project.shorts.findIndex(
+              (sh) => i >= sh.from && i <= sh.to,
+            );
+            return (
             <div
               key={shot.id}
               style={{
@@ -2189,8 +2397,26 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                 {i > 0 && project.shots[i - 1].image === shot.image ? "│" : "▸"}
               </span>
               <span style={{ flex: 1 }}>{shot.text}</span>
+              {inShort >= 0 ? (
+                <span
+                  className="mono"
+                  title={`Short ${inShort + 1}: ${project.shorts[inShort].title}`}
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    color: "#fff",
+                    background: "var(--download)",
+                    padding: "1px 5px",
+                    alignSelf: "flex-start",
+                    marginTop: 2,
+                  }}
+                >
+                  S{inShort + 1}
+                </span>
+              ) : null}
             </div>
-          ))
+            );
+          })
         ) : (
           <p style={{ fontSize: 13, lineHeight: 1.5, color: "#5b6672" }}>
             Gib links ein Thema ein und lass das Skript schreiben.

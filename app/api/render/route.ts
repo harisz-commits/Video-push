@@ -16,6 +16,8 @@ import {
   type RenderJob,
 } from "../../../lib/store";
 import { sweepSandboxes } from "../../../lib/sandboxes";
+import { STORY_SHORT_COMP_NAME } from "../../../lib/constants";
+import { resolveShortTiming, StoryShort, type StoryProject } from "../../../lib/story";
 import { restoreSnapshot } from "./restore-snapshot";
 import { planSegments, startSegments } from "./segments";
 
@@ -39,9 +41,26 @@ export async function POST(req: Request) {
 
   let project: AnyProject;
   let projectId: string | undefined;
+  /**
+   * A vertical cut of the project, when one was asked for.
+   *
+   * Rendering a short means rendering the same project through a different
+   * composition on a different canvas — so it travels beside the project
+   * rather than replacing it. Everything downstream keeps working on the film:
+   * the sandbox, the progress route, the render list, the download.
+   */
+  let short: StoryShort | undefined;
   try {
-    const body = (await req.json()) as { project?: unknown; projectId?: unknown };
+    const body = (await req.json()) as {
+      project?: unknown;
+      projectId?: unknown;
+      short?: unknown;
+    };
     project = AnyProject.parse(body.project);
+    if (body.short !== undefined) {
+      short = StoryShort.parse(body.short);
+      if (project.kind !== "video") throw new Error("short");
+    }
     // Optional, and the difference between a video that can be found again and
     // one that cannot. Taken at the start rather than reported at the end,
     // because the end is precisely when nobody may be listening.
@@ -63,11 +82,18 @@ export async function POST(req: Request) {
   const blocked = renderBlockedReason(project);
   if (blocked) return errorResponse(blocked, 400);
 
+  // What is actually put in front of Remotion. A short swaps the composition
+  // and the frame count; a film is unchanged from before shorts existed.
+  const composition = short ? STORY_SHORT_COMP_NAME : compositionFor(project);
+  const inputProps = short ? { project, short } : { project };
+  const totalFrames = short
+    ? resolveShortTiming(project as StoryProject, short).totalFrames
+    : totalFramesOf(project);
+
   const allowed = await guard(req, "render", 2);
   if (!allowed.ok) return errorResponse(allowed.error, allowed.status);
 
   const renderId = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const totalFrames = totalFramesOf(project);
 
   /**
    * Stop whatever the last render left behind, before adding to it.
@@ -118,7 +144,7 @@ export async function POST(req: Request) {
       await writeJson(progressPath(renderId), job);
 
       if (projectId) {
-        await attachRender(projectId, { renderId, at: Date.now() }, project).catch(
+        await attachRender(projectId, { renderId, at: Date.now(), shortId: short?.id }, project).catch(
           () => undefined,
         );
       }
@@ -139,8 +165,8 @@ export async function POST(req: Request) {
     const { sandboxId, cmdId } = await renderMediaOnVercel({
       sandbox,
       detached: true,
-      compositionId: compositionFor(project),
-      inputProps: { project },
+      compositionId: composition,
+      inputProps,
       // Remotion's default lands near 8.4 Mbit/s, which for a film of drawn
       // stills with slow drifts is roughly four times what it needs: two
       // minutes came out at 135 MB, sixteen minutes at a gigabyte. Between two
@@ -168,7 +194,7 @@ export async function POST(req: Request) {
     // Noted on the project now, while there is certainly somebody here to note
     // it. Whether it finishes is answered later by looking for the file.
     if (projectId) {
-      await attachRender(projectId, { renderId, at: Date.now() }, project).catch(() => {
+      await attachRender(projectId, { renderId, at: Date.now(), shortId: short?.id }, project).catch(() => {
         // A render that cannot be filed is still a render worth starting.
       });
     }

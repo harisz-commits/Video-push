@@ -7,13 +7,25 @@ import type { Scene, VideoProject } from "../lib/schema";
 import { VideoProject as VideoProjectSchema } from "../lib/schema";
 import { Video } from "./Video";
 
-export { COMP_NAME, QUIZ_COMP_NAME, STORY_COMP_NAME } from "../lib/constants";
-import { COMP_NAME, QUIZ_COMP_NAME, STORY_COMP_NAME } from "../lib/constants";
+export {
+  COMP_NAME,
+  QUIZ_COMP_NAME,
+  STORY_COMP_NAME,
+  STORY_SHORT_COMP_NAME,
+} from "../lib/constants";
+import {
+  COMP_NAME,
+  QUIZ_COMP_NAME,
+  STORY_COMP_NAME,
+  STORY_SHORT_COMP_NAME,
+} from "../lib/constants";
 import {
   StoryProject as StoryProjectSchema,
   resolveStoryTiming,
+  resolveShortTiming,
 } from "../lib/story";
 import { StoryVideo } from "./story/StoryVideo";
+import { StoryShortVideo } from "./story/StoryShort";
 import { QuizProject as QuizProjectSchema, resolveQuizTiming } from "../lib/quiz";
 import { QuizVideo } from "./quiz/QuizVideo";
 
@@ -110,6 +122,48 @@ export const RemotionRoot: React.FC = () => (
           fps: parsed.fps,
           width: parsed.width,
           height: parsed.height,
+        };
+      }}
+    />
+
+    {/*
+      A vertical cut of a video. Takes the film it belongs to plus one short,
+      because a short is a pair of indices into that film rather than a thing
+      of its own - see StoryShort in lib/story.ts.
+    */}
+    <Composition
+      id={STORY_SHORT_COMP_NAME}
+      component={StoryShortVideo as unknown as React.FC<Record<string, unknown>>}
+      durationInFrames={90}
+      fps={30}
+      width={1080}
+      height={1920}
+      defaultProps={
+        {
+          project: storySeed,
+          short: {
+            id: "seed",
+            title: "Beispiel",
+            hook: "Ein Satz, der neugierig macht.",
+            from: 0,
+            to: 0,
+          },
+        } as unknown as Record<string, unknown>
+      }
+      calculateMetadata={({ props }) => {
+        const parsed = StoryProjectSchema.parse(
+          (props as { project: unknown }).project,
+        );
+        const short = (props as { short: Parameters<typeof resolveShortTiming>[1] })
+          .short;
+        return {
+          durationInFrames: Math.max(
+            1,
+            resolveShortTiming(parsed, short).totalFrames,
+          ),
+          fps: parsed.fps,
+          width: 1080,
+          height: 1920,
         };
       }}
     />

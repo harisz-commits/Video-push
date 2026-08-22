@@ -406,6 +406,30 @@ export type StoryVoiceJob = {
   updatedAt: number;
 };
 
+/**
+ * Cutting a finished film into vertical shorts.
+ *
+ * Reports the whole project back, like the drawing and sound jobs do, because
+ * what it produces is a change to the project rather than a file: five ranges
+ * and five recorded hooks.
+ */
+export type StoryShortsJob = {
+  jobId: string;
+  status: "running" | "done" | "error";
+  step?: string;
+  project?: unknown;
+  /** How many hooks were spoken, and what they cost in characters. */
+  hooks?: number;
+  characters?: number;
+  error?: string;
+  warning?: string;
+  startedAt: number;
+  updatedAt: number;
+};
+
+export const storyShortsJobPath = (jobId: string) =>
+  `jobs/story-shorts/${jobId}.json`;
+
 export const storyVoiceJobPath = (jobId: string) =>
   `jobs/story-voice/${jobId}.json`;
 

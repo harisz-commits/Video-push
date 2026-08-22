@@ -27,6 +27,16 @@ export const QUIZ_COMP_NAME = "QuizVideo";
  */
 export const STORY_COMP_NAME = "StoryVideo";
 
+/**
+ * The vertical cut of a film.
+ *
+ * Its own composition rather than a flag on the other one: the canvas is a
+ * different shape, the pictures are cropped instead of fitted, the text is
+ * burnt in, and there is a spoken hook in front. Sharing one component would
+ * mean a conditional at every one of those points.
+ */
+export const STORY_SHORT_COMP_NAME = "StoryShort";
+
 /** Which renderer a project belongs to. The studio's switch sets this. */
 export type Format = "infographics" | "quiz" | "video";
 

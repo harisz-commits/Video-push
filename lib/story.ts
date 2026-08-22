@@ -175,6 +175,36 @@ export const StorySound = z.object({
 });
 export type StorySound = z.infer<typeof StorySound>;
 
+/**
+ * A sixty-second vertical cut of a finished film.
+ *
+ * Deliberately not a video: it is a pair of shot indices into the film it
+ * belongs to, plus a spoken opening line. Everything else - the pictures, the
+ * narration, the sound design, the camera moves - already exists and is
+ * referenced rather than copied. That is what makes a short cost about three
+ * cents of render time and nothing else: no script, no drawing, no recording
+ * beyond the hook.
+ *
+ * The hook is the one genuinely new thing, and it earns its keep. A slice from
+ * the middle of a documentary begins mid-thought, and the first second is the
+ * whole of a short's chance. Eighty characters of ElevenLabs is a fraction of
+ * a cent against a short nobody watches.
+ */
+export const StoryShort = z.object({
+  id: z.string(),
+  /** For the file name and the upload. */
+  title: z.string().min(3).max(100),
+  /** The newly written opening line, spoken before the excerpt. */
+  hook: z.string().min(4).max(220),
+  hookAudioUrl: z.string().url().optional(),
+  /** How long the hook takes to say, measured from the file. */
+  hookSeconds: z.number().positive().optional(),
+  /** First and last shot of the excerpt, inclusive, indexing the parent film. */
+  from: z.number().int().nonnegative(),
+  to: z.number().int().nonnegative(),
+});
+export type StoryShort = z.infer<typeof StoryShort>;
+
 export const StoryProject = z.object({
   kind: z.literal("video"),
   id: z.string(),
@@ -259,6 +289,14 @@ export const StoryProject = z.object({
       endTimesSeconds: z.array(z.number()),
     })
     .optional(),
+  /**
+   * Vertical cuts of this film, once somebody has asked for them.
+   *
+   * On the project rather than in their own store, because a short without its
+   * film is nothing at all: it holds indices into that film's shots and points
+   * at that film's recording.
+   */
+  shorts: z.array(StoryShort).default([]),
   thumbnail: ThumbnailConfig.optional(),
   fps: z.literal(30).default(30),
   width: z.literal(1920).default(1920),
@@ -741,4 +779,101 @@ export function styleFingerprint(
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0).toString(36);
+}
+
+/** Frames the vertical format holds on the hook before the excerpt begins. */
+export const SHORT_HOOK_PAD = 12;
+
+export type ShortTiming = {
+  /** The excerpt's shots, already offset by the hook. */
+  shots: ResolvedShot[];
+  /** Frames the hook occupies at the front. Zero when there is none. */
+  hookFrames: number;
+  /** Where in the film's recording the excerpt starts, in seconds. */
+  narrationFrom: number;
+  /** How long the excerpt's narration runs. */
+  narrationSeconds: number;
+  totalFrames: number;
+};
+
+/**
+ * When everything in a short happens.
+ *
+ * Its own function rather than a reuse of resolveStoryTiming(), because a
+ * short has one thing the film does not: a spoken hook in front, which pushes
+ * everything after it. Sharing the code would mean threading an offset through
+ * a function whose whole job is that there isn't one.
+ *
+ * What it does share is the source of truth. The cues are the film's own
+ * measured cues, rebased to the excerpt's first shot — so a short is timed by
+ * exactly the same recording as the film it came from, and cannot drift
+ * against it.
+ */
+export function resolveShortTiming(
+  project: StoryProject,
+  short: StoryShort,
+): ShortTiming {
+  const fps = project.fps;
+  const byKey = new Map(project.images.map((i) => [i.key, i]));
+
+  const from = Math.max(0, Math.min(short.from, project.shots.length - 1));
+  const to = Math.max(from, Math.min(short.to, project.shots.length - 1));
+  const cues = project.cues ?? [];
+
+  // Where the excerpt sits inside the film. Without measured cues there is no
+  // honest answer, so the estimate falls back to word counts the same way the
+  // film's own timeline does before a recording exists.
+  const startSeconds = cues[from] ?? 0;
+  const endSeconds =
+    cues[to + 1] ?? project.audioSeconds ?? startSeconds + (to - from + 1) * 3;
+
+  const hookFrames = short.hookSeconds
+    ? Math.round(short.hookSeconds * fps) + SHORT_HOOK_PAD
+    : 0;
+
+  // Starts first, durations from the gaps between them - never by rounding a
+  // difference. Rounding each start and each length independently disagrees by
+  // a frame often enough to matter: a one-frame hole between two shots shows
+  // the background colour, and at thirty frames a second that is a visible
+  // flicker rather than a rounding error. resolveStoryTiming() takes the same
+  // care for the same reason.
+  const starts: number[] = [];
+  for (let i = from; i <= to; i++) {
+    starts.push(hookFrames + Math.round(((cues[i] ?? startSeconds) - startSeconds) * fps));
+  }
+  const endFrame = hookFrames + Math.round((endSeconds - startSeconds) * fps);
+
+  const shots: ResolvedShot[] = [];
+  for (let i = from; i <= to; i++) {
+    const at = i - from;
+    const begins = starts[at];
+    const next = at + 1 < starts.length ? starts[at + 1] : endFrame;
+    shots.push({
+      ...project.shots[i],
+      from: begins,
+      durationInFrames: Math.max(MIN_SHOT_FRAMES, next - begins),
+      url: byKey.get(project.shots[i].image)?.url,
+    });
+  }
+
+  const last = shots[shots.length - 1];
+  return {
+    shots,
+    hookFrames,
+    narrationFrom: startSeconds,
+    narrationSeconds: Math.max(0.5, endSeconds - startSeconds),
+    totalFrames: Math.max(1, (last?.from ?? 0) + (last?.durationInFrames ?? fps)),
+  };
+}
+
+/** Seconds of narration an excerpt would run, for planning before it exists. */
+export function shortSeconds(
+  project: StoryProject,
+  from: number,
+  to: number,
+): number {
+  const cues = project.cues ?? [];
+  const start = cues[from] ?? 0;
+  const end = cues[to + 1] ?? project.audioSeconds ?? start;
+  return Math.max(0, end - start);
 }

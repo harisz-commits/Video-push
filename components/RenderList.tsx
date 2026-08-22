@@ -5,6 +5,8 @@ import { toDownloadUrl } from "./DownloadButton";
 import { Note } from "./ui";
 
 export type ProjectRenderRow = {
+  /** Set when this render is a vertical cut rather than the film. */
+  shortId?: string;
   renderId: string;
   outputUrl?: string;
   sizeBytes?: number;
