@@ -521,6 +521,11 @@ ${args.motifs.map((m) => `- ${m.key} (${m.name})`).join("\n") || "- keine"}
 Nimm ihre "key"-Werte direkt in den Einstellungen. Führ sie NICHT noch einmal
 in "images" auf.
 
+JEDES dieser Motive höchstens EINMAL in deinem Abschnitt. Sie werden auch den
+anderen Abschnitten angeboten, und was du hier doppelt nimmst, steht im
+fertigen Video vier- oder fünfmal. Ein Motiv ist ein Wiedererkennen, kein
+Lückenfüller — brauchst du noch ein Bild, erfinde ein neues.
+
 NEUE BILDER: höchstens ${args.imageBudget}.
 
 RECHNE NACH, BEVOR DU ANFÄNGST: du schreibst ${shots} Einstellungen und hast

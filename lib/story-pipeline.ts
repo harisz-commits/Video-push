@@ -202,6 +202,7 @@ export async function generateStory(args: {
         short: script.short,
         words,
         minutes: args.minutes,
+        split: script.split,
         overused: script.overused,
         researched: args.research !== false,
         searches,
@@ -245,6 +246,8 @@ function buildWarning(args: {
   short: boolean;
   words: number;
   minutes: number;
+  /** Extra drawings added to break up repetition. */
+  split: number;
   overused: { name: string; appearances: number }[];
   researched: boolean;
   searches: number;
@@ -258,8 +261,14 @@ function buildWarning(args: {
     return "Die Websuche hat nichts geliefert, also steht in diesem Skript keine geprüfte Zahl — das Modell hat aus dem Gedächtnis geschrieben. Bei Themen mit Daten und Namen solltest du es noch einmal erzeugen.";
   }
 
+  // Only reachable when the budget ran out — otherwise spreadOverused() has
+  // already dealt with it and there is nothing to warn about.
   if (args.overused.length > 0) {
-    return `${args.overused.length} Bilder kommen öfter als ${MAX_APPEARANCES}× vor — am häufigsten „${args.overused[0].name}“ mit ${args.overused[0].appearances} Auftritten. Mehr Bilder pro Minute wählen und neu schreiben, sonst wirkt das Video wiederholt.`;
+    return `${args.overused.length} Bilder kommen öfter als ${MAX_APPEARANCES}× vor — am häufigsten „${args.overused[0].name}“ mit ${args.overused[0].appearances} Auftritten. Dafür reichte das Bildbudget nicht: wähl mehr Bilder pro Minute und schreib neu.`;
+  }
+
+  if (args.split > 0) {
+    return `${args.split} Bilder wurden nachträglich in Varianten aufgeteilt, damit keines öfter als ${MAX_APPEARANCES}× erscheint. Sie kosten beim Zeichnen mit.`;
   }
 
   if (args.researched && args.facts > 0) {
@@ -428,6 +437,16 @@ const RESEARCH_DEADLINE_MS = 80_000;
 const MINUTES_PER_SECTION = 2;
 
 /**
+ * How many of the shared motifs one section is shown.
+ *
+ * Not all of them. A section offered the whole pool uses most of it, and with
+ * seven sections that is seven appearances per motif before anybody has done
+ * anything wrong. A rotating window means each motif reaches two or three
+ * sections, which is what a recurring motif should be.
+ */
+const MOTIFS_PER_SECTION = 3;
+
+/**
  * How often one picture may come back.
  *
  * Two or three appearances read as a motif. Seven read as running out of
@@ -475,6 +494,8 @@ async function writeScript(args: {
   sounds: StorySound[];
   shots: StoryShot[];
   short: boolean;
+  /** How many extra drawings were added to break up repetition. */
+  split: number;
   /** Pictures that come back too often, worst first. */
   overused: { name: string; appearances: number }[];
 }> {
@@ -499,17 +520,23 @@ async function writeScript(args: {
     accents: [] as KnownSound[],
   }));
 
-  // A fifth of the picture budget goes to motifs that every section may draw
-  // on; the rest is split between them. Without a shared pool the sections
-  // would each invent their own vocabulary and nothing would ever recur.
-  //
-  // Was a third, and that was too generous. The motifs are offered to every
-  // section as pictures that already exist, so they are the cheapest thing for
-  // a writer to reach for - and it reached. Measured on a nine-minute film
-  // with forty-one pictures: six of them carried the whole video with seven to
-  // nine appearances each, while the median picture appeared exactly once. The
-  // server rack was on screen seven separate times.
-  const motifBudget = Math.max(3, Math.min(6, Math.round(args.imageBudget / 5)));
+  /**
+   * The shared motifs, sized by the number of SECTIONS rather than by the
+   * picture budget.
+   *
+   * The old rule tied the pool to the budget, and that was the wrong quantity
+   * entirely: motif appearances scale with how many sections are offered them,
+   * not with how many pictures the film may draw. A thirteen-minute film had
+   * seven sections and a pool capped at six, every section was handed all six
+   * as "these already exist, use them", and the six absorbed 51 appearances
+   * while 82 other pictures appeared once each.
+   *
+   * Tied to sections, and each section shown only a slice of the pool (see
+   * MOTIFS_PER_SECTION), a motif is offered to two or three sections rather
+   * than all of them - which lands it at the two or three appearances a motif
+   * is supposed to have.
+   */
+  const motifBudget = Math.max(3, Math.min(8, sectionCount));
   // Three to five beds for a whole film. More would not be richer, only less
   // recognisable — a bed earns its keep by coming back.
   const bedBudget = args.minutes >= 8 ? 5 : 3;
@@ -565,7 +592,12 @@ async function writeScript(args: {
               sections: plan.sections,
               index,
               words,
-              motifs: plan.motifs,
+              // A rotating slice, not the whole pool. See MOTIFS_PER_SECTION.
+              motifs: plan.motifs.length <= MOTIFS_PER_SECTION
+                ? plan.motifs
+                : Array.from({ length: MOTIFS_PER_SECTION }, (_, k) =>
+                    plan.motifs[(index * MOTIFS_PER_SECTION + k) % plan.motifs.length],
+                  ),
               beds: plan.beds,
               imageBudget: perSection,
               // What the arithmetic allows, so the writer can spread rather
@@ -640,13 +672,112 @@ async function writeScript(args: {
   const heard = new Set(
     shots.flatMap((s) => [s.ambience, s.accent].filter(Boolean) as string[]),
   );
+  const kept = [...images.values()].filter((i) => used.has(i.key));
+  const spread = spreadOverused(kept, shots, args.imageBudget);
+
   return {
-    images: [...images.values()].filter((i) => used.has(i.key)),
+    images: spread.images,
     sounds: [...sounds.values()].filter((s) => heard.has(s.key)),
-    shots,
+    shots: spread.shots,
     short,
-    overused: overusedImages(shots, images),
+    split: spread.split,
+    overused: overusedImages(
+      spread.shots,
+      new Map(spread.images.map((i) => [i.key, i])),
+    ),
   };
+}
+
+/**
+ * Split pictures that come back too often into variations of themselves.
+ *
+ * The cap could never be reached by asking. It is stated per section, and the
+ * sections are written in parallel by calls that know nothing about each
+ * other - so seven sections each obeying "no more than three" still produce
+ * twenty-one appearances of one picture, and every one of them followed its
+ * instructions. Measured on a thirteen-minute film: six shared motifs
+ * accounted for 51 appearances (11, 10, 9, 8, 8, 5) while 82 of the 91
+ * pictures appeared exactly once.
+ *
+ * So it is enforced here instead, where the whole film is visible at once. A
+ * picture past its allowance keeps the first three appearances and hands the
+ * rest to fresh variants of itself: the same subject, drawn again from another
+ * angle or another distance. That is what the viewer wanted in the first
+ * place - not the same drawing eleven times, but the hearth from six different
+ * sides.
+ *
+ * It spends picture budget, which is the honest trade: somebody who asked for
+ * twelve pictures a minute asked for variety and should get it. It never
+ * spends more than they asked for, and a film that has genuinely run out of
+ * budget keeps its repetitions rather than silently costing more.
+ */
+const VARIATIONS = [
+  "Show the same subject from a noticeably different angle.",
+  "Show a closer view of a different part of the same subject.",
+  "Show the same subject from further back, with more of its surroundings.",
+  "Show a different corner of the same place.",
+  "Show the same subject at a different moment, with the light changed.",
+];
+
+function spreadOverused(
+  images: StoryImage[],
+  shots: StoryShot[],
+  budget: number,
+): { images: StoryImage[]; shots: StoryShot[]; split: number } {
+  // Appearances, not shots: consecutive sentences on one picture are a single
+  // uninterrupted take and nobody experiences them as repetition.
+  const runs: { image: string; at: number[] }[] = [];
+  shots.forEach((shot, i) => {
+    const open = runs[runs.length - 1];
+    if (open && open.image === shot.image) open.at.push(i);
+    else runs.push({ image: shot.image, at: [i] });
+  });
+
+  const total = new Map<string, number>();
+  for (const run of runs) total.set(run.image, (total.get(run.image) ?? 0) + 1);
+  if (![...total.values()].some((n) => n > MAX_APPEARANCES)) {
+    return { images, shots, split: 0 };
+  }
+
+  const byKey = new Map(images.map((i) => [i.key, i]));
+  const extra: StoryImage[] = [];
+  const seen = new Map<string, number>();
+  const next = shots.slice();
+  let room = Math.max(0, budget - images.length);
+  let split = 0;
+
+  for (const run of runs) {
+    const n = (seen.get(run.image) ?? 0) + 1;
+    seen.set(run.image, n);
+    if (n <= MAX_APPEARANCES) continue;
+    if (room === 0) continue;
+
+    const original = byKey.get(run.image);
+    if (!original) continue;
+
+    // A variant per group of MAX_APPEARANCES, so a picture used nine times
+    // becomes three drawings rather than seven.
+    const variant = Math.floor((n - 1) / MAX_APPEARANCES);
+    const key = `${original.key}-${variant + 1}`;
+
+    if (!byKey.has(key)) {
+      const hint = VARIATIONS[(variant - 1) % VARIATIONS.length];
+      const image: StoryImage = {
+        ...original,
+        key,
+        name: `${original.name} (${variant + 1})`,
+        prompt: `${original.prompt} ${hint}`,
+      };
+      byKey.set(key, image);
+      extra.push(image);
+      room -= 1;
+      split += 1;
+    }
+
+    for (const i of run.at) next[i] = { ...next[i], image: key };
+  }
+
+  return { images: [...images, ...extra], shots: next, split };
 }
 
 /**
