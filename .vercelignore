@@ -1,0 +1,4 @@
+# games/ enthaelt eigenstaendige Browserspiele mit eigener Toolchain.
+# Sie gehoeren nicht in das Deployment der Next.js-Anwendung und werden
+# separat gebaut (siehe games/*/README.md).
+games

@@ -31,5 +31,8 @@
 		".next/types/**/*.ts",
 		".next/dev/types/**/*.ts"
 	],
-	"exclude": ["node_modules", "remotion.config.ts"]
+	// games/ enthaelt eigenstaendige Projekte mit eigener tsconfig, eigenen
+	// Abhaengigkeiten und eigenem Typecheck. Ohne diesen Ausschluss zieht
+	// "**/*.ts" sie in den Next-Build und der bricht ab.
+	"exclude": ["node_modules", "remotion.config.ts", "games"]
 }
