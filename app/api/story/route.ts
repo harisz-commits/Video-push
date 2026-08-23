@@ -5,7 +5,7 @@ import { DEFAULT_STORY_MODEL, generateStory } from "../../../lib/story-pipeline"
 import { noteCharacterUse } from "../../../lib/characters";
 import { noteLookUse, readLooks } from "../../../lib/looks";
 import { slugify } from "../../../lib/image-library";
-import { StoryStyle } from "../../../lib/story";
+import { StoryPerspective, StoryStyle } from "../../../lib/story";
 import { resolveTextModel, type TextModel } from "../../../lib/text-models";
 import { readJson, storyJobPath, writeJson, type StoryJob } from "../../../lib/store";
 
@@ -30,6 +30,7 @@ export async function POST(req: Request) {
   let lookId: string | undefined;
   let characters: { key: string; name: string; description: string }[];
   let research: boolean;
+  let perspective: StoryPerspective;
   let model: TextModel;
   try {
     const body = (await req.json()) as {
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
       lookId?: unknown;
       characters?: unknown;
       research?: unknown;
+      perspective?: unknown;
       model?: unknown;
     };
     if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
@@ -102,6 +104,11 @@ export async function POST(req: Request) {
     // who never touches this switch should get the researched version.
     research = body.research !== false;
 
+    // Anything unknown falls back to the explainer, which is the safe reading
+    // of a missing field: it works for every topic, where "du bist dabei"
+    // only works for a topic with people in it.
+    perspective = StoryPerspective.safeParse(body.perspective).data ?? "erklaerung";
+
     model = resolveTextModel(
       typeof body.model === "string" ? body.model : DEFAULT_STORY_MODEL,
     );
@@ -155,6 +162,7 @@ export async function POST(req: Request) {
         style: style?.success ? style.data : undefined,
         characters,
         research,
+        perspective,
         apiKey,
         model,
         startedAt,

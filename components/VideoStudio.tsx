@@ -238,6 +238,16 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
    * genuinely do not need it.
    */
   const [research, setResearch] = useState(true);
+  /**
+   * Wie der Zuschauer im Film steht. Siehe StoryPerspective.
+   *
+   * Vorgabe ist das Erklärstück, weil das zu jedem Thema passt. "Du bist
+   * dabei" braucht Menschen, denen etwas zustößt — bei einem Thema ohne die
+   * klingt es aufgesetzt.
+   */
+  const [perspective, setPerspective] = useState<"erklaerung" | "erlebnis">(
+    "erklaerung",
+  );
 
   // ---- What the look should be, before there is one -----------------------
   const [styleWish, setStyleWish] = useState("");
@@ -617,6 +627,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       characters: cast.filter((c) => c.description.trim().length >= 3),
       model: textModelId,
       research,
+      perspective,
     });
     if (!result.ok) {
       setError(result.error);
@@ -1533,6 +1544,58 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               in einem anderen Video deshalb anders aus, und das ist gewollt.
             </Note>
           ) : null}
+
+          <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+            WIE ERZÄHLT WIRD
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {(
+              [
+                {
+                  id: "erklaerung" as const,
+                  title: "Erklärstück",
+                  note: "Erklärt eine Sache und sagt dem Zuschauer im ersten Satz, was sie mit ihm zu tun hat. Nennt, wer verdient und wer zahlt.",
+                },
+                {
+                  id: "erlebnis" as const,
+                  title: "Du bist dabei",
+                  note: "Der Zuschauer ist die Person, um die es geht. Braucht ein Thema mit Menschen — eine Reise, ein Beruf, ein Tag in einer anderen Zeit.",
+                },
+              ]
+            ).map((p) => (
+              <label
+                key={p.id}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "flex-start",
+                  padding: "8px 10px",
+                  border: "1px solid var(--grid)",
+                  background: perspective === p.id ? "#f4f7fb" : "#fff",
+                  fontSize: 12.5,
+                  lineHeight: 1.4,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="perspective"
+                  checked={perspective === p.id}
+                  onChange={() => setPerspective(p.id)}
+                  style={{ marginTop: 2 }}
+                />
+                <span>
+                  {p.title}
+                  <span
+                    className="mono"
+                    style={{ display: "block", fontSize: 10.5, color: "#5b6672" }}
+                  >
+                    {p.note}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
 
           <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
             WER SCHREIBT

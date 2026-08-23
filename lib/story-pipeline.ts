@@ -7,6 +7,7 @@ import {
   StoryStyle,
   type StoryCharacter,
   type StoryImage,
+  type StoryPerspective,
   type StoryShot,
   type StorySound,
 } from "./story";
@@ -68,6 +69,8 @@ export async function generateStory(args: {
   characters?: { key: string; name: string; description: string }[];
   /** Whether to look the facts up before writing. See lib/story-research.ts. */
   research?: boolean;
+  /** Where the viewer stands in the story. See StoryPerspective. */
+  perspective?: StoryPerspective;
   apiKey: string;
   model?: TextModel;
   startedAt: number;
@@ -162,6 +165,7 @@ export async function generateStory(args: {
       style: style.style,
       characters: style.characters,
       research,
+      perspective: args.perspective ?? "erklaerung",
       minutes: args.minutes,
       imageBudget: args.imageBudget,
       deadline: args.startedAt + WRITING_DEADLINE_MS,
@@ -176,6 +180,7 @@ export async function generateStory(args: {
       style: style.style,
       characters: style.characters,
       imagesPerMinute: args.imagesPerMinute,
+      perspective: args.perspective ?? "erklaerung",
       research: research || undefined,
       images: script.images,
       sounds: script.sounds,
@@ -485,6 +490,7 @@ async function writeScript(args: {
   style: StoryStyle;
   characters: StoryCharacter[];
   research: string;
+  perspective: StoryPerspective;
   minutes: number;
   imageBudget: number;
   deadline: number;
@@ -606,6 +612,7 @@ async function writeScript(args: {
               characters: args.characters,
               knownAccents: known.accents,
               research: args.research,
+              perspective: args.perspective,
             }),
           },
         ],
@@ -829,6 +836,8 @@ async function writeOutline(args: {
   known?: KnownSound[];
   /** Checked facts the outline must be built around. */
   research?: string;
+  /** Decides whether the plan is a chronology or a chain of questions. */
+  perspective?: StoryPerspective;
 }): Promise<{
   sections: { title: string; brief: string }[];
   motifs: StoryImage[];
@@ -850,6 +859,7 @@ async function writeOutline(args: {
           beds: args.beds,
           known: args.known,
           research: args.research,
+          perspective: args.perspective,
         }),
       },
     ],

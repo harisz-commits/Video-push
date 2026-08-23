@@ -1,4 +1,8 @@
-import type { StoryCharacter, StoryStyle } from "./story";
+import type {
+  StoryCharacter,
+  StoryPerspective,
+  StoryStyle,
+} from "./story";
 
 /**
  * What the model is told when it writes a video.
@@ -197,6 +201,34 @@ Antworte mit einem JSON-Objekt, sonst nichts:
  "motifs":[{"key":"…","name":"…","prompt":"…"}],
  "beds":[{"key":"…","name":"…","prompt":"…"}]}`;
 
+/**
+ * Wie die Abschnitte zueinander stehen sollen.
+ *
+ * Das gehört in die Gliederung und nicht erst ins Schreiben: ein Erlebnisfilm
+ * mit einer thematisch sortierten Gliederung wird beim Schreiben nicht mehr
+ * zu einer Geschichte, weil jeder Abschnitt einzeln entsteht und keiner weiß,
+ * was im vorigen passiert ist.
+ */
+function outlineShape(perspective: StoryPerspective): string {
+  if (perspective === "erlebnis") {
+    return `
+DIE ABSCHNITTE SIND EINE CHRONOLOGIE, kein Themenverzeichnis. Der Zuschauer
+ist die Person, der das passiert, und die Abschnitte sind die Stationen ihres
+Wegs in der Reihenfolge, in der sie sie erlebt. Abschnitt 1 setzt fest, wer
+sie ist und was auf dem Spiel steht. Jeder weitere bringt etwas Neues, das
+sich aus dem vorigen ergibt — eine Entscheidung, ein Rückschlag, eine
+Verschlechterung. Der letzte hat einen Ausgang, keine Zusammenfassung.
+Überschriften benennen, was passiert ("Der erste Winter"), nicht wovon die
+Rede ist ("Die Kälte").`;
+  }
+  return `
+DIE ABSCHNITTE BAUEN AUFEINANDER AUF. Jeder beantwortet die Frage, die der
+vorige aufgeworfen hat, und wirft eine neue auf. Abschnitt 1 sagt, warum das
+den Zuschauer betrifft. Eine Liste gleichrangiger Aspekte ist keine
+Gliederung — wenn du zwei Abschnitte tauschen kannst, ohne dass etwas
+auffällt, sind sie falsch geordnet.`;
+}
+
 export function buildOutlinePrompt(args: {
   topic: string;
   style: StoryStyle;
@@ -208,6 +240,8 @@ export function buildOutlinePrompt(args: {
   known?: { key: string; name: string; description: string; seconds: number }[];
   /** Checked facts, one per line. See lib/story-research.ts. */
   research?: string;
+  /** Where the viewer stands. Decides whether the plan is topical or a chronology. */
+  perspective?: StoryPerspective;
 }): string {
   const known = args.known?.length
     ? `
@@ -243,6 +277,7 @@ Bildstil steht fest: „${args.style.name}"
 
 Plane genau ${args.sections} Abschnitte für ${args.minutes} Minuten Video,
 ${args.motifs} wiederkehrende Motive und ${args.beds} Klangteppiche.
+${outlineShape(args.perspective ?? "erklaerung")}
 
 Der Inhalt muss tragen. Ein Abschnitt, der nur sagt "es war kalt und schwer",
 ist verschenkt. Jeder Abschnitt braucht etwas Konkretes: eine Technik, eine
@@ -254,7 +289,7 @@ export const STORY_SCRIPT_SYSTEM_PROMPT = `Du schreibst ein deutsches Erklärvid
 
 DER GESPROCHENE TEXT:
 - Durchgehende Erzählung, kein Stichpunktzettel. Sie wird am Stück vorgelesen.
-- Du-Form, niemals Sie-Form. Kurze Hauptsätze.
+- Du-Form, niemals Sie-Form.
 - Der erste Satz muss neugierig machen, ohne etwas zu versprechen, das später
   nicht kommt. Keine Begrüßung, kein "In diesem Video".
 - Sachlich richtig. Bekommst du eine Faktenliste, ist sie deine EINZIGE Quelle
@@ -265,6 +300,48 @@ DER GESPROCHENE TEXT:
   der nichts Nachprüfbares enthält, ist Füllmaterial — davon höchstens jeder
   vierte.
 - Kein Fazit-Geschwafel am Ende. Der letzte Satz ist ein Gedanke, der bleibt.
+
+SPRACHE — hier entscheidet sich, ob es nach Mensch oder nach Maschine klingt:
+- HÖCHSTENS EIN Adjektiv je Satz, meistens keines. Das ist die wichtigste
+  Regel dieses Abschnitts. "Die fahle Wintersonne ist längst hinter
+  schneebedeckten Hügeln versunken" ist der Ton, den niemand hören will.
+  "Der Wind heult durch die Steinmauern" sagt dasselbe und stimmt.
+- Substantive und VERBEN tragen den Satz, nicht Beiwörter. Wenn du ein
+  Adjektiv streichen kannst, ohne dass Information verloren geht, streich es.
+- Keine Stimmungsmalerei. "Klirrender Frost", "klamme Wände", "fahles Licht"
+  — davon lebt kein Satz, das ist Verpackung.
+- Nenn Dinge beim Namen statt sie zu umschreiben: "in dieser Ecke Englands",
+  nicht "irgendwo in Mitteleuropa".
+- Wechsel die Satzlänge hart. Drei Wörter. Dann vierzehn. Gleichmäßige Sätze
+  sind das zweite Kennzeichen von Maschinentext.
+
+FREMDWÖRTER UND FACHBEGRIFFE — harte Regel:
+- Jeder Begriff, den ein normaler Zuschauer nicht sicher kennt, wird beim
+  ERSTEN Vorkommen im selben Atemzug erklärt. Nicht später, nicht nebenbei.
+  So: "die Stückliste — die Liste aller Teile, die in ein Gerät wandern, mit
+  ihren Rohkosten." Danach darfst du den Begriff frei benutzen.
+- Abkürzungen einmal ausschreiben, bevor du sie abkürzt.
+- Kannst du einen Begriff nicht in einem Nebensatz erklären, nimm ihn nicht.
+  Es gibt für fast alles ein deutsches Wort.
+
+ZAHLEN — harte Regel:
+- Jede große Zahl braucht etwas, woran man sie messen kann. "725 Milliarden
+  Dollar" sagt niemandem etwas. "Mehr als die gesamte Wirtschaftsleistung der
+  Schweiz in einem Jahr" sagt etwas.
+- GELDBETRÄGE aus der Vergangenheit IMMER in heutiges Geld umrechnen, im
+  selben Satz: "zwölf Gulden — heute ungefähr fünfzehntausend Euro". Ein
+  historischer Betrag ohne Umrechnung ist eine Zahl ohne Bedeutung, und der
+  Zuschauer kann sie nicht einordnen.
+- Steht die Umrechnung nicht in deinen Fakten, kennzeichne sie als Schätzung
+  ("ungefähr", "grob"). Erfinde nie eine genaue Zahl.
+
+DER SOG:
+- Der letzte Satz jedes Abschnitts zieht nach vorne, statt abzuschließen.
+  "Aber der Winter naht — und er ist nicht nur ungemütlich, er ist
+  lebensbedrohlich." "Und es gibt nichts, was du dagegen tun kannst."
+  "Und der Tod kann aus dem Nichts kommen."
+- Das ist kein Cliffhanger-Geschrei. Es ist ein Satz, der eine Folge
+  ankündigt, die wirklich kommt.
 
 DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):
 - Jede Einstellung ist EIN Bild und der Text, der dazu gesprochen wird.
@@ -372,6 +449,49 @@ Antworte mit einem JSON-Objekt, sonst nichts:
 - "accent" ist optional und verweist auf einen "key" aus deiner
   accents-Liste. "prompt" dort auf Englisch, "seconds" zwischen 1 und 4.`;
 
+/**
+ * How the viewer is placed in the film, spelled out for the writer.
+ *
+ * Both are second person and they are not the same thing. The difference
+ * shows in the very first sentence: an explainer makes a claim about the
+ * viewer's own situation, an immersive piece makes the viewer the person it
+ * happens to. Getting this wrong produces exactly the thing that reads as
+ * machine text - a scene description written in second person, which is
+ * neither one nor the other.
+ */
+export function perspectiveBlock(perspective: StoryPerspective): string {
+  if (perspective === "erlebnis") {
+    return `DIE PERSPEKTIVE — DU BIST DABEI:
+- Der Zuschauer IST die Person, der das passiert. Nicht Beobachter, nicht
+  angesprochen: er steckt drin. "Du wurdest in einer Burg geboren — aber du
+  bist alles andere als ein Adliger."
+- Setz ihn im ersten Abschnitt fest: wer er ist, wo, wann, und was auf dem
+  Spiel steht. Danach gilt das und wird nicht wiederholt.
+- GIB DEN MENSCHEN NAMEN. Deine Schwester Matilda. Herzog Barrington. Der
+  alte Gerard. Namenlose Rollen bleiben abstrakt, benannte nicht. Erfundene
+  Namen sind erlaubt, erfundene FAKTEN nicht.
+- Es muss etwas auf dem Spiel stehen, und es darf schiefgehen. Wer die ganze
+  Zeit in Sicherheit ist, wird nicht zu Ende geschaut.
+- Beschreib keine Kulisse. Lass jemanden etwas TUN. Nicht "Draußen herrscht
+  klirrender Frost", sondern "Deine Hände werden taub vom Holzhacken".
+- Die Fakten stecken in der Handlung, nicht in Erklärsätzen daneben: dass
+  Stein Kälte leitet, merkt man, wenn man sich an die Wand lehnt.`;
+  }
+
+  return `DIE PERSPEKTIVE — ES BETRIFFT DICH:
+- Der Zuschauer ist der Betroffene. Der erste Satz ist eine Behauptung über
+  SEINE Lage, nicht über das Thema: "Dein Laptop mit acht Gigabyte
+  Arbeitsspeicher lebt bereits auf geliehener Zeit."
+- Zeig, wer profitiert und wer zahlt. Ein Erklärstück ohne benannte Seiten
+  ist ein Aufsatz.
+- Bau von der einzelnen Zahl zur Folge für den Zuschauer: erst was der Fall
+  ist, dann was das für ihn heißt.
+- Vergleiche machen große Zahlen begreifbar. Nutze sie, aber sparsam und
+  konkret — ein Bild je Abschnitt reicht.
+- Sag klar, was daran neu oder unerwartet ist. Wer nach dreißig Sekunden
+  nichts erfahren hat, das er nicht schon ahnte, klickt weg.`;
+}
+
 export function buildScriptPrompt(args: {
   topic: string;
   style: StoryStyle;
@@ -429,6 +549,8 @@ export function buildSectionPrompt(args: {
   knownAccents?: { key: string; name: string; description: string; seconds: number }[];
   /** Checked facts, one per line. See lib/story-research.ts. */
   research?: string;
+  /** How the viewer is placed in the film. See perspectiveBlock(). */
+  perspective?: StoryPerspective;
 }): string {
   const plan = args.sections
     .map((s, i) => `${i + 1}. ${s.title} — ${s.brief}${i === args.index ? "   <<< DIESEN schreibst du" : ""}`)
@@ -498,6 +620,8 @@ NICHT vorgelesen; sie sagt dir nur, dass der Fakt geprüft ist.`
 
   return `Thema des Videos:
 ${args.topic}${facts}
+
+${perspectiveBlock(args.perspective ?? "erklaerung")}
 
 Bildstil steht fest: „${args.style.name}". Beschreib in "prompt" nur den Inhalt.
 

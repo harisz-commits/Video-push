@@ -56,6 +56,16 @@ VORGABEN:
   ihre Folgen, Wendepunkte. Keine allgemeinen Einordnungen — die kann das
   Modell später selbst.
 - Verteil die Fakten über das ganze Thema, nicht alle auf einen Aspekt.
+- GELDBETRÄGE: Steht in einem Fakt eine historische Geldsumme, such die
+  heutige Kaufkraft mit und schreib sie in denselben Fakt, mit Bezugsjahr:
+  "2 Millionen Reichsmark (1923), heute rund 8 Millionen Euro". Findest du
+  keine Umrechnung, nimm stattdessen eine Vergleichsgröße aus derselben Zeit,
+  die jeder kennt — was ein Arbeiter im Jahr verdiente, was ein Brot kostete.
+  Eine nackte alte Zahl ohne Maßstab ist für dieses Video wertlos.
+- MAßSTÄBE: Dasselbe gilt für große Zahlen, die keine Geldsummen sind. Wenn du
+  eine Fläche, ein Gewicht oder eine Menge findest, such nach einer
+  Bezugsgröße dazu — wieviele Fußballfelder, wieviele Jahresproduktionen,
+  wieviel pro Kopf.
 - SUCHBUDGET: begrenzt. Such gezielt statt breit.
 - SIND DIE SUCHEN AUFGEBRAUCHT: schreib die Liste aus dem, was du hast. Brich
   niemals ab und entschuldige dich nicht. Ein aufgebrauchtes Budget ist das

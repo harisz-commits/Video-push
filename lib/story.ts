@@ -31,6 +31,18 @@ import { ThumbnailConfig } from "./thumbnail";
  * instructions about technique, palette, line and perspective. Two images can
  * show completely different things and still be recognisably from one hand.
  */
+/**
+ * How the viewer is placed in the film.
+ *
+ * Not a tone setting. It decides who "du" refers to, and that changes every
+ * sentence: in `erklaerung` the viewer is the person this is happening TO
+ * ("Dein Laptop lebt auf geliehener Zeit"), in `erlebnis` the viewer IS the
+ * person it happens to ("Du wurdest in einer Burg geboren"). Both are second
+ * person and they are not interchangeable.
+ */
+export const StoryPerspective = z.enum(["erklaerung", "erlebnis"]);
+export type StoryPerspective = z.infer<typeof StoryPerspective>;
+
 export const StoryStyle = z.object({
   /** A short name for the look, so the studio can show what it decided. */
   name: z.string().min(3).max(80),
@@ -211,6 +223,8 @@ export const StoryProject = z.object({
   topic: z.string(),
   title: z.string(),
   style: StoryStyle,
+  /** How the viewer is placed in it. See StoryPerspective. */
+  perspective: StoryPerspective.default("erklaerung"),
   /** Figures that recur, if the film was given any. See StoryCharacter. */
   characters: z.array(StoryCharacter).default([]),
   /**
