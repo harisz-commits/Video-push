@@ -217,6 +217,68 @@ export const StoryShort = z.object({
 });
 export type StoryShort = z.infer<typeof StoryShort>;
 
+/**
+ * Was im Upload-Formular steht.
+ *
+ * `title` ist die getroffene Wahl, `titles` sind die Vorschläge — beides,
+ * damit ein zweiter Blick auf die verworfenen möglich bleibt, ohne noch
+ * einmal zu bezahlen.
+ */
+export const YoutubeListing = z.object({
+  title: z.string().max(100),
+  titles: z.array(z.string().max(100)).default([]),
+  description: z.string().max(5000),
+  chapters: z
+    .array(z.object({ seconds: z.number().int().nonnegative(), label: z.string().max(60) }))
+    .default([]),
+  tags: z.array(z.string().max(40)).default([]),
+  /** Welches Modell es geschrieben hat, damit ein schwacher Text zuordenbar ist. */
+  model: z.string().max(80).optional(),
+});
+export type YoutubeListing = z.infer<typeof YoutubeListing>;
+
+/**
+ * Welches Modell den Upload-Text schreibt, wenn niemand etwas anderes wählt.
+ *
+ * Hier steht statt in der Route, weil der Studio-Browser die Vorgabe für den
+ * Auswahlkasten braucht und die Route den Anthropic-Client importiert — ein
+ * Import von dort würde beide Provider-SDKs ins Browser-Bündel ziehen. Das
+ * ist in diesem Projekt schon einmal passiert.
+ */
+export const DEFAULT_YOUTUBE_MODEL = "gemini-3.5-flash-lite";
+
+/** Die Beschreibung, wie sie ins Feld bei YouTube gehört. */
+export function renderDescription(listing: {
+  description: string;
+  chapters: { seconds: number; label: string }[];
+  tags: string[];
+}): string {
+  const parts = [listing.description];
+  if (listing.chapters.length) {
+    parts.push(
+      [
+        "Kapitel:",
+        ...listing.chapters.map((c) => `${timecode(c.seconds)} ${c.label}`),
+      ].join("\n"),
+    );
+  }
+  if (listing.tags.length) {
+    parts.push(
+      listing.tags
+        .slice(0, 5)
+        .map((t) => `#${t.replace(/\s+/g, "")}`)
+        .join(" "),
+    );
+  }
+  return parts.join("\n\n");
+}
+
+function timecode(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export const StoryProject = z.object({
   kind: z.literal("video"),
   id: z.string(),
@@ -311,6 +373,14 @@ export const StoryProject = z.object({
    * at that film's recording.
    */
   shorts: z.array(StoryShort).default([]),
+  /**
+   * Titel, Beschreibung, Kapitel und Tags für den Upload.
+   *
+   * Am Projekt und nicht in einem eigenen Speicher, weil beides nur zusammen
+   * etwas wert ist: die Kapitelmarken sind Sekunden IN DIESER Aufnahme, und
+   * eine neu gesprochene Fassung macht sie falsch.
+   */
+  youtube: YoutubeListing.optional(),
   thumbnail: ThumbnailConfig.optional(),
   fps: z.literal(30).default(30),
   width: z.literal(1920).default(1920),

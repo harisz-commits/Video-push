@@ -9,10 +9,13 @@ import {
   SPEECH_MODELS,
 } from "../lib/speech-models";
 import {
+  DEFAULT_YOUTUBE_MODEL,
+  renderDescription,
   resolveStoryTiming,
   shortSeconds,
   storyTakes,
   StoryProject,
+  YoutubeListing,
   type StoryCharacter,
   type StoryProject as Story,
   type StoryStyle,
@@ -289,6 +292,19 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const [sfxError, setSfxError] = useState<string | null>(null);
 
   const [shortsJobId, setShortsJobId] = useState<string | null>(null);
+  /**
+   * Welches Modell den Upload-Text schreibt.
+   *
+   * Nicht das, das den Film geschrieben hat: hier wird zusammengefasst, was
+   * schon dasteht, und dafür reicht das kleinste Modell. Ein Opus-Lauf würde
+   * für zweihundert Wörter das Zwanzigfache kosten und nichts besser machen.
+   */
+  const [youtubeModelId, setYoutubeModelId] = useState(DEFAULT_YOUTUBE_MODEL);
+  const [youtubeBusy, setYoutubeBusy] = useState(false);
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
+  const [youtubeNote, setYoutubeNote] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
   const [shortsBusy, setShortsBusy] = useState(false);
   const [shortsStep, setShortsStep] = useState<string | null>(null);
   const [shortsNote, setShortsNote] = useState<string | null>(null);
@@ -1066,6 +1082,50 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       progress: 0,
       shortId: short?.id,
     });
+  }
+
+  // ---- YouTube ------------------------------------------------------------
+  async function writeListing() {
+    setYoutubeBusy(true);
+    setYoutubeError(null);
+    setYoutubeNote(null);
+    const result = await postJson<{ listing: unknown; cents?: number }>(
+      "/api/story/youtube",
+      { project, model: youtubeModelId },
+    );
+    setYoutubeBusy(false);
+    if (!result.ok) {
+      setYoutubeError(result.error);
+      return;
+    }
+    const parsed = YoutubeListing.safeParse(result.data.listing);
+    if (!parsed.success) {
+      setYoutubeError("Die Antwort ließ sich nicht lesen.");
+      return;
+    }
+    setProject((current) => ({ ...current, youtube: parsed.data }));
+    setYoutubeNote(
+      result.data.cents !== undefined
+        ? `Geschrieben für ${result.data.cents.toFixed(2).replace(".", ",")} US-Cent.`
+        : null,
+    );
+  }
+
+  /**
+   * In die Zwischenablage, mit sichtbarer Bestätigung.
+   *
+   * Der ganze Sinn dieses Blocks ist, dass jemand ihn ins YouTube-Formular
+   * einfügt. Ein Klick, der nichts sichtbar tut, wird zweimal gedrückt und
+   * einmal für kaputt gehalten.
+   */
+  async function copy(what: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      window.setTimeout(() => setCopied((c) => (c === what ? null : c)), 1600);
+    } catch {
+      setYoutubeError("Die Zwischenablage ist in diesem Browser gesperrt.");
+    }
   }
 
   // ---- Shorts -------------------------------------------------------------
@@ -2350,8 +2410,169 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               })}
             </Panel>
 
-            <ThumbnailPanel
+            {/*
+              Ganz unten, weil es der letzte Handgriff ist: erst wenn der Film
+              steht, weiß man, was im Upload-Formular stehen soll. Es braucht
+              den Render aber nicht — wer den Text vorher will, bekommt ihn.
+            */}
+            <Panel
               step={panelStep(8)}
+              title="YouTube"
+              right={
+                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                  {project.youtube
+                    ? `${project.youtube.chapters.length} Kapitel`
+                    : "offen"}
+                </span>
+              }
+            >
+              <div className="mono" style={{ fontSize: 11, color: "#5b6672", marginBottom: 6 }}>
+                WER SCHREIBT
+              </div>
+              <select
+                value={youtubeModelId}
+                onChange={(e) => setYoutubeModelId(e.target.value)}
+                aria-label="Modell für den Upload-Text"
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  border: "1px solid var(--grid)",
+                  background: "#fff",
+                  fontSize: 13,
+                }}
+              >
+                {TEXT_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {m.provider === "anthropic" ? "Anthropic" : "Google"}
+                  </option>
+                ))}
+              </select>
+              <div className="mono" style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}>
+                Zusammenfassen ist die leichteste Aufgabe im Studio — ein
+                Lite-Modell reicht dafür und kostet Bruchteile eines Cents.
+              </div>
+
+              <div style={{ height: 10 }} />
+              <Button onClick={() => void writeListing()} disabled={youtubeBusy}>
+                {youtubeBusy
+                  ? "wird geschrieben…"
+                  : project.youtube
+                    ? "Neu schreiben"
+                    : "Titel und Beschreibung schreiben"}
+              </Button>
+              {youtubeError ? <Note tone="alert">{youtubeError}</Note> : null}
+              {youtubeNote ? <Note tone="info">{youtubeNote}</Note> : null}
+
+              {!project.cues?.length ? (
+                <Note tone="info">
+                  Ohne gesprochene Stimme gibt es keine gemessenen Zeiten und
+                  damit keine Kapitelmarken. Titel, Beschreibung und Tags
+                  entstehen trotzdem.
+                </Note>
+              ) : null}
+
+              {project.youtube ? (
+                <>
+                  <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+                    TITEL — {project.youtube.title.length} ZEICHEN
+                  </div>
+                  {project.youtube.titles.map((title) => (
+                    <label
+                      key={title}
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "flex-start",
+                        padding: "8px 10px",
+                        marginBottom: 4,
+                        border: "1px solid var(--grid)",
+                        background:
+                          project.youtube?.title === title ? "#f4f7fb" : "#fff",
+                        fontSize: 13,
+                        lineHeight: 1.4,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="youtube-title"
+                        checked={project.youtube?.title === title}
+                        onChange={() =>
+                          setProject((current) =>
+                            current.youtube
+                              ? { ...current, youtube: { ...current.youtube, title } }
+                              : current,
+                          )
+                        }
+                        style={{ marginTop: 3 }}
+                      />
+                      <span>
+                        {title}
+                        <span
+                          className="mono"
+                          style={{ display: "block", fontSize: 10.5, color: "#5b6672" }}
+                        >
+                          {title.length} Zeichen
+                          {title.length > 70 ? " — YouTube schneidet in der Suche ab" : ""}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                  <Button
+                    variant="ghost"
+                    onClick={() => void copy("title", project.youtube!.title)}
+                  >
+                    {copied === "title" ? "kopiert" : "Titel kopieren"}
+                  </Button>
+
+                  <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+                    BESCHREIBUNG
+                  </div>
+                  <textarea
+                    value={renderDescription(project.youtube)}
+                    readOnly
+                    rows={14}
+                    style={{
+                      width: "100%",
+                      padding: "9px 10px",
+                      border: "1px solid var(--grid)",
+                      background: "#fff",
+                      fontSize: 12.5,
+                      lineHeight: 1.5,
+                      resize: "vertical",
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      void copy("description", renderDescription(project.youtube!))
+                    }
+                  >
+                    {copied === "description" ? "kopiert" : "Beschreibung kopieren"}
+                  </Button>
+
+                  {project.youtube.tags.length ? (
+                    <>
+                      <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+                        TAGS — {project.youtube.tags.length}
+                      </div>
+                      <div style={{ fontSize: 12.5, color: "#5b6672", lineHeight: 1.5 }}>
+                        {project.youtube.tags.join(", ")}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void copy("tags", project.youtube!.tags.join(", "))}
+                      >
+                        {copied === "tags" ? "kopiert" : "Tags kopieren"}
+                      </Button>
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+            </Panel>
+
+            <ThumbnailPanel
+              step={panelStep(9)}
               // No flags in this format — it has no country questions, and an
               // unrelated flag on the cover would be a promise the video does
               // not keep.
@@ -2376,7 +2597,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           studio's, not this video's. It is also the only place the sounds
           that every later film reuses can actually be heard.
         */}
-        <LibraryPanel step={panelStep(9)} />
+        <LibraryPanel step={panelStep(10)} />
       </div>
 
       <div className="studio-stage">
