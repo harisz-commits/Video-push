@@ -1,5 +1,6 @@
 import { del, head, list } from "@vercel/blob";
-import { AnyProject, describeProject, formatOf } from "./formats";
+import type { Format } from "./constants";
+import { AnyProject, describeProject, formatOf, isStory } from "./formats";
 import { VideoProject } from "./schema";
 import { readJson, resolveBlobToken, writeJson } from "./store";
 
@@ -71,7 +72,7 @@ export type ProjectSummary = {
   title: string;
   topic: string;
   /** Which renderer it belongs to, so the list can be read at a glance. */
-  format: "infographics" | "quiz" | "video";
+  format: Format;
   createdAt: number;
   updatedAt: number;
   /** Format-specific one-liner: words and scenes, or a question count. */
@@ -109,13 +110,13 @@ export function summarize(record: ProjectRecord): ProjectSummary {
     hasScript:
       p.kind === "quiz"
         ? p.questions.length > 0
-        : p.kind === "video"
+        : isStory(p)
           ? p.shots.length > 0
           : p.voiceover.trim().length > 0,
     hasAudio:
       p.kind === "quiz"
         ? Boolean(p.audioUrl)
-        : p.kind === "video"
+        : isStory(p)
           // Cues, not alignment — this format stores one time per shot and
           // clears the character alignment when it records. Asking for the
           // field it no longer uses made every finished video report itself

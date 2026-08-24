@@ -9,12 +9,14 @@ import { Video } from "./Video";
 
 export {
   COMP_NAME,
+  FINANCE_COMP_NAME,
   QUIZ_COMP_NAME,
   STORY_COMP_NAME,
   STORY_SHORT_COMP_NAME,
 } from "../lib/constants";
 import {
   COMP_NAME,
+  FINANCE_COMP_NAME,
   QUIZ_COMP_NAME,
   STORY_COMP_NAME,
   STORY_SHORT_COMP_NAME,
@@ -28,6 +30,8 @@ import { StoryVideo } from "./story/StoryVideo";
 import { StoryShortVideo } from "./story/StoryShort";
 import { QuizProject as QuizProjectSchema, resolveQuizTiming } from "../lib/quiz";
 import { QuizVideo } from "./quiz/QuizVideo";
+import { FinanceVideo } from "./finance/FinanceVideo";
+import { financeSeed } from "./finance/seed";
 
 const seed: VideoProject = VideoProjectSchema.parse(europa);
 
@@ -182,6 +186,34 @@ export const RemotionRoot: React.FC = () => (
       height={1080}
       defaultProps={
         { project: storySeed } as unknown as Record<string, unknown>
+      }
+      calculateMetadata={({ props }) => {
+        const parsed = StoryProjectSchema.parse(
+          (props as { project: unknown }).project,
+        );
+        return {
+          durationInFrames: resolveStoryTiming(parsed).totalFrames,
+          fps: parsed.fps,
+          width: parsed.width,
+          height: parsed.height,
+        };
+      }}
+    />
+
+    {/*
+      Das Finanz-Format. Dieselbe Uhr wie das Video-Format — deshalb dieselbe
+      calculateMetadata — und ein anderer Schirm: Grafiken aus Zahlen statt
+      gezeichneter Bilder.
+    */}
+    <Composition
+      id={FINANCE_COMP_NAME}
+      component={FinanceVideo as React.FC<Record<string, unknown>>}
+      durationInFrames={resolveStoryTiming(financeSeed).totalFrames}
+      fps={30}
+      width={1920}
+      height={1080}
+      defaultProps={
+        { project: financeSeed } as unknown as Record<string, unknown>
       }
       calculateMetadata={({ props }) => {
         const parsed = StoryProjectSchema.parse(

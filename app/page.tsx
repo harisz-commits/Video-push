@@ -1,6 +1,7 @@
 import { StudioShell } from "../components/StudioShell";
 import europa from "../data/europa.json";
 import quizFlaggen from "../data/quiz-flaggen.json";
+import financeSeed from "../data/finance-seed.json";
 import storySeed from "../data/story-seed.json";
 import { QuizProject } from "../lib/quiz";
 import { VideoProject } from "../lib/schema";
@@ -16,6 +17,7 @@ export default function Page() {
       seed={VideoProject.parse(europa)}
       quizSeed={QuizProject.parse(quizFlaggen)}
       storySeed={StoryProject.parse(storySeed)}
+      financeSeed={StoryProject.parse(financeSeed)}
     />
   );
 }

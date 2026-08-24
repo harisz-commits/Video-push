@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   COMP_NAME,
+  FINANCE_COMP_NAME,
   QUIZ_COMP_NAME,
   STORY_COMP_NAME,
   type Format,
@@ -23,16 +24,31 @@ import { VideoProject } from "./schema";
 export const AnyProject = z.union([QuizProject, StoryProject, VideoProject]);
 export type AnyProject = z.infer<typeof AnyProject>;
 
+/**
+ * Ob dieses Projekt eines der beiden sprachgetakteten Formate ist.
+ *
+ * Als Wächterfunktion und nicht als zwei Vergleiche im Ausdruck: seit das
+ * Video-Format zwei `kind`-Werte hat, engt TypeScript ein
+ * `kind === "video" || kind === "finanz"` im Sonst-Zweig einer Kette nicht
+ * mehr ein, und der Sonst-Zweig ist genau die Stelle, an der das
+ * Infographics-Format steht.
+ */
+export function isStory(project: AnyProject): project is StoryProject {
+  return project.kind === "video" || project.kind === "finanz";
+}
+
 /** Which format a stored project belongs to. */
 export function formatOf(project: AnyProject): Format {
   if (project.kind === "quiz") return "quiz";
   if (project.kind === "video") return "video";
+  if (project.kind === "finanz") return "finanz";
   return "infographics";
 }
 
 export function compositionFor(project: AnyProject): string {
   if (project.kind === "quiz") return QUIZ_COMP_NAME;
   if (project.kind === "video") return STORY_COMP_NAME;
+  if (project.kind === "finanz") return FINANCE_COMP_NAME;
   return COMP_NAME;
 }
 
@@ -46,8 +62,12 @@ export function compositionFor(project: AnyProject): string {
  */
 export function totalFramesOf(project: AnyProject): number {
   if (project.kind === "quiz") return resolveQuizTiming(project).totalFrames;
-  if (project.kind === "video") return resolveStoryTiming(project).totalFrames;
-  return resolveSceneTimings(project).totalFrames;
+  if (project.kind === "video" || project.kind === "finanz") {
+    return resolveStoryTiming(project).totalFrames;
+  }
+  return resolveSceneTimings(
+    project as Extract<AnyProject, { kind: "infographics" }>,
+  ).totalFrames;
 }
 
 /**
@@ -64,6 +84,19 @@ export function renderBlockedReason(project: AnyProject): string | null {
     return project.questions.length > 0
       ? null
       : "Dieses Quiz hat noch keine Fragen.";
+  }
+  if (project.kind === "finanz") {
+    // Anders als beim Video-Format kann hier nichts ungezeichnet sein — eine
+    // Szene entsteht beim Rendern aus ihren Zahlen. Bleibt die Stimme, und
+    // die fehlt aus demselben Grund wie dort: ohne sie stehen die Wechsel
+    // geschätzt.
+    if (!project.scenes.length) {
+      return "Dieses Finanzvideo hat noch keine Szenen.";
+    }
+    if (!project.audioUrl || !project.cues?.length) {
+      return "Für diesen Render fehlt die Stimme. Ohne sie stehen die Szenenwechsel nur geschätzt — erzeuge zuerst das Voiceover.";
+    }
+    return null;
   }
   if (project.kind === "video") {
     // Two things can be missing here, and they fail differently. Without the
@@ -85,7 +118,8 @@ export function renderBlockedReason(project: AnyProject): string | null {
     }
     return null;
   }
-  if (!project.audioUrl || !project.alignment) {
+  const infographics = project as Extract<AnyProject, { kind: "infographics" }>;
+  if (!infographics.audioUrl || !infographics.alignment) {
     return "Für diesen Render fehlt das Voiceover. Erzeuge zuerst die Stimme — die Szenenzeiten kommen aus den Timestamps.";
   }
   return null;
@@ -96,12 +130,17 @@ export function describeProject(project: AnyProject): string {
   if (project.kind === "quiz") {
     return `${project.questions.length} Fragen`;
   }
-  if (project.kind === "video") {
+  if (project.kind === "video" || project.kind === "finanz") {
     const words = project.shots
       .reduce((n, s) => n + s.text.trim().split(/\s+/).length, 0);
+    const head = `${words} Wörter · ${project.shots.length} Einstellungen`;
+    if (project.kind === "finanz") {
+      return `${head} · ${project.scenes.length} Szenen`;
+    }
     const drawn = project.images.filter((i) => i.url).length;
-    return `${words} Wörter · ${project.shots.length} Einstellungen · ${drawn}/${project.images.length} Bilder`;
+    return `${head} · ${drawn}/${project.images.length} Bilder`;
   }
-  const words = project.voiceover.trim();
-  return `${words ? words.split(/\s+/).length : 0} Wörter · ${project.scenes.length} Szenen`;
+  const infographics = project as Extract<AnyProject, { kind: "infographics" }>;
+  const words = infographics.voiceover.trim();
+  return `${words ? words.split(/\s+/).length : 0} Wörter · ${infographics.scenes.length} Szenen`;
 }

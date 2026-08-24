@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { spellNumbers } from "./say-numbers";
+import { FinanceScene } from "./finance";
 import { ThumbnailConfig } from "./thumbnail";
 
 /**
@@ -137,7 +138,16 @@ export const StoryShot = z.object({
   id: z.string(),
   /** What is spoken while this picture is up. Two to four seconds' worth. */
   text: z.string().min(1).max(400),
-  /** Which picture, by key. Several shots may name the same one. */
+  /**
+   * Was auf dem Schirm steht, per Schlüssel: ein Bild oder eine Finanzszene.
+   *
+   * Ein Feld für beides, und der Name blieb `image`, weil gespeicherte
+   * Projekte ihn tragen. Dass beide Formate hier dasselbe Feld benutzen, ist
+   * der Grund, warum das Zusammenfassen aufeinanderfolgender Einstellungen zu
+   * einer durchgehenden Einstellung — siehe storyTakes() — für Diagramme
+   * genauso funktioniert wie für Bilder. Ein Diagramm, das über vier Sätze
+   * stehen bleibt, ist bei Finanzinhalten die Regel und nicht die Ausnahme.
+   */
   image: z.string(),
   motion: ShotMotion.default("in"),
   /**
@@ -280,7 +290,15 @@ function timecode(seconds: number): string {
 }
 
 export const StoryProject = z.object({
-  kind: z.literal("video"),
+  /**
+   * Welches der beiden Formate das hier ist.
+   *
+   * Ein Feld statt zweier Projekttypen, weil sich die beiden in genau einer
+   * Sache unterscheiden — woher das Bild kommt. Recherche, Skript, Stimme,
+   * Schnitt, Untertitel, Shorts und der YouTube-Text sind identisch, und die
+   * hätten sonst alle doppelt existieren müssen.
+   */
+  kind: z.enum(["video", "finanz"]),
   id: z.string(),
   topic: z.string(),
   title: z.string(),
@@ -298,7 +316,16 @@ export const StoryProject = z.object({
    * the infographics format already applied to its own research sheet.
    */
   research: z.string().max(20_000).optional(),
-  images: z.array(StoryImage).min(1),
+  /**
+   * Die gezeichneten Bilder. Beim Finanz-Format leer.
+   *
+   * Die Mindestanzahl ist von hier nach renderBlockedReason() gewandert: ein
+   * Finanzvideo hat null Bilder und ist trotzdem vollständig, ein Videofilm
+   * ohne Bilder ist es nicht. Beides lässt sich nicht in einem Schema sagen.
+   */
+  images: z.array(StoryImage).default([]),
+  /** Die gebauten Szenen. Beim Video-Format leer. Siehe lib/finance.ts. */
+  scenes: z.array(FinanceScene).default([]),
   sounds: z.array(StorySound).default([]),
   shots: z.array(StoryShot).min(1),
   /**

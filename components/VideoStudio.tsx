@@ -26,6 +26,7 @@ import { SHORTS_PER_FILM } from "../lib/story-shorts";
 import { soundCost } from "../lib/sfx-cost";
 import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
 import { StoryVideo } from "../remotion/story/StoryVideo";
+import { FinanceVideo } from "../remotion/finance/FinanceVideo";
 import { getJson, postJson } from "./api";
 import { DownloadButton } from "./DownloadButton";
 import { LibraryPanel } from "./LibraryPanel";
@@ -188,7 +189,23 @@ const formatCents = (cents: number) =>
     ? `${(cents / 100).toFixed(2).replace(".", ",")} $`
     : `${cents.toFixed(cents < 1 ? 2 : 1).replace(".", ",")} US-Cent`;
 
-export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
+export const VideoStudio: React.FC<{
+  seed: Story;
+  /**
+   * Welches der beiden sprachgetakteten Formate hier bearbeitet wird.
+   *
+   * Ein Schalter statt einer zweiten Komponente, weil sich die beiden erst
+   * hinter dem Skript unterscheiden: Stimme, Klang, Rendern, Shorts,
+   * Untertitel, Thumbnail, YouTube und das Speichern sind Zeile für Zeile
+   * dasselbe. Verzweigt wird an vier Stellen — Erzeugen, Vorschau, die
+   * Bildtafeln und die Projektliste.
+   */
+  format?: "video" | "finanz";
+}> = ({ seed, format = "video" }) => {
+  const finance = format === "finanz";
+  /** Getrennte Speicherschlüssel, damit die Reiter sich nicht überschreiben. */
+  const jobKey = finance ? `${JOB_KEY}.finanz` : JOB_KEY;
+  const projectKey = finance ? `${PROJECT_KEY}.finanz` : PROJECT_KEY;
   const [project, setProject] = useState<Story>(seed);
   const [topic, setTopic] = useState("");
   const [minutes, setMinutes] = useState(5);
@@ -357,7 +374,15 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
    * next insertion.
    */
   const panelStep = (n: number) =>
-    String(n + (project.research ? 1 : 0)).padStart(2, "0");
+    String(
+      n +
+        (project.research ? 1 : 0) -
+        // Stil, Bilder und Shorts fehlen beim Finanz-Format, also rutscht
+        // alles danach auf. Gezählt statt eingetippt, damit die Nummern
+        // lückenlos bleiben, wenn wieder etwas dazukommt.
+        (finance ? [2, 3].filter((skipped) => skipped < n).length : 0) -
+        (finance && n > 7 ? 1 : 0),
+    ).padStart(2, "0");
 
   const timing = useMemo(() => resolveStoryTiming(project), [project]);
   // What the screen actually shows: consecutive sentences on one picture are
@@ -447,9 +472,9 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   const refreshProjects = useCallback(async () => {
     const result = await getJson<{ projects: Summary[] }>("/api/projects");
     if (result.ok) {
-      setProjects(result.data.projects.filter((p) => p.format === "video"));
+      setProjects(result.data.projects.filter((p) => p.format === format));
     }
-  }, []);
+  }, [format]);
 
   const save = useCallback(async () => {
     const payload = JSON.stringify(project);
@@ -471,7 +496,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     setSaveState("saved");
     setSaveError(null);
     try {
-      window.localStorage.setItem(PROJECT_KEY, result.data.id);
+      window.localStorage.setItem(projectKey, result.data.id);
     } catch {
       // Not being able to remember the id costs a save, not the work.
     }
@@ -530,7 +555,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     setError(null);
     setSaveState("saved");
     try {
-      window.localStorage.setItem(PROJECT_KEY, result.data.id);
+      window.localStorage.setItem(projectKey, result.data.id);
     } catch {
       // The project is open either way.
     }
@@ -544,7 +569,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
   // seed even though the work was safely stored.
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(PROJECT_KEY);
+      const stored = window.localStorage.getItem(projectKey);
       if (stored) void loadProject(stored);
     } catch {
       // Starting on the seed is a fine answer.
@@ -631,7 +656,11 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
     setError(null);
     setCost(null);
     setWarning(null);
-    const result = await postJson<{ jobId: string }>("/api/story", {
+    const result = await postJson<{ jobId: string }>(
+      finance ? "/api/finance" : "/api/story",
+      finance
+        ? { topic, minutes, model: textModelId, research }
+        : {
       topic,
       minutes,
       imageBudget,
@@ -644,14 +673,15 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
       model: textModelId,
       research,
       perspective,
-    });
+          },
+    );
     if (!result.ok) {
       setError(result.error);
       setBusy(false);
       return;
     }
     try {
-      window.localStorage.setItem(JOB_KEY, result.data.jobId);
+      window.localStorage.setItem(jobKey, result.data.jobId);
     } catch {
       // The job still runs; only picking it up after a reload is lost.
     }
@@ -676,7 +706,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
     const tick = async () => {
       const result = await getJson<StoryJobState>(
-        `/api/story?jobId=${encodeURIComponent(jobId)}`,
+        `${finance ? "/api/finance" : "/api/story"}?jobId=${encodeURIComponent(jobId)}`,
       );
       if (cancelled) return;
       if (!result.ok) {
@@ -711,7 +741,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
         setError(result.data.error ?? "Die Erzeugung ist fehlgeschlagen.");
       }
       try {
-        window.localStorage.removeItem(JOB_KEY);
+        window.localStorage.removeItem(jobKey);
       } catch {
         // Nothing depends on this succeeding.
       }
@@ -731,7 +761,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(JOB_KEY);
+      const stored = window.localStorage.getItem(jobKey);
       if (stored) setJobId(stored);
     } catch {
       // Starting fresh is a fine answer.
@@ -1289,7 +1319,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               fontSize: 13,
             }}
           >
-            <option value="">— Neues Video —</option>
+            <option value="">{finance ? "— Neues Finanzvideo —" : "— Neues Video —"}</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.title} · {p.detail} · {ago(p.updatedAt)}
@@ -1306,8 +1336,8 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           ) : null}
           {projects.length === 0 ? (
             <Note tone="info">
-              Noch kein gespeichertes Video. Sobald eines erzeugt ist, landet es
-              hier automatisch.
+              Noch kein gespeichertes {finance ? "Finanzvideo" : "Video"}. Sobald
+              eines erzeugt ist, landet es hier automatisch.
             </Note>
           ) : null}
         </Panel>
@@ -1315,7 +1345,11 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
         <Panel step="01" title="Thema">
           <textarea
             value={topic}
-            placeholder="z. B. Die Ägypter und wie sie die Hitze überlebt haben — gern mit Details: welche Bauweisen, welche Epoche, was betont werden soll."
+            placeholder={
+              finance
+                ? "z. B. Miete oder Kauf — was die Rechnung wirklich sagt. Gern mit Details: welcher Kaufpreis, welche Region, welcher Zeitraum."
+                : "z. B. Die Ägypter und wie sie die Hitze überlebt haben — gern mit Details: welche Bauweisen, welche Epoche, was betont werden soll."
+            }
             onChange={(e) => setTopic(e.target.value)}
             aria-label="Video-Thema"
             rows={5}
@@ -1344,6 +1378,14 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
             aria-label="Länge in Minuten"
           />
 
+          {/*
+            Bildrate, Bildmodell, Bildstil und Figuren gibt es nur beim
+            Video-Format — beim Finanz-Format wird nichts gezeichnet, also
+            gibt es auch nichts zu budgetieren. Was übrig bleibt, ist Thema,
+            Länge, Modell und die Recherche.
+          */}
+          {finance ? null : (
+            <>
           {/*
             A rate, not a count. The two together decide how often a viewer
             sees the same drawing, and that is the number worth showing — a
@@ -1604,7 +1646,12 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               in einem anderen Video deshalb anders aus, und das ist gewollt.
             </Note>
           ) : null}
+            </>
+          )}
 
+
+          {finance ? null : (
+            <>
           <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
             WIE ERZÄHLT WIRD
           </div>
@@ -1656,6 +1703,8 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               </label>
             ))}
           </div>
+            </>
+          )}
 
           <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
             WER SCHREIBT
@@ -1733,13 +1782,15 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               <span className="mono">
                 {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
               </span>{" "}
-              — läuft auf dem Server. Es wird noch nichts gezeichnet.
+              — läuft auf dem Server.{finance ? "" : " Es wird noch nichts gezeichnet."}
             </Note>
           ) : null}
           <Note tone="info">
-            Erst schreiben, dann zeichnen. Ein Skript kostet Bruchteile eines
-            Cents und lässt sich wegwerfen; {imageBudget} Bilder kosten{" "}
-            {formatCents(imageBudget * imageModel.cents)}.
+            {finance
+              ? "Es wird nichts gezeichnet. Die Grafiken entstehen beim Rendern aus den Zahlen im Skript — ein Finanzvideo kostet nur das Skript und die Stimme."
+              : `Erst schreiben, dann zeichnen. Ein Skript kostet Bruchteile eines Cents und lässt sich wegwerfen; ${imageBudget} Bilder kosten ${formatCents(
+                  imageBudget * imageModel.cents,
+                )}.`}
           </Note>
         </Panel>
 
@@ -1788,6 +1839,13 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               </Panel>
             ) : null}
 
+            {/*
+              Stil und Bilder gibt es nur beim Video-Format. Beim Finanz-Format
+              wird nichts gezeichnet — die Grafiken entstehen beim Rendern aus
+              den Zahlen, und ein Bildstil hätte nichts, worauf er wirken
+              könnte.
+            */}
+            {finance ? null : (
             <Panel
               step={panelStep(2)}
               title="Stil"
@@ -1916,7 +1974,9 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                 vorhandenen verwerfen — das kostet erneut.
               </Note>
             </Panel>
+            )}
 
+            {finance ? null : (
             <Panel
               step={panelStep(3)}
               title="Bilder"
@@ -2004,6 +2064,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                 ))}
               </div>
             </Panel>
+            )}
 
             <Panel
               step={panelStep(4)}
@@ -2318,6 +2379,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
               the MP4 - but a film nobody has watched through is not one
               anybody should be cutting highlights from.
             */}
+            {finance ? null : (
             <Panel
               step={panelStep(7)}
               title="Shorts"
@@ -2409,6 +2471,7 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
                 );
               })}
             </Panel>
+            )}
 
             {/*
               Ganz unten, weil es der letzte Handgriff ist: erst wenn der Film
@@ -2604,7 +2667,11 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
         <div style={{ width: "100%" }}>
           <Player
             ref={playerRef}
-            component={StoryVideo as React.FC<Record<string, unknown>>}
+            component={
+              (finance ? FinanceVideo : StoryVideo) as React.FC<
+                Record<string, unknown>
+              >
+            }
             inputProps={{ project } as unknown as Record<string, unknown>}
             durationInFrames={Math.max(1, timing.totalFrames)}
             fps={project.fps}
@@ -2620,7 +2687,10 @@ export const VideoStudio: React.FC<{ seed: Story }> = ({ seed }) => {
           >
             {formatTimecode(timing.totalFrames / project.fps)} ·{" "}
             {takes.length} Einstellungen aus {project.shots.length} Sätzen ·{" "}
-            {project.images.length} Bilder ·{" "}
+            {finance
+              ? `${project.scenes.length} Szenen`
+              : `${project.images.length} Bilder`}{" "}
+            ·{" "}
             {timing.estimated
               ? "Zeiten geschätzt, bis die Stimme da ist"
               : "Zeiten aus der Aufnahme"}

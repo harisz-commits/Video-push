@@ -1,7 +1,6 @@
 import React from "react";
 import {
   AbsoluteFill,
-  Audio,
   Img,
   interpolate,
   Sequence,
@@ -12,9 +11,9 @@ import {
   shotMove,
   storyTakes,
   type StoryProject,
-  type StorySound,
   type StoryTake,
 } from "../../lib/story";
+import { Soundtrack } from "./Soundtrack";
 
 /**
  * The video format: one voice, many drawn pictures.
@@ -107,48 +106,6 @@ const Take: React.FC<{ take: StoryTake; first: boolean; fps: number }> = ({
 export const StoryVideo: React.FC<{ project: StoryProject }> = ({ project }) => {
   const timing = resolveStoryTiming(project);
   const takes = storyTakes(timing);
-  const byKey = new Map((project.sounds ?? []).map((s) => [s.key, s]));
-
-  /**
-   * Runs of consecutive shots sharing a bed, collapsed into one playback each.
-   *
-   * The grouping is the point. Nine shots naming the same wind are one sound
-   * that keeps going, not nine that each start from the top.
-   */
-  const beds: { sound: StorySound; from: number; durationInFrames: number }[] = [];
-  for (const shot of timing.shots) {
-    const sound = shot.ambience ? byKey.get(shot.ambience) : undefined;
-    if (!sound?.url) continue;
-    const open = beds[beds.length - 1];
-    if (open && open.sound.key === sound.key &&
-        open.from + open.durationInFrames === shot.from) {
-      open.durationInFrames += shot.durationInFrames;
-    } else {
-      beds.push({
-        sound,
-        from: shot.from,
-        durationInFrames: shot.durationInFrames,
-      });
-    }
-  }
-
-  const accents: { sound: StorySound; from: number; durationInFrames: number }[] =
-    [];
-  for (const shot of timing.shots) {
-    const sound = shot.accent ? byKey.get(shot.accent) : undefined;
-    if (!sound?.url) continue;
-    accents.push({
-      sound,
-      from: shot.from,
-      // As long as the file is, capped by what is left of the film — a hit
-      // hanging past the end would extend nothing but would be cut mid-tail.
-      durationInFrames: Math.max(
-        1,
-        Math.round((sound.audioSeconds ?? sound.seconds) * project.fps),
-      ),
-    });
-  }
-
   return (
     <AbsoluteFill
       style={{
@@ -179,53 +136,7 @@ export const StoryVideo: React.FC<{ project: StoryProject }> = ({ project }) => 
         </Sequence>
       ))}
 
-      {/*
-        The beds, one continuous playback per run of shots that name the same
-        one. Grouped rather than per shot on purpose: a wind that restarted
-        every three seconds would be the most obvious tell that this is a
-        slideshow with noise laid over it.
-
-        Rendered before the narration so the voice sits on top in the mix.
-      */}
-      {beds.map((bed, i) => (
-        <Sequence
-          key={`bed-${i}`}
-          from={bed.from}
-          durationInFrames={bed.durationInFrames}
-          name={`≈ ${bed.sound.key}`}
-          layout="none"
-        >
-          <Audio
-            src={bed.sound.url!}
-            volume={project.soundLevel}
-            // Ten seconds of wind under two minutes of film: it has to come
-            // round again, and the loop is inaudible because the material has
-            // no beat to fall out of.
-            loop
-          />
-        </Sequence>
-      ))}
-
-      {/*
-        The accents. Louder than the beds — they are meant to be noticed — and
-        each one only as long as it is, so nothing is held open waiting.
-      */}
-      {accents.map((accent, i) => (
-        <Sequence
-          key={`accent-${i}`}
-          from={accent.from}
-          durationInFrames={accent.durationInFrames}
-          name={`! ${accent.sound.key}`}
-          layout="none"
-        >
-          <Audio
-            src={accent.sound.url!}
-            volume={Math.min(1, project.soundLevel * 2.4)}
-          />
-        </Sequence>
-      ))}
-
-      {project.audioUrl ? <Audio src={project.audioUrl} /> : null}
+      <Soundtrack project={project} timing={timing} />
     </AbsoluteFill>
   );
 };

@@ -24,7 +24,8 @@ export const StudioShell: React.FC<{
   seed: VideoProject;
   quizSeed: QuizProject;
   storySeed: StoryProject;
-}> = ({ seed, quizSeed, storySeed }) => {
+  financeSeed: StoryProject;
+}> = ({ seed, quizSeed, storySeed, financeSeed }) => {
   const [format, setFormat] = useState<Format>("infographics");
 
   // Restored after mount rather than during render: the server has no
@@ -33,7 +34,12 @@ export const StudioShell: React.FC<{
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(FORMAT_KEY);
-      if (stored === "quiz" || stored === "infographics" || stored === "video") {
+      if (
+        stored === "quiz" ||
+        stored === "infographics" ||
+        stored === "video" ||
+        stored === "finanz"
+      ) {
         setFormat(stored);
       }
     } catch {
@@ -74,7 +80,9 @@ export const StudioShell: React.FC<{
             ? "Zeiten aus der Uhr — feste Bedenkzeit pro Frage"
             : format === "video"
               ? "Zeiten aus der Stimme — Bildwechsel folgen dem eigenen Schnitt"
-              : "Zeiten aus der Stimme — Szenen folgen den Timestamps"}
+              : format === "finanz"
+                ? "Grafiken aus Zahlen — gezeichnet wird nichts, gerendert alles"
+                : "Zeiten aus der Stimme — Szenen folgen den Timestamps"}
         </span>
       </header>
 
@@ -82,6 +90,10 @@ export const StudioShell: React.FC<{
         <QuizStudio seed={quizSeed} />
       ) : format === "video" ? (
         <VideoStudio seed={storySeed} />
+      ) : format === "finanz" ? (
+        // Dieselbe Komponente, anderer Modus. Die beiden unterscheiden sich
+        // erst hinter dem Skript; siehe den Kommentar an ihrer format-Eigenschaft.
+        <VideoStudio key="finanz" seed={financeSeed} format="finanz" />
       ) : (
         <Studio seed={seed} />
       )}

@@ -285,9 +285,16 @@ Zahl, einen Gegenstand, eine Entscheidung, eine Folge. Wenn du zum Thema
 nichts Konkretes weißt, wähl einen anderen Abschnitt.${known}`;
 }
 
-export const STORY_SCRIPT_SYSTEM_PROMPT = `Du schreibst ein deutsches Erklärvideo: gesprochenen Text und dazu die Bilder.
-
-DER GESPROCHENE TEXT:
+/**
+ * Die Sprachregeln, die für jedes Format dieses Kanals gelten.
+ *
+ * Herausgezogen, als das Finanz-Format dazukam. Sie sind an zwei Beispielen
+ * aus der Infographics Show entstanden und an unserem eigenen Skript
+ * gemessen worden — 0,44 Beiwörter je Substantiv, alle Sätze zwischen sieben
+ * und neun Wörtern. Das war der Ton, den man sofort als Maschine erkennt, und
+ * er wäre in einem zweiten Prompt genauso wieder entstanden.
+ */
+export const SPOKEN_LANGUAGE_RULES = `DER GESPROCHENE TEXT:
 - Durchgehende Erzählung, kein Stichpunktzettel. Sie wird am Stück vorgelesen.
 - Du-Form, niemals Sie-Form.
 - Der erste Satz muss neugierig machen, ohne etwas zu versprechen, das später
@@ -341,7 +348,11 @@ DER SOG:
   lebensbedrohlich." "Und es gibt nichts, was du dagegen tun kannst."
   "Und der Tod kann aus dem Nichts kommen."
 - Das ist kein Cliffhanger-Geschrei. Es ist ein Satz, der eine Folge
-  ankündigt, die wirklich kommt.
+  ankündigt, die wirklich kommt.`;
+
+export const STORY_SCRIPT_SYSTEM_PROMPT = `Du schreibst ein deutsches Erklärvideo: gesprochenen Text und dazu die Bilder.
+
+${SPOKEN_LANGUAGE_RULES}
 
 DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):
 - Jede Einstellung ist EIN Bild und der Text, der dazu gesprochen wird.

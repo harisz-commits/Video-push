@@ -37,11 +37,23 @@ export const STORY_COMP_NAME = "StoryVideo";
  */
 export const STORY_SHORT_COMP_NAME = "StoryShort";
 
+/**
+ * Das Finanz-Format: gesprochener Text über Grafiken aus Zahlen.
+ *
+ * Eine eigene Komposition statt eines Schalters in StoryVideo, obwohl beide
+ * dieselbe Uhr benutzen. Der Grund ist, was auf dem Schirm steht: dort ein
+ * Bild, das die ganze Fläche füllt und langsam wandert, hier eine Grafik mit
+ * Überschrift, Achsen, Beschriftung und Quellenzeile. Eine Komponente für
+ * beides wäre an jeder dieser Stellen eine Verzweigung.
+ */
+export const FINANCE_COMP_NAME = "FinanceVideo";
+
 /** Which renderer a project belongs to. The studio's switch sets this. */
-export type Format = "infographics" | "quiz" | "video";
+export type Format = "infographics" | "quiz" | "video" | "finanz";
 
 export const COMP_FOR: Record<Format, string> = {
   infographics: COMP_NAME,
   quiz: QUIZ_COMP_NAME,
   video: STORY_COMP_NAME,
+  finanz: FINANCE_COMP_NAME,
 };

@@ -1,0 +1,33 @@
+{
+  "kind": "finanz",
+  "id": "finance-seed",
+  "topic": "",
+  "title": "Noch kein Finanzvideo",
+  "style": {
+    "name": "Kanal-Identität",
+    "directive": "Not used by this format — finance scenes are drawn in code from the shared design tokens rather than generated from a prompt.",
+    "palette": [
+      "#0E1A2B",
+      "#E3B23C",
+      "#4FB99F",
+      "#C4452F"
+    ]
+  },
+  "scenes": [
+    {
+      "key": "leer",
+      "name": "Noch nichts geschrieben",
+      "type": "aussage",
+      "headline": "Noch kein Finanzvideo",
+      "text": "Schreib oben ein Thema und lass das Skript schreiben. Die Grafiken entstehen daraus — gezeichnet wird nichts."
+    }
+  ],
+  "shots": [
+    {
+      "id": "s1",
+      "text": "Noch kein Finanzvideo.",
+      "image": "leer",
+      "motion": "in"
+    }
+  ]
+}
