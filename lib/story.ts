@@ -681,6 +681,20 @@ export type StoryTake = {
   durationInFrames: number;
   /** How many shots it spans. One is the ordinary case. */
   shots: number;
+  /**
+   * Wann jeder einzelne Satz dieser Einstellung anfängt, relativ zu ihrem
+   * Beginn, in Frames. Der erste Wert ist immer 0.
+   *
+   * Der Grund, warum es diese Liste gibt: bei einem Bild ist eine
+   * Einstellung ein Zustand — es steht da, die Kamera wandert, fertig. Bei
+   * einem Diagramm ist sie eine Abfolge. Wenn drei Sätze auf derselben
+   * Grafik liegen, soll die Grafik in drei Schritten entstehen und nicht
+   * fertig dastehen, während zwölf Sekunden lang darüber geredet wird.
+   *
+   * Gemessen statt geteilt: die Sätze sind verschieden lang, und ein Takt
+   * bei „Sekunde 4, 8, 12" träfe keinen davon.
+   */
+  beats: number[];
 };
 
 /**
@@ -715,6 +729,7 @@ export function storyTakes(timing: StoryTiming): StoryTake[] {
         shot.from + shot.durationInFrames - open.from,
       );
       open.shots += 1;
+      open.beats.push(shot.from - open.from);
       continue;
     }
 
@@ -729,6 +744,7 @@ export function storyTakes(timing: StoryTiming): StoryTake[] {
       from: shot.from,
       durationInFrames: shot.durationInFrames,
       shots: 1,
+      beats: [0],
     });
   }
 

@@ -97,7 +97,13 @@ const SceneTake: ShortVisual = ({ take, project, first, elapsed }) => {
         }}
       >
         <FinanceShell scene={scene} frame={frame - offset}>
-          <SceneBody scene={scene} frame={frame - offset} />
+          <SceneBody
+            scene={scene}
+            frame={frame - offset}
+            // Verschoben wie der Frame: die Takte zählen ab dem Beginn der
+            // Einstellung, und unter dem Hook lief die schon.
+            beats={take.beats.map((b) => b + elapsed)}
+          />
         </FinanceShell>
       </div>
     </AbsoluteFill>

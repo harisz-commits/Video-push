@@ -66,7 +66,52 @@ export type SceneProps<T extends FinanceScene = FinanceScene> = {
   scene: T;
   /** Frames seit dem Beginn DIESER Szene. */
   frame: number;
+  /**
+   * Wann die einzelnen Sätze dieser Einstellung anfangen, in Frames seit
+   * ihrem Beginn. Siehe StoryTake.beats.
+   *
+   * Damit entsteht eine Grafik in Schritten statt auf einmal. Liegen drei
+   * Sätze auf demselben Diagramm, kommt zu jedem Satz ein Teil dazu — bei
+   * einem Wasserfall die nächste Stufe, bei einer Tabelle die nächste Zeile,
+   * bei einem Verlauf die zweite Kurve. Das ist der Unterschied zwischen
+   * einem Bild, über das geredet wird, und einem, das mitredet.
+   */
+  beats: number[];
 };
+
+/**
+ * Wieviel einer gestaffelten Liste zum aktuellen Frame schon zu sehen ist.
+ *
+ * Gibt eine Kommazahl zurück, keinen Index: das letzte Element soll gerade
+ * einlaufen und nicht schon dastehen. `count` ist, wieviele Teile die Grafik
+ * hat; auf sie werden die Takte verteilt.
+ *
+ * Ohne Takte — eine Einstellung mit einem einzigen Satz — läuft alles wie
+ * bisher gestaffelt in den ersten Frames ein. Ein Diagramm, das zu einem Satz
+ * gehört, hat keine Schritte zu machen.
+ */
+export function revealed(
+  frame: number,
+  beats: number[],
+  count: number,
+  fps: number,
+): number {
+  if (count <= 0) return 0;
+  if (beats.length < 2) return count;
+
+  // Die Teile werden auf die Takte verteilt: bei sechs Stufen und drei Sätzen
+  // kommen zu jedem Satz zwei Stufen dazu.
+  const perBeat = count / beats.length;
+  let visible = 0;
+  for (const [i, at] of beats.entries()) {
+    if (frame < at) break;
+    // Innerhalb eines Taktes läuft der Anteil über eine halbe Sekunde ein,
+    // damit die Teile nicht im selben Frame erscheinen.
+    const into = Math.min(1, (frame - at) / (fps * 0.5));
+    visible = perBeat * i + perBeat * into;
+  }
+  return Math.min(count, visible);
+}
 
 export const FinanceShell: React.FC<{
   scene: FinanceScene;

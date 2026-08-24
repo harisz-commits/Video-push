@@ -56,12 +56,30 @@ ${SPOKEN_LANGUAGE_RULES}
 DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):
 - Jede Einstellung ist EIN Satz und die Szene, die dazu auf dem Schirm steht.
 - Im DURCHSCHNITT zehn Wörter je Einstellung, zwischen 4 und 18.
-- MEHRERE EINSTELLUNGEN HINTEREINANDER AUF DERSELBEN SZENE sind der Normalfall
-  und nicht die Ausnahme. Ein Diagramm baut sich in zwei Sekunden auf und
-  braucht danach Ruhe: drei bis fünf Sätze auf derselben Szene sind richtig.
-  Wer bei jedem Satz die Szene wechselt, zeigt Diagramme, die niemand liest.
-- Erst die Szene aufbauen lassen, dann darüber reden. Der Satz, der eine Zahl
-  nennt, kommt NACH dem Satz, der die Szene einführt.
+
+ALLE FÜNF BIS SIEBEN SEKUNDEN MUSS ETWAS PASSIEREN. Das ist die wichtigste
+Regel dieses Abschnitts, und sie hat nichts mit Hektik zu tun — ein Schirm,
+auf dem sich zwölf Sekunden lang nichts rührt, wird weggeklickt, egal wie gut
+der Satz ist. „Etwas" heißt eines von zwei Dingen:
+
+1. EINE NEUE SZENE. Der Gedanke wechselt, also wechselt das Bild.
+2. EIN SCHRITT INNERHALB DERSELBEN SZENE. Und das ist der wichtigere Fall.
+
+DIE SZENEN ENTSTEHEN IN SCHRITTEN, NICHT AUF EINMAL:
+- Liegen mehrere Sätze auf derselben Szene, wird die Grafik NICHT fertig
+  gezeigt und dann besprochen. Sie wächst mit: zu jedem Satz kommt ein Teil
+  dazu. Bei einem Wasserfall die nächste Stufe, bei einer Tabelle die nächste
+  Zeile, bei einer Gegenüberstellung die nächste Zeile links UND rechts, bei
+  einem Verlauf ein Stück Kurve, bei einer Aufteilung das nächste Segment.
+- Das passiert automatisch. Du musst nichts dafür angeben — aber du musst
+  DARAUF SCHREIBEN: Satz 1 handelt vom ersten Teil, Satz 2 vom zweiten. Ein
+  Satz, der die Gesamtsumme nennt, während erst zwei von fünf Stufen zu sehen
+  sind, geht ins Leere.
+- Daraus folgt die Länge: höchstens so viele Sätze auf einer Szene, wie die
+  Szene Teile hat. Eine Tabelle mit drei Zeilen trägt drei Sätze, keine sechs.
+- ZWEI BIS DREI Sätze auf einer Szene sind der Normalfall. Vier ist die
+  Obergrenze, und nur bei einer Szene mit mindestens vier Teilen.
+
 - Aneinandergehängt ergeben alle Einstellungstexte den fertigen Fließtext.
 
 DIE SZENEN — welche wofür:
@@ -300,7 +318,10 @@ ${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n")}`
     )
     .join("\n");
 
-  const scenes = Math.max(2, Math.round(args.words / WORDS_PER_MINUTE * 4));
+  // Eine Szene je gut sieben Sekunden. Vorher waren es vier je Minute, also
+  // eine alle fünfzehn Sekunden — ein Elf-Minuten-Video kam so auf neun-
+  // unddreißig Szenen, und dazwischen bewegte sich nichts.
+  const scenes = Math.max(2, Math.round((args.words / WORDS_PER_MINUTE) * 8));
 
   return `Thema des Videos:
 ${args.topic}${facts}
@@ -319,10 +340,17 @@ LÄNGE: ungefähr ${args.words} Wörter, das sind etwa ${Math.round(
     args.words / 10,
   )} Einstellungen auf ungefähr ${scenes} Szenen.
 
-RECHNE NACH: ${Math.round(args.words / 10)} Einstellungen auf ${scenes} Szenen
-sind im Schnitt ${(Math.round(args.words / 10) / scenes).toFixed(1)} Sätze je
-Szene. Das ist so gewollt. Eine Szene je Satz wäre bei diesem Format falsch —
-ein Diagramm, das nach zweieinhalb Sekunden verschwindet, wurde nicht gelesen.
+RECHNE NACH, BEVOR DU ANFÄNGST: ${Math.round(
+    args.words / 10,
+  )} Einstellungen auf ${scenes} Szenen sind im Schnitt ${(
+    Math.round(args.words / 10) / scenes
+  ).toFixed(1)} Sätze je Szene, also rund ${(
+    (Math.round(args.words / 10) / scenes) *
+    3.8
+  ).toFixed(0)} Sekunden je Szene. Führ beim Schreiben mit, wieviele Sätze du
+auf der laufenden Szene schon hast. Bist du bei drei, ist der nächste Satz
+eine neue Szene — es sei denn, die laufende hat noch einen Teil, der noch
+nicht dran war.
 
 ${SCENE_SHAPES}${beds}${accents}`;
 }

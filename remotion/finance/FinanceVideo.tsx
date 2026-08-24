@@ -66,7 +66,7 @@ const Take: React.FC<{
   return (
     <AbsoluteFill style={{ opacity }}>
       <FinanceShell scene={scene} frame={frame - offset}>
-        <SceneBody scene={scene} frame={frame - offset} />
+        <SceneBody scene={scene} frame={frame - offset} beats={take.beats} />
       </FinanceShell>
     </AbsoluteFill>
   );
@@ -80,35 +80,36 @@ const Take: React.FC<{
  * Felder die Szene hat, und eine Szene, die um ein Feld erweitert wird, kann
  * an keiner Stelle vergessen werden.
  */
-export const SceneBody: React.FC<{ scene: FinanceScene; frame: number }> = ({
-  scene,
-  frame,
-}) => {
+export const SceneBody: React.FC<{
+  scene: FinanceScene;
+  frame: number;
+  beats: number[];
+}> = ({ scene, frame, beats }) => {
   switch (scene.type) {
     case "zahl":
-      return <ZahlScene scene={scene} frame={frame} />;
+      return <ZahlScene scene={scene} frame={frame} beats={beats} />;
     case "balken":
-      return <BalkenScene scene={scene} frame={frame} />;
+      return <BalkenScene scene={scene} frame={frame} beats={beats} />;
     case "linie":
-      return <LinieScene scene={scene} frame={frame} />;
+      return <LinieScene scene={scene} frame={frame} beats={beats} />;
     case "zinseszins":
-      return <ZinseszinsScene scene={scene} frame={frame} />;
+      return <ZinseszinsScene scene={scene} frame={frame} beats={beats} />;
     case "vergleich":
-      return <VergleichScene scene={scene} frame={frame} />;
+      return <VergleichScene scene={scene} frame={frame} beats={beats} />;
     case "wasserfall":
-      return <WasserfallScene scene={scene} frame={frame} />;
+      return <WasserfallScene scene={scene} frame={frame} beats={beats} />;
     case "aufteilung":
-      return <AufteilungScene scene={scene} frame={frame} />;
+      return <AufteilungScene scene={scene} frame={frame} beats={beats} />;
     case "fluss":
-      return <FlussScene scene={scene} frame={frame} />;
+      return <FlussScene scene={scene} frame={frame} beats={beats} />;
     case "zeitstrahl":
-      return <ZeitstrahlScene scene={scene} frame={frame} />;
+      return <ZeitstrahlScene scene={scene} frame={frame} beats={beats} />;
     case "tabelle":
-      return <TabelleScene scene={scene} frame={frame} />;
+      return <TabelleScene scene={scene} frame={frame} beats={beats} />;
     case "formel":
-      return <FormelScene scene={scene} frame={frame} />;
+      return <FormelScene scene={scene} frame={frame} beats={beats} />;
     case "aussage":
-      return <AussageScene scene={scene} frame={frame} />;
+      return <AussageScene scene={scene} frame={frame} beats={beats} />;
   }
 };
 

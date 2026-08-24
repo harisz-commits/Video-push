@@ -10,6 +10,7 @@ import { C, FONT, TYPE } from "../shared/Tokens";
 import { AxisLabel, AXIS_LEFT, Grid } from "./Axes";
 import { axis, de, short, withUnit } from "./format";
 import {
+  revealed,
   stageHeightFor,
   stageTopFor,
   STAGE,
@@ -38,6 +39,17 @@ const BUILD = 26;
 /** Zwei Reihen und ein Akzent — mehr Farben verträgt kein Diagramm. */
 const SERIES_COLORS = [C.wheat, C.mint, C.signal];
 
+/**
+ * Dieselbe Form wie enter(), aber aus einem fertigen Wert.
+ *
+ * Damit lassen sich die getakteten Einblendungen dort einsetzen, wo bisher
+ * enter() stand, ohne jede Verwendungsstelle umzuschreiben.
+ */
+function fade(opacity: number) {
+  const clamped = Math.max(0, Math.min(1, opacity));
+  return { opacity: clamped, style: { opacity: clamped } as const };
+}
+
 function stage(scene: FinanceScene) {
   return scene.figure ? STAGE_WITH_FIGURE : STAGE;
 }
@@ -55,16 +67,15 @@ function layout(scene: FinanceScene) {
 
 // ---- Große Zahl -----------------------------------------------------------
 
-export const ZahlScene: React.FC<SceneProps<Extract<FinanceScene, { type: "zahl" }>>> = ({
-  scene,
-  frame,
-}) => {
+export const ZahlScene: React.FC<SceneProps<Extract<FinanceScene, { type: "zahl" }>>> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   // Zählt hoch statt zu erscheinen. Eine Zahl, die läuft, wird angeschaut;
   // eine, die dasteht, wird überlesen.
   const run = drive(frame, fps, 6, 34);
   const value = scene.value * run;
-  const caption = enter(frame, fps, 26);
+  // Die Bezugsgröße kommt zum zweiten Satz, nicht sofort: erst die Zahl
+  // wirken lassen, dann sagen, was sie bedeutet.
+  const caption = enter(frame, fps, beats.length > 1 ? beats[1] : 26);
   const box = layout(scene);
 
   return (
@@ -107,7 +118,7 @@ export const ZahlScene: React.FC<SceneProps<Extract<FinanceScene, { type: "zahl"
 
 export const BalkenScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "balken" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const plotWidth = box.width - AXIS_LEFT;
@@ -123,6 +134,9 @@ export const BalkenScene: React.FC<
 
   const slot = plotWidth / scene.categories.length;
   const groupWidth = slot * 0.62;
+  // Eine Kategorie je Takt statt alle in den ersten Frames: bei drei Sätzen
+  // auf demselben Diagramm wächst zu jedem Satz eine Säulengruppe dazu.
+  const show = revealed(frame, beats, scene.categories.length, fps);
 
   return (
     <>
@@ -139,7 +153,10 @@ export const BalkenScene: React.FC<
       />
       {scene.categories.map((category, ci) => {
         const left = box.x + AXIS_LEFT + slot * ci + (slot - groupWidth) / 2;
-        const grow = drive(frame, fps, 8 + stagger(ci, 5), BUILD);
+        const grow =
+          beats.length > 1
+            ? Math.max(0, Math.min(1, show - ci))
+            : drive(frame, fps, 8 + stagger(ci, 5), BUILD);
         let stackTop = 0;
 
         return (
@@ -192,7 +209,7 @@ export const BalkenScene: React.FC<
 
 export const LinieScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "linie" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const plotWidth = box.width - AXIS_LEFT;
@@ -206,7 +223,10 @@ export const LinieScene: React.FC<
   const gridProgress = drive(frame, fps, 0, 16);
   // Die Kurve zeichnet sich von links. Nicht als Effekt: bei einem Verlauf ist
   // die Richtung die Aussage, und ein fertig dastehender Graph nimmt sie weg.
-  const draw = drive(frame, fps, 8, 40);
+  // Liegen mehrere Sätze auf ihr, verteilt sie sich auf die Sätze — sie wächst
+  // also mit, während erzählt wird, statt vor dem ersten Satz fertig zu sein.
+  const draw =
+    beats.length > 1 ? revealed(frame, beats, 1, fps) : drive(frame, fps, 8, 40);
 
   const px = (i: number) =>
     box.x + AXIS_LEFT + (plotWidth * i) / Math.max(1, count - 1);
@@ -323,7 +343,7 @@ export const LinieScene: React.FC<
 
 export const ZinseszinsScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "zinseszins" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const plotWidth = box.width - AXIS_LEFT;
@@ -336,7 +356,8 @@ export const ZinseszinsScene: React.FC<
   const scale = axis(total[total.length - 1]);
   const max = scale.max;
   const gridProgress = drive(frame, fps, 0, 16);
-  const draw = drive(frame, fps, 8, 52);
+  const draw =
+    beats.length > 1 ? revealed(frame, beats, 1, fps) : drive(frame, fps, 8, 52);
 
   const px = (i: number) => box.x + AXIS_LEFT + (plotWidth * i) / scene.years;
   const py = (v: number) => box.top + plotHeight - (v / max) * plotHeight;
@@ -358,7 +379,8 @@ export const ZinseszinsScene: React.FC<
       .join(" ");
 
   const gain = total[scene.years] - paid[scene.years];
-  const label = enter(frame, fps, 48);
+  // Das Ergebnis steht erst da, wenn die Kurve angekommen ist.
+  const label = enter(frame, fps, beats.length > 1 ? beats[beats.length - 1] : 48);
 
   return (
     <>
@@ -499,13 +521,18 @@ const Legend: React.FC<{
 
 export const VergleichScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "vergleich" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const gap = 56;
   const colWidth = (box.width - gap) / 2;
   const rows = Math.max(scene.left.rows.length, scene.right.rows.length);
-  const verdict = enter(frame, fps, 10 + rows * 5);
+  const show = revealed(frame, beats, rows, fps);
+  const verdict = enter(
+    frame,
+    fps,
+    beats.length > 1 ? beats[beats.length - 1] : 10 + rows * 5,
+  );
   // Bei drei Zeilen stand vorher ein Drittel der Fläche voll und zwei Drittel
   // leer. Der Abstand wächst mit, bis er großzügig ist, und deckelt dann.
   const rowHeight = Math.min(132, Math.max(74, (box.height - 200) / rows));
@@ -533,7 +560,13 @@ export const VergleichScene: React.FC<
         {side.title}
       </div>
       {side.rows.map((row, i) => {
-        const step = enter(frame, fps, 10 + stagger(i, 5));
+        // Bei mehreren Sätzen kommt je Satz eine Zeile dazu — links und
+        // rechts gleichzeitig, weil eine Gegenüberstellung paarweise gelesen
+        // wird und nicht spaltenweise.
+        const step =
+          beats.length > 1
+            ? fade(show - i)
+            : enter(frame, fps, 10 + stagger(i, 5));
         return (
           <div
             key={i}
@@ -618,7 +651,7 @@ export const VergleichScene: React.FC<
 
 export const WasserfallScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "wasserfall" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const plotWidth = box.width - AXIS_LEFT;
@@ -663,6 +696,10 @@ export const WasserfallScene: React.FC<
   const gridProgress = drive(frame, fps, 0, 16);
   const slot = plotWidth / bars.length;
   const width = slot * 0.6;
+  // Der Wasserfall IST eine Rechnung. Sie Stufe für Stufe entstehen zu lassen,
+  // während sie erzählt wird, ist der Grund, warum sie besser ist als eine
+  // Tabelle mit denselben Zahlen.
+  const show = revealed(frame, beats, bars.length, fps);
 
   const colorOf = (kind: string) =>
     kind === "down" ? C.signal : kind === "end" ? C.mint : C.wheat;
@@ -685,7 +722,10 @@ export const WasserfallScene: React.FC<
         auf verschiedenen Höhen schweben; mit ihnen ist es eine Rechnung.
       */}
       {bars.slice(0, -1).map((bar, i) => {
-        const show = drive(frame, fps, 14 + stagger(i, 7), 12);
+        const link =
+          beats.length > 1
+            ? Math.max(0, Math.min(1, show - i - 0.6))
+            : drive(frame, fps, 14 + stagger(i, 7), 12);
         return (
           <div
             key={`link-${i}`}
@@ -693,7 +733,7 @@ export const WasserfallScene: React.FC<
               position: "absolute",
               left: box.x + AXIS_LEFT + slot * i + (slot + width) / 2,
               top: box.top + plotHeight - (bar.after / max) * plotHeight,
-              width: (slot - width) * show,
+              width: (slot - width) * link,
               borderTop: `2px dashed ${C.muted}`,
               opacity: 0.5,
             }}
@@ -701,7 +741,10 @@ export const WasserfallScene: React.FC<
         );
       })}
       {bars.map((bar, i) => {
-        const grow = drive(frame, fps, 8 + stagger(i, 7), 18);
+        const grow =
+          beats.length > 1
+            ? Math.max(0, Math.min(1, show - i))
+            : drive(frame, fps, 8 + stagger(i, 7), 18);
         const left = box.x + AXIS_LEFT + slot * i + (slot - width) / 2;
         const height = ((bar.to - bar.from) / max) * plotHeight * grow;
         return (
@@ -759,12 +802,14 @@ export const WasserfallScene: React.FC<
 
 export const AufteilungScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "aufteilung" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const total = scene.parts.reduce((a, p) => a + p.value, 0) || 1;
   const asRing = resolveAufteilung(scene);
-  const sweep = drive(frame, fps, 6, 34);
+  const show = revealed(frame, beats, scene.parts.length, fps);
+  const sweep =
+    beats.length > 1 ? show / scene.parts.length : drive(frame, fps, 6, 34);
 
   const palette = [C.wheat, C.mint, C.signal, "#6E8CB5", "#B58B6E", "#8A7EA8"];
 
@@ -801,7 +846,10 @@ export const AufteilungScene: React.FC<
         </div>
         {scene.parts.map((part, i) => {
           offset += 1;
-          const row = enter(frame, fps, 14 + stagger(i, 5));
+          const row =
+            beats.length > 1
+              ? fade(show - i)
+              : enter(frame, fps, 14 + stagger(i, 5));
           return (
             <div
               key={part.label}
@@ -882,7 +930,10 @@ export const AufteilungScene: React.FC<
         })}
       </svg>
       {scene.parts.map((part, i) => {
-        const row = enter(frame, fps, 16 + stagger(i, 6));
+        const row =
+          beats.length > 1
+            ? fade(show - i)
+            : enter(frame, fps, 16 + stagger(i, 6));
         return (
           <div
             key={part.label}
@@ -932,18 +983,22 @@ export const AufteilungScene: React.FC<
 
 export const FlussScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "fluss" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const gap = 44;
   const width = (box.width - gap * (scene.nodes.length - 1)) / scene.nodes.length;
   const top = box.top + 70;
   const height = 190;
+  const show = revealed(frame, beats, scene.nodes.length, fps);
 
   return (
     <>
       {scene.nodes.map((node, i) => {
-        const step = enter(frame, fps, 6 + stagger(i, 9));
+        const step =
+          beats.length > 1
+            ? fade(show - i)
+            : enter(frame, fps, 6 + stagger(i, 9));
         const left = box.x + (width + gap) * i;
         const last = i === scene.nodes.length - 1;
         return (
@@ -1003,7 +1058,10 @@ export const FlussScene: React.FC<
                   fontFamily: FONT.display,
                   fontSize: 30,
                   color: C.muted,
-                  opacity: drive(frame, fps, 12 + stagger(i, 9), 10),
+                  opacity:
+                    beats.length > 1
+                      ? Math.max(0, Math.min(1, show - i - 0.5))
+                      : drive(frame, fps, 12 + stagger(i, 9), 10),
                 }}
               >
                 →
@@ -1020,10 +1078,11 @@ export const FlussScene: React.FC<
 
 export const ZeitstrahlScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "zeitstrahl" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const line = drive(frame, fps, 2, 24);
+  const show = revealed(frame, beats, scene.events.length, fps);
   const top = box.top + 40;
   const rowHeight = Math.min(96, (box.height - 90) / scene.events.length);
 
@@ -1041,7 +1100,10 @@ export const ZeitstrahlScene: React.FC<
         }}
       />
       {scene.events.map((event, i) => {
-        const step = enter(frame, fps, 8 + stagger(i, 6));
+        const step =
+          beats.length > 1
+            ? fade(show - i)
+            : enter(frame, fps, 8 + stagger(i, 6));
         return (
           <div
             key={i}
@@ -1101,12 +1163,13 @@ export const ZeitstrahlScene: React.FC<
 
 export const TabelleScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "tabelle" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const colWidth = box.width / scene.columns.length;
   const top = box.top + 20;
   const rowHeight = Math.min(84, (box.height - 100) / (scene.rows.length + 1));
+  const show = revealed(frame, beats, scene.rows.length, fps);
 
   const cell = (text: string, ci: number, strong: boolean) => ({
     position: "absolute" as const,
@@ -1156,7 +1219,10 @@ export const TabelleScene: React.FC<
             style={{
               ...cell(value, ci, ci === 0),
               top: top + 72 + ri * rowHeight,
-              opacity: drive(frame, fps, 10 + stagger(ri, 5), 14),
+              opacity:
+                beats.length > 1
+                  ? Math.max(0, Math.min(1, show - ri))
+                  : drive(frame, fps, 10 + stagger(ri, 5), 14),
             }}
           >
             {value}
@@ -1171,17 +1237,25 @@ export const TabelleScene: React.FC<
 
 export const FormelScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "formel" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const top = box.top + 30;
   const rowHeight = Math.min(112, (box.height - 120) / (scene.steps.length + 1));
-  const result = enter(frame, fps, 12 + scene.steps.length * 8);
+  const show = revealed(frame, beats, scene.steps.length, fps);
+  const result = enter(
+    frame,
+    fps,
+    beats.length > 1 ? beats[beats.length - 1] : 12 + scene.steps.length * 8,
+  );
 
   return (
     <>
       {scene.steps.map((step, i) => {
-        const show = enter(frame, fps, 8 + stagger(i, 8));
+        const line =
+          beats.length > 1
+            ? fade(show - i)
+            : enter(frame, fps, 8 + stagger(i, 8));
         return (
           <React.Fragment key={i}>
             <div
@@ -1194,7 +1268,7 @@ export const FormelScene: React.FC<
                 fontSize: 46,
                 fontVariantNumeric: "tabular-nums",
                 color: C.ink,
-                ...show.style,
+                ...line.style,
                 transformOrigin: "left center",
               }}
             >
@@ -1211,7 +1285,7 @@ export const FormelScene: React.FC<
                   fontWeight: 500,
                   fontSize: 26,
                   color: C.muted,
-                  opacity: show.opacity,
+                  opacity: line.opacity,
                 }}
               >
                 {step.note}
@@ -1249,7 +1323,7 @@ export const FormelScene: React.FC<
 
 export const AussageScene: React.FC<
   SceneProps<Extract<FinanceScene, { type: "aussage" }>>
-> = ({ scene, frame }) => {
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const show = enter(frame, fps, 6);

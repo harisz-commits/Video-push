@@ -279,6 +279,9 @@ export const ShortVideo: React.FC<{
               from: 0,
               durationInFrames: timing.hookFrames,
               shots: 1,
+              // Ein Takt: unter dem Hook entsteht der erste Schritt der
+              // Grafik und mehr nicht — geredet wird über den Hook.
+              beats: [0],
             }}
             project={project}
             first
