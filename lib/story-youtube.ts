@@ -1,4 +1,5 @@
-import { complete } from "./llm";
+import { parseJsonObject } from "./json";
+import { complete, type JsonSchema } from "./llm";
 import { shortSeconds, type StoryProject } from "./story";
 import type { TextModel } from "./text-models";
 
@@ -115,6 +116,46 @@ export type ListingDraft = {
   tags: string[];
 };
 
+/**
+ * Die Form, an die sich die Antwort halten muss.
+ *
+ * Erzwungen statt erbeten. Ohne das kam aus einem Lauf ein Titel-Array
+ * zurück, dessen erster Eintrag kein Anführungszeichen hatte, und der Fehler
+ * war nicht ein schlechter Titel, sondern ein verlorener Aufruf: „Unexpected
+ * token 'S'".
+ *
+ * Klein genug, dass es sich lohnt — vier Felder mit flachen Werten. Das
+ * Skript selbst steht bewusst NICHT unter Schema; dort wären es dreißig
+ * Felder, und beide Anbieter werden damit langsamer und schlechter.
+ */
+const LISTING_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    titles: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 1,
+      maxItems: TITLE_OPTIONS,
+    },
+    description: { type: "string" },
+    chapters: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          seconds: { type: "integer" },
+          label: { type: "string" },
+        },
+        required: ["seconds", "label"],
+        additionalProperties: false,
+      },
+    },
+    tags: { type: "array", items: { type: "string" } },
+  },
+  required: ["titles", "description", "chapters", "tags"],
+  additionalProperties: false,
+};
+
 export async function writeListing(args: {
   project: StoryProject;
   model: TextModel;
@@ -130,6 +171,7 @@ export async function writeListing(args: {
     messages: [{ role: "user", content: buildPrompt(args.project) }],
     maxTokens: 4000,
     effort: "low",
+    schema: LISTING_SCHEMA,
   });
 
   return { listing: parseListing(reply.text, args.project), usage: reply.usage };
@@ -142,12 +184,7 @@ export async function writeListing(args: {
  * hier ist eine, an der YouTube sonst still scheitert.
  */
 export function parseListing(raw: string, project: StoryProject): ListingDraft {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) {
-    throw new Error("Die Antwort enthielt kein JSON-Objekt.");
-  }
-  const json = JSON.parse(raw.slice(start, end + 1)) as {
+  const json = parseJsonObject(raw) as {
     titles?: unknown;
     description?: unknown;
     chapters?: unknown;

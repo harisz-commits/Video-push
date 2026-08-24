@@ -1,3 +1,4 @@
+import { parseJsonObject } from "./json";
 import { complete } from "./llm";
 import { slugify } from "./image-library";
 import { FinanceScene } from "./finance";
@@ -255,7 +256,7 @@ async function writeScript(args: {
       args.spent.output += reply.usage.output;
 
       try {
-        const json = parseObject(reply.text) as {
+        const json = parseJsonObject(reply.text) as {
           scenes?: unknown;
           accents?: unknown;
           shots?: unknown;
@@ -340,7 +341,7 @@ async function writeOutline(args: {
   args.spent.input += reply.usage.input;
   args.spent.output += reply.usage.output;
 
-  const json = parseObject(reply.text) as {
+  const json = parseJsonObject(reply.text) as {
     title?: unknown;
     sections?: unknown;
     beds?: unknown;
@@ -543,15 +544,4 @@ function buildWarning(args: {
   return undefined;
 }
 
-function parseObject(raw: string): Record<string, unknown> {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) {
-    throw new Error("Die Antwort enthielt kein JSON-Objekt.");
-  }
-  try {
-    return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
-    throw new Error("Die Antwort war kein gültiges JSON.");
-  }
-}
+

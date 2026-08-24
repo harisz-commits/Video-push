@@ -1,3 +1,4 @@
+import { parseJsonObject } from "./json";
 import { complete } from "./llm";
 import { researchTopic } from "./story-research";
 import { soundLibrary, type KnownSound } from "./sfx";
@@ -311,7 +312,7 @@ async function writeStyle(args: {
   args.spent.input += reply.usage.input;
   args.spent.output += reply.usage.output;
 
-  const json = parseObject(reply.text) as {
+  const json = parseJsonObject(reply.text) as {
     title?: unknown;
     styleName?: unknown;
     directive?: unknown;
@@ -379,7 +380,7 @@ async function describeCharacters(args: {
     args.spent.input += reply.usage.input;
     args.spent.output += reply.usage.output;
 
-    const json = parseObject(reply.text) as { characters?: unknown };
+    const json = parseJsonObject(reply.text) as { characters?: unknown };
     return mergeAppearances(args.characters, json.characters);
   } catch {
     // The figures still exist and still reach the image prompts — just in the
@@ -623,7 +624,7 @@ async function writeScript(args: {
       args.spent.output += reply.usage.output;
 
       try {
-        const json = parseObject(reply.text) as {
+        const json = parseJsonObject(reply.text) as {
           images?: unknown;
           accents?: unknown;
           shots?: unknown;
@@ -869,7 +870,7 @@ async function writeOutline(args: {
   args.spent.input += reply.usage.input;
   args.spent.output += reply.usage.output;
 
-  const json = parseObject(reply.text) as {
+  const json = parseJsonObject(reply.text) as {
     sections?: unknown;
     motifs?: unknown;
     beds?: unknown;
@@ -1077,15 +1078,4 @@ function reconcile(
 /** Fallback rotation, so a model that forgets `motion` still gets variety. */
 const MOTIONS: StoryShot["motion"][] = ["in", "left", "out", "right", "in", "up"];
 
-function parseObject(raw: string): Record<string, unknown> {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) {
-    throw new Error("Die Antwort enthielt kein JSON-Objekt.");
-  }
-  try {
-    return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
-    throw new Error("Die Antwort war kein gültiges JSON.");
-  }
-}
+

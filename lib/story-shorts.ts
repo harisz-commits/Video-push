@@ -1,3 +1,4 @@
+import { parseJsonObject } from "./json";
 import { complete } from "./llm";
 import { shortSeconds, StoryShort, type StoryProject } from "./story";
 import type { TextModel } from "./text-models";
@@ -106,14 +107,7 @@ export async function proposeShorts(args: {
     effort: "medium",
   });
 
-  const start = reply.text.indexOf("{");
-  const end = reply.text.lastIndexOf("}");
-  if (start < 0 || end <= start) {
-    throw new Error("Die Antwort enthielt kein JSON-Objekt.");
-  }
-  const json = JSON.parse(reply.text.slice(start, end + 1)) as {
-    shorts?: unknown;
-  };
+  const json = parseJsonObject(reply.text) as { shorts?: unknown };
 
   const last = args.project.shots.length - 1;
   const taken: [number, number][] = [];

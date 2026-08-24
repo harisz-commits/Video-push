@@ -44,6 +44,21 @@ export function keyNameFor(model: TextModel): string {
   return model.provider === "google" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
 }
 
+/**
+ * Ein JSON-Schema, an das sich die Antwort halten MUSS.
+ *
+ * Beide Anbieter können das erzwingen, und das ist etwas anderes, als um
+ * JSON zu bitten: der Dekodierer darf gar kein Zeichen mehr erzeugen, das
+ * das Schema verletzt. Ohne das kam aus einem Lauf ein Titel-Array zurück,
+ * dessen erster Eintrag kein Anführungszeichen hatte — „Unexpected token
+ * 'S'" —, und der ganze Aufruf war verloren.
+ *
+ * Nur für kleine, feste Formen gedacht. Ein ganzes Skript unter Schema zu
+ * stellen wäre ein Schema mit dreißig Feldern, und beide Anbieter werden
+ * dabei langsamer und schlechter.
+ */
+export type JsonSchema = Record<string, unknown>;
+
 export async function complete(args: {
   model: TextModel;
   apiKey: string;
@@ -52,6 +67,8 @@ export async function complete(args: {
   maxTokens: number;
   /** Anthropic only; Google has no equivalent knob on this endpoint. */
   effort?: "low" | "medium" | "high";
+  /** Erzwungene Antwortform. Siehe JsonSchema. */
+  schema?: JsonSchema;
 }): Promise<Completion> {
   return args.model.provider === "google" ? google(args) : anthropic(args);
 }
@@ -63,47 +80,71 @@ async function anthropic(args: {
   messages: Turn[];
   maxTokens: number;
   effort?: "low" | "medium" | "high";
+  schema?: JsonSchema;
 }): Promise<Completion> {
   const client = new Anthropic({ apiKey: args.apiKey });
 
-  // Streamed, and not by preference: above roughly twenty thousand max_tokens
-  // the SDK refuses a plain request outright, because one that large could in
-  // principle run past ten minutes. Nothing here consumes the stream as it
-  // arrives — the streaming is what makes the request legal, not what makes it
-  // useful.
-  const message = await client.messages
-    .stream({
-      model: args.model.id,
-      max_tokens: args.maxTokens,
-      // Only where the model takes it. Haiku 4.5 rejects the parameter with a
-      // 400 rather than ignoring it, so sending it to every Claude model made
-      // Haiku impossible to pick at all.
-      ...(args.model.supportsEffort === false
-        ? {}
-        : { output_config: { effort: args.effort ?? "medium" } }),
-      system: args.system,
-      messages: args.messages,
-    })
-    .finalMessage();
-
-  if (message.stop_reason === "refusal") {
-    throw new LlmError(
-      "Das Modell hat dieses Thema abgelehnt. Formuliere es anders oder wähle ein anderes.",
-      400,
-    );
+  try {
+    return await ask(args.schema);
+  } catch (err) {
+    // Wie bei Google: ein erzwungenes Schema darf den Aufruf nicht kosten.
+    // Lehnt ein Modell die Form ab, läuft derselbe Aufruf ohne sie weiter —
+    // das ist der Stand von vorher, nicht ein kaputter Knopf.
+    if (args.schema && err instanceof Anthropic.BadRequestError) {
+      return ask(undefined);
+    }
+    throw err;
   }
 
-  return {
-    text: message.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join(""),
-    usage: {
-      input: message.usage.input_tokens,
-      output: message.usage.output_tokens,
-    },
-    truncated: message.stop_reason === "max_tokens",
-  };
+  async function ask(schema: JsonSchema | undefined): Promise<Completion> {
+    // Streamed, and not by preference: above roughly twenty thousand max_tokens
+    // the SDK refuses a plain request outright, because one that large could in
+    // principle run past ten minutes. Nothing here consumes the stream as it
+    // arrives — the streaming is what makes the request legal, not what makes it
+    // useful.
+    const message = await client.messages
+      .stream({
+        model: args.model.id,
+        max_tokens: args.maxTokens,
+        // Effort und Format leben beide unter output_config, also einmal
+        // zusammengesetzt statt zweimal gesetzt — die zweite Zuweisung hätte
+        // die erste stillschweigend verworfen.
+        ...(() => {
+          const output_config: Record<string, unknown> = {};
+          if (args.model.supportsEffort !== false) {
+            // Nur wo das Modell es nimmt: Haiku 4.5 lehnt effort mit einem 400
+            // ab, statt es zu ignorieren, und war damit gar nicht wählbar.
+            output_config.effort = args.effort ?? "medium";
+          }
+          if (schema) {
+            output_config.format = { type: "json_schema", schema };
+          }
+          return Object.keys(output_config).length ? { output_config } : {};
+        })(),
+        system: args.system,
+        messages: args.messages,
+      })
+      .finalMessage();
+
+    if (message.stop_reason === "refusal") {
+      throw new LlmError(
+        "Das Modell hat dieses Thema abgelehnt. Formuliere es anders oder wähle ein anderes.",
+        400,
+      );
+    }
+
+    return {
+      text: message.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join(""),
+      usage: {
+        input: message.usage.input_tokens,
+        output: message.usage.output_tokens,
+      },
+      truncated: message.stop_reason === "max_tokens",
+    };
+  }
 }
 
 const GOOGLE_ENDPOINT =
@@ -115,6 +156,7 @@ async function google(args: {
   system: string;
   messages: Turn[];
   maxTokens: number;
+  schema?: JsonSchema;
 }): Promise<Completion> {
   // Every spelling of this model's id, in order. Google both renames models
   // and retires older ones for new accounts — "no longer available to new
@@ -126,15 +168,33 @@ async function google(args: {
 
   for (const id of ids) {
     try {
-      return await ask(id);
+      return await ask(id, args.schema);
     } catch (err) {
-      if (!(err instanceof LlmError) || err.status !== 404) throw err;
+      if (!(err instanceof LlmError)) throw err;
+      // Ein erzwungenes Schema darf den Aufruf nicht kosten. Lehnt dieses
+      // Modell das Feld ab — ältere Gemini-Stände kennen nur den kleineren
+      // OpenAPI-Dialekt und antworten mit 400 —, läuft derselbe Aufruf ohne
+      // Schema weiter. Das ist der Stand von vorher: das Modell wird um JSON
+      // gebeten, statt darauf festgenagelt.
+      if (err.status === 400 && args.schema) {
+        try {
+          return await ask(id, undefined);
+        } catch (retry) {
+          if (!(retry instanceof LlmError) || retry.status !== 404) throw retry;
+          lastError = retry;
+          continue;
+        }
+      }
+      if (err.status !== 404) throw err;
       lastError = err;
     }
   }
   throw lastError ?? new LlmError(`Kein Modell unter ${ids.join(", ")}.`, 404);
 
-  async function ask(modelId: string): Promise<Completion> {
+  async function ask(
+    modelId: string,
+    schema: JsonSchema | undefined,
+  ): Promise<Completion> {
     const response = await fetch(
       `${GOOGLE_ENDPOINT}/${encodeURIComponent(modelId)}:generateContent`,
       {
@@ -157,6 +217,10 @@ async function google(args: {
             // tolerates prose around the object either way, but a model that has
             // been told the shape wanders out of it far less often.
             responseMimeType: "application/json",
+            // Und wo die Form feststeht, wird sie erzwungen statt erbeten.
+            // Das ist der Unterschied zwischen „antworte bitte als JSON" und
+            // einem Dekodierer, der kein ungültiges Zeichen mehr erzeugen darf.
+            ...(schema ? { responseJsonSchema: schema } : {}),
           },
         }),
       },

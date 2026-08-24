@@ -1,4 +1,5 @@
 import { errorResponse, guard } from "../../../../lib/guardrails";
+import { JsonReplyError } from "../../../../lib/json";
 import { keyFor, keyNameFor } from "../../../../lib/llm";
 import { DEFAULT_YOUTUBE_MODEL, StoryProject } from "../../../../lib/story";
 import { writeListing } from "../../../../lib/story-youtube";
@@ -51,6 +52,18 @@ export async function POST(req: Request) {
       cents: costCents(model, usage),
     });
   } catch (err) {
+    // Bei kaputtem JSON kommt mit, WAS das Modell geschrieben hat. Ohne das
+    // stand im Studio „Unexpected token 'S'" mit fünfzehn Zeichen Umgebung,
+    // und es war von außen nicht zu erkennen, dass ein Titel ohne
+    // Anführungszeichen zurückkam.
+    if (err instanceof JsonReplyError) {
+      // eslint-disable-next-line no-console
+      console.error("[youtube] Unlesbare Antwort:", err.excerpt);
+      return errorResponse(
+        `${model.label} hat kein gültiges JSON geliefert. Versuch es noch einmal oder wähl ein anderes Modell. Was ankam: ${err.excerpt.slice(0, 300)}`,
+        502,
+      );
+    }
     return errorResponse((err as Error).message.slice(0, 400), 502);
   }
 }
