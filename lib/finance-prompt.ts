@@ -110,11 +110,16 @@ DIE FIGUR ("figure"):
 - Werte: "talk", "point", "shrug", "cheer", "shake".
 
 KLANG:
-- "ambience" nennt den Klangteppich unter dieser Einstellung, mit dem "key"
-  aus der Liste, die du bekommst. Über viele Einstellungen derselbe.
-- "accent" ist ein einzelnes Geräusch auf dieser Einstellung. SPARSAM —
-  höchstens jede achte. Bei diesem Format noch sparsamer als sonst: ein
-  Diagramm braucht keine Geräuschkulisse.
+- "ambience" ist die Musik, und sie ist bei JEDER Einstellung dieselbe: nimm
+  den einen "key" aus der Liste, die du bekommst, und trag ihn überall ein.
+  Sie läuft unter dem ganzen Video durch.
+- "accent" ist ein einzelnes Geräusch, und die Vorgabe ist: KEINS. Ein
+  Diagramm braucht keine Geräuschkulisse, und ein Geräusch ohne Anlass klingt
+  nach Werbespot.
+- Setz einen Akzent NUR, wenn der Satz das Geräusch selbst nennt — eine
+  Münze, die fällt, eine Tür, die zugeht, eine Kasse. Höchstens zwei im
+  ganzen Abschnitt, und lieber null. Nennst du keinen, ist das die richtige
+  Antwort und keine vergessene.
 
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"scenes":[{"key":"…","name":"…","type":"…","headline":"…","source":"…", …}],
@@ -188,14 +193,20 @@ DIE ABSCHNITTE:
   Gedanken stehen.
 - Keine Empfehlung, nirgends. Dieses Video erklärt, es rät nicht.
 
-DIE KLANGTEPPICHE:
-- Zurückhaltend. Unter einem Diagramm läuft kein Regen und kein Marktgeschrei.
-  Ein ruhiger Raumton, ein tiefer Puls, mehr nicht.
-- "prompt" auf Englisch, "seconds" zwischen 8 und 20.
+DIE MUSIK:
+- Genau EIN Teppich für das ganze Video, und er ist Musik, keine Umgebung.
+  Unter einem Diagramm gibt es nichts, was klingt — ein Raumton unter einer
+  Zinskurve behauptet einen Ort, den es nicht gibt.
+- Ruhig, leise, gleichbleibend. Weiche Flächen, ein tiefer Puls. Keine
+  Melodie, die man mitsummt, kein Aufbau, kein Schlagzeug. Er soll auffallen,
+  wenn man ihn abschaltet, und sonst nicht.
+- Er läuft unter dem ganzen Video durch. Ein Wechsel mittendrin wäre ein
+  Ereignis, das der Inhalt nicht hergibt.
+- "prompt" auf Englisch, "seconds" zwischen 12 und 20.
 
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"title":"…","sections":[{"title":"…","brief":"…"}],
- "beds":[{"key":"…","name":"…","prompt":"…","seconds":12}]}`;
+ "beds":[{"key":"…","name":"…","prompt":"…","seconds":16}]}`;
 
 export function buildFinanceOutlinePrompt(args: {
   topic: string;
@@ -264,9 +275,10 @@ und rechne den Rest selbst aus. Jede gerechnete Zahl bekommt "source":
   const accents = args.knownAccents?.length
     ? `
 
-DIESE GERÄUSCHE GIBT ES SCHON. Nimm sie, wo sie passen, und übernimm "key",
-"name" und "prompt" WÖRTLICH — dann wird die vorhandene Datei benutzt statt
-neu erzeugt:
+DIESE GERÄUSCHE GIBT ES SCHON. Falls du überhaupt eines brauchst — siehe
+KLANG, die Vorgabe ist keins — nimm eines von hier und übernimm "key", "name"
+und "prompt" WÖRTLICH. Dann wird die vorhandene Datei benutzt statt neu
+erzeugt, und der Akzent kostet nichts:
 ${args.knownAccents
   .map((a) => `- key: ${a.key}\n  name: ${a.name}\n  prompt: ${a.description}`)
   .join("\n")}`
@@ -275,7 +287,7 @@ ${args.knownAccents
   const beds = args.beds.length
     ? `
 
-DIE KLANGTEPPICHE DIESES VIDEOS (nimm "key" in "ambience"):
+DIE MUSIK DIESES VIDEOS (trag diesen "key" bei JEDER Einstellung in "ambience" ein):
 ${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n")}`
     : "";
 

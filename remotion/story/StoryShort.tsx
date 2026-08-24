@@ -14,6 +14,7 @@ import {
   type StoryProject,
   type StoryShort,
   type StorySound,
+  type StoryTake,
 } from "../../lib/story";
 
 /**
@@ -30,11 +31,11 @@ import {
  * uploads a subtitle file to a vertical feed.
  */
 
-const WIDTH = 1080;
-const HEIGHT = 1920;
+export const WIDTH = 1080;
+export const HEIGHT = 1920;
 
 /** Frames of cross-fade between two pictures, as in the long film. */
-const FADE = 9;
+export const FADE = 9;
 
 /**
  * The picture is cropped, and the move is what gives the loss back.
@@ -132,16 +133,26 @@ const Picture: React.FC<{
  * feed's buttons at the bottom. Set large: the test is whether it reads at
  * arm's length on a phone, not whether it looks balanced on a monitor.
  */
-const Caption: React.FC<{ text: string; accent: string; hook?: boolean }> = ({
-  text,
-  accent,
-  hook,
-}) => (
+export const Caption: React.FC<{
+  text: string;
+  accent: string;
+  hook?: boolean;
+  /**
+   * Wo der Satz steht.
+   *
+   * Mittig ist richtig, wenn dahinter ein formatfüllendes Bild liegt. Beim
+   * Finanz-Format liegt dort ein Diagramm im oberen Drittel, und ein Satz
+   * quer darüber verdeckt genau das, was der Zuschauer gerade lesen soll.
+   */
+  align?: "center" | "bottom";
+}> = ({ text, accent, hook, align }) => {
+  const centred = (align ?? (hook ? "center" : "bottom")) === "center";
+  return (
   <AbsoluteFill
     style={{
-      justifyContent: hook ? "center" : "flex-end",
+      justifyContent: centred ? "center" : "flex-end",
       alignItems: "center",
-      padding: hook ? "0 90px" : "0 70px 430px",
+      padding: centred ? "0 90px" : "0 70px 430px",
     }}
   >
     <span
@@ -165,12 +176,58 @@ const Caption: React.FC<{ text: string; accent: string; hook?: boolean }> = ({
       {text}
     </span>
   </AbsoluteFill>
+  );
+};
+
+/**
+ * Was in einer Einstellung zu sehen ist.
+ *
+ * Herausgezogen, als das Finanz-Format eigene Shorts bekam. Alles andere an
+ * einem Short — Hook, Untertitel je Satz, Klangteppiche, Akzente, die aus dem
+ * Film geschnittene Tonspur — ist in beiden Formaten Zeile für Zeile dasselbe.
+ * Nur der Schirm unterscheidet sich: dort ein wanderndes Bild, hier ein
+ * Diagramm. Zwei Dateien wären zwei Orte, an denen dieselbe Tonkorrektur
+ * gemacht werden müsste.
+ */
+export type ShortVisual = React.FC<{
+  take: StoryTake;
+  project: StoryProject;
+  /** Ohne Überblendung starten. Nur die allererste Einstellung tut das. */
+  first: boolean;
+  /**
+   * Wieviele Frames dieselbe Grafik VOR dieser Sequenz schon zu sehen war.
+   *
+   * Der Hook läuft über der ersten Einstellung des Ausschnitts. Ohne diese
+   * Zahl fängt dieselbe Grafik danach von vorn an — beim Video-Format eine
+   * zurückspringende Kamerafahrt, beim Finanz-Format Balken, die auf null
+   * schrumpfen und noch einmal wachsen.
+   */
+  elapsed: number;
+}>;
+
+const PictureTake: ShortVisual = ({ take, project, first }) => (
+  <Picture
+    url={take.url}
+    id={take.id}
+    motion={take.motion}
+    durationInFrames={take.durationInFrames}
+    first={first}
+    fps={project.fps}
+  />
 );
 
 export const StoryShortVideo: React.FC<{
   project: StoryProject;
   short: StoryShort;
-}> = ({ project, short }) => {
+}> = (props) => <ShortVideo {...props} Visual={PictureTake} />;
+
+export const ShortVideo: React.FC<{
+  project: StoryProject;
+  short: StoryShort;
+  Visual: ShortVisual;
+  /** Wo der Hook-Satz steht. Siehe Caption. */
+  hookAlign?: "center" | "bottom";
+}> = ({ project, short, Visual, hookAlign }) => {
   const timing = resolveShortTiming(project, short);
   const takes = storyTakes({
     shots: timing.shots,
@@ -206,22 +263,28 @@ export const StoryShortVideo: React.FC<{
     <AbsoluteFill
       style={{ backgroundColor: project.style.palette[0] ?? "#12100e" }}
     >
-      {timing.hookFrames > 0 && opening?.url ? (
+      {timing.hookFrames > 0 && opening ? (
         <Sequence
           from={0}
           durationInFrames={timing.hookFrames + FADE}
           name="Hook"
           layout="none"
         >
-          <Picture
-            url={opening.url}
-            id={`hook-${short.id}`}
-            motion="right"
-            durationInFrames={timing.hookFrames}
+          <Visual
+            take={{
+              id: `hook-${short.id}`,
+              image: opening.image,
+              url: opening.url,
+              motion: "right",
+              from: 0,
+              durationInFrames: timing.hookFrames,
+              shots: 1,
+            }}
+            project={project}
             first
-            fps={project.fps}
+            elapsed={0}
           />
-          <Caption text={short.hook} accent={accent} hook />
+          <Caption text={short.hook} accent={accent} hook align={hookAlign} />
         </Sequence>
       ) : null}
 
@@ -233,13 +296,13 @@ export const StoryShortVideo: React.FC<{
           name={`${i + 1}. ${take.image}`}
           layout="none"
         >
-          <Picture
-            url={take.url}
-            id={take.id}
-            motion={take.motion}
-            durationInFrames={take.durationInFrames}
+          <Visual
+            take={take}
+            project={project}
             first={i === 0 && timing.hookFrames === 0}
-            fps={project.fps}
+            // Die erste Einstellung lief schon unter dem Hook — sie macht
+            // weiter, statt neu anzufangen.
+            elapsed={i === 0 ? timing.hookFrames : 0}
           />
         </Sequence>
       ))}

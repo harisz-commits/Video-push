@@ -16,7 +16,10 @@ import {
   type RenderJob,
 } from "../../../lib/store";
 import { sweepSandboxes } from "../../../lib/sandboxes";
-import { STORY_SHORT_COMP_NAME } from "../../../lib/constants";
+import {
+  FINANCE_SHORT_COMP_NAME,
+  STORY_SHORT_COMP_NAME,
+} from "../../../lib/constants";
 import { resolveShortTiming, StoryShort, type StoryProject } from "../../../lib/story";
 import { restoreSnapshot } from "./restore-snapshot";
 import { planSegments, startSegments } from "./segments";
@@ -84,7 +87,14 @@ export async function POST(req: Request) {
 
   // What is actually put in front of Remotion. A short swaps the composition
   // and the frame count; a film is unchanged from before shorts existed.
-  const composition = short ? STORY_SHORT_COMP_NAME : compositionFor(project);
+  // Auch der hochkante Schnitt hängt am Format: ein Finanzvideo schneidet
+  // Diagramme, kein wanderndes Bild. Vorher landete jeder Short in der
+  // Bild-Komposition, und ein Finanz-Short wäre dort schwarz gewesen.
+  const composition = short
+    ? project.kind === "finanz"
+      ? FINANCE_SHORT_COMP_NAME
+      : STORY_SHORT_COMP_NAME
+    : compositionFor(project);
   const inputProps = short ? { project, short } : { project };
   const totalFrames = short
     ? resolveShortTiming(project as StoryProject, short).totalFrames

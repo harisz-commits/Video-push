@@ -10,6 +10,7 @@ import { Video } from "./Video";
 export {
   COMP_NAME,
   FINANCE_COMP_NAME,
+  FINANCE_SHORT_COMP_NAME,
   QUIZ_COMP_NAME,
   STORY_COMP_NAME,
   STORY_SHORT_COMP_NAME,
@@ -17,6 +18,7 @@ export {
 import {
   COMP_NAME,
   FINANCE_COMP_NAME,
+  FINANCE_SHORT_COMP_NAME,
   QUIZ_COMP_NAME,
   STORY_COMP_NAME,
   STORY_SHORT_COMP_NAME,
@@ -31,6 +33,7 @@ import { StoryShortVideo } from "./story/StoryShort";
 import { QuizProject as QuizProjectSchema, resolveQuizTiming } from "../lib/quiz";
 import { QuizVideo } from "./quiz/QuizVideo";
 import { FinanceVideo } from "./finance/FinanceVideo";
+import { FinanceShortVideo } from "./finance/FinanceShort";
 import { financeSeed } from "./finance/seed";
 
 const seed: VideoProject = VideoProjectSchema.parse(europa);
@@ -196,6 +199,50 @@ export const RemotionRoot: React.FC = () => (
           fps: parsed.fps,
           width: parsed.width,
           height: parsed.height,
+        };
+      }}
+    />
+
+    {/*
+      Der hochkante Schnitt eines Finanzvideos. Dasselbe Gerüst wie beim
+      Video-Format; was sich unterscheidet, ist der Schirm — ein verkleinertes
+      Diagramm statt eines wandernden Bildes.
+    */}
+    <Composition
+      id={FINANCE_SHORT_COMP_NAME}
+      component={
+        FinanceShortVideo as unknown as React.FC<Record<string, unknown>>
+      }
+      durationInFrames={90}
+      fps={30}
+      width={1080}
+      height={1920}
+      defaultProps={
+        {
+          project: financeSeed,
+          short: {
+            id: "seed",
+            title: "Beispiel",
+            hook: "Ein Satz, der neugierig macht.",
+            from: 0,
+            to: 0,
+          },
+        } as unknown as Record<string, unknown>
+      }
+      calculateMetadata={({ props }) => {
+        const parsed = StoryProjectSchema.parse(
+          (props as { project: unknown }).project,
+        );
+        const short = (props as { short: Parameters<typeof resolveShortTiming>[1] })
+          .short;
+        return {
+          durationInFrames: Math.max(
+            1,
+            resolveShortTiming(parsed, short).totalFrames,
+          ),
+          fps: parsed.fps,
+          width: 1080,
+          height: 1920,
         };
       }}
     />

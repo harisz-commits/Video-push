@@ -380,8 +380,7 @@ export const VideoStudio: React.FC<{
         // Stil, Bilder und Shorts fehlen beim Finanz-Format, also rutscht
         // alles danach auf. Gezählt statt eingetippt, damit die Nummern
         // lückenlos bleiben, wenn wieder etwas dazukommt.
-        (finance ? [2, 3].filter((skipped) => skipped < n).length : 0) -
-        (finance && n > 7 ? 1 : 0),
+        (finance ? [2, 3].filter((skipped) => skipped < n).length : 0),
     ).padStart(2, "0");
 
   const timing = useMemo(() => resolveStoryTiming(project), [project]);
@@ -418,16 +417,25 @@ export const VideoStudio: React.FC<{
   const drawnCount = project.images.length - undrawn.length;
 
   // ---- The kept things ----------------------------------------------------
+  /**
+   * Beide mit Rückfall auf die leere Liste.
+   *
+   * Nicht Vorsicht um der Vorsicht willen: eine Antwort mit Status 200, der
+   * das erwartete Feld fehlt, hat das GANZE Studio weiß werden lassen —
+   * beide Reiter, alle Tafeln, ein `undefined.map()` in der ersten Zeile des
+   * Aufbaus. Eine fehlende Stilliste ist ein Auswahlkasten weniger, kein
+   * Grund, ein Video unerreichbar zu machen.
+   */
   const refreshLooks = useCallback(async () => {
-    const result = await getJson<{ looks: Look[] }>("/api/story/looks");
-    if (result.ok) setLooks(result.data.looks);
+    const result = await getJson<{ looks?: Look[] }>("/api/story/looks");
+    if (result.ok) setLooks(result.data.looks ?? []);
   }, []);
 
   const refreshSaved = useCallback(async () => {
-    const result = await getJson<{ characters: Saved[] }>(
+    const result = await getJson<{ characters?: Saved[] }>(
       "/api/story/characters",
     );
-    if (result.ok) setSaved(result.data.characters);
+    if (result.ok) setSaved(result.data.characters ?? []);
   }, []);
 
   useEffect(() => {
@@ -470,9 +478,11 @@ export const VideoStudio: React.FC<{
 
   // ---- Autosave -----------------------------------------------------------
   const refreshProjects = useCallback(async () => {
-    const result = await getJson<{ projects: Summary[] }>("/api/projects");
+    const result = await getJson<{ projects?: Summary[] }>("/api/projects");
     if (result.ok) {
-      setProjects(result.data.projects.filter((p) => p.format === format));
+      setProjects(
+        (result.data.projects ?? []).filter((p) => p.format === format),
+      );
     }
   }, [format]);
 
@@ -2078,9 +2088,9 @@ export const VideoStudio: React.FC<{
             >
               {(project.sounds ?? []).length === 0 ? (
                 <Note tone="info">
-                  Dieses Video hat noch kein Klangdesign. Skripte, die vor
-                  dieser Erweiterung geschrieben wurden, kennen es nicht — erzeug
-                  das Skript neu, dann plant es Klangteppiche und Akzente mit.
+                  {finance
+                    ? "Dieses Video hat noch keine Musik. Erzeug das Skript neu, dann plant es einen ruhigen Teppich mit."
+                    : "Dieses Video hat noch kein Klangdesign. Skripte, die vor dieser Erweiterung geschrieben wurden, kennen es nicht — erzeug das Skript neu, dann plant es Klangteppiche und Akzente mit."}
                 </Note>
               ) : (
                 <>
@@ -2091,11 +2101,23 @@ export const VideoStudio: React.FC<{
                     {sfxBusy
                       ? (sfxStep ?? "wird erzeugt…")
                       : soundCost(project).sounds === 0
-                        ? "Alle Geräusche erzeugt"
-                        : `${soundCost(project).sounds} Geräusche erzeugen — ${soundCost(project).characters.toLocaleString("de-DE")} Zeichen`}
+                        ? finance
+                          ? "Musik ist da"
+                          : "Alle Geräusche erzeugt"
+                        : `${soundCost(project).sounds} ${
+                            finance ? "erzeugen" : "Geräusche erzeugen"
+                          } — ${soundCost(project).characters.toLocaleString("de-DE")} Zeichen`}
                   </Button>
                   {sfxError ? <Note tone="alert">{sfxError}</Note> : null}
                   {sfxNote ? <Note tone="info">{sfxNote}</Note> : null}
+                  {finance ? (
+                    <Note tone="info">
+                      Beim Finanz-Format ist der Teppich Musik statt Umgebung:
+                      weiche Flächen, tiefer Puls, keine Melodie. Er läuft leise
+                      unter dem ganzen Video durch. Einzelne Geräusche kommen
+                      nur dazu, wenn der Text sie selbst nennt.
+                    </Note>
+                  ) : null}
 
                   <label
                     className="mono"
@@ -2379,7 +2401,6 @@ export const VideoStudio: React.FC<{
               the MP4 - but a film nobody has watched through is not one
               anybody should be cutting highlights from.
             */}
-            {finance ? null : (
             <Panel
               step={panelStep(7)}
               title="Shorts"
@@ -2409,7 +2430,8 @@ export const VideoStudio: React.FC<{
               {!finishedVideo ? (
                 <Note tone="info">
                   Erst das Video rendern. Die Ausschnitte werden aus den
-                  gemessenen Zeiten geschnitten — Bilder, Stimme und Klang sind
+                  gemessenen Zeiten geschnitten —{" "}
+                  {finance ? "Grafiken" : "Bilder"}, Stimme und Klang sind
                   schon da, es entsteht nur je ein gesprochener Hook.
                 </Note>
               ) : null}
@@ -2471,7 +2493,6 @@ export const VideoStudio: React.FC<{
                 );
               })}
             </Panel>
-            )}
 
             {/*
               Ganz unten, weil es der letzte Handgriff ist: erst wenn der Film

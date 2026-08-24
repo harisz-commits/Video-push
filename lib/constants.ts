@@ -48,6 +48,16 @@ export const STORY_SHORT_COMP_NAME = "StoryShort";
  */
 export const FINANCE_COMP_NAME = "FinanceVideo";
 
+/**
+ * Der hochkante Schnitt eines Finanzvideos.
+ *
+ * Eine eigene Komposition und nicht eine Verzweigung in StoryShort, weil die
+ * Kompositionen die einzige Stelle sind, an der die Größe und die
+ * Standardeigenschaften festliegen. Das Gerüst darunter — Hook, Untertitel,
+ * Klang, ausgeschnittene Tonspur — teilen sich beide; siehe ShortVideo.
+ */
+export const FINANCE_SHORT_COMP_NAME = "FinanceShort";
+
 /** Which renderer a project belongs to. The studio's switch sets this. */
 export type Format = "infographics" | "quiz" | "video" | "finanz";
 

@@ -114,6 +114,10 @@ export async function generateFinance(args: {
         palette: ["#0E1A2B", "#E3B23C", "#4FB99F", "#C4452F"],
       },
       research: research || undefined,
+      // Leiser als beim Video-Format. Dort ist der Klang die Umgebung und darf
+      // gehört werden; hier ist er Musik unter einer Erklärung, und Musik, die
+      // man bemerkt, während jemand Zahlen nennt, ist zu laut.
+      soundLevel: 0.1,
       scenes: script.scenes,
       sounds: script.sounds,
       shots: script.shots,
@@ -185,11 +189,14 @@ async function writeScript(args: {
     1,
     Math.min(15, Math.round(args.minutes / MINUTES_PER_SECTION)),
   );
-  const known = await soundLibrary().catch(() => ({
+  // Musik-Teppiche, nicht Umgebungsgeräusche. Siehe soundLibrary().
+  const known = await soundLibrary({ music: true }).catch(() => ({
     beds: [] as KnownSound[],
     accents: [] as KnownSound[],
   }));
-  const bedBudget = args.minutes >= 8 ? 4 : 2;
+  // Einer, immer. Musik, die mittendrin wechselt, ist ein Ereignis, und der
+  // Inhalt eines Erklärvideos gibt keins her.
+  const bedBudget = 1;
 
   await args.onProgress(
     sectionCount === 1

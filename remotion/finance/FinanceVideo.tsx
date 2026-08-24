@@ -80,7 +80,7 @@ const Take: React.FC<{
  * Felder die Szene hat, und eine Szene, die um ein Feld erweitert wird, kann
  * an keiner Stelle vergessen werden.
  */
-const SceneBody: React.FC<{ scene: FinanceScene; frame: number }> = ({
+export const SceneBody: React.FC<{ scene: FinanceScene; frame: number }> = ({
   scene,
   frame,
 }) => {

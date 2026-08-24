@@ -83,6 +83,34 @@ const SOUND_STYLE =
   "riser or sting, no speech, no voices. Clean, dry recording with no " +
   "reverb tail added, suitable to sit quietly under a narrator.";
 
+/**
+ * Und der Stil fürs Finanz-Format: leise Musik statt Umgebung.
+ *
+ * Genau umgekehrt zu oben, und aus demselben Grund. Unter einem Film über
+ * Ägypten trägt ein Wind, weil es dort Wind gab; unter einem Diagramm über
+ * Sparraten gibt es nichts, was klingt. Ein Raumton unter einer Zinskurve ist
+ * entweder unhörbar oder er behauptet einen Ort, den es nicht gibt.
+ *
+ * Was hier ausdrücklich nicht gewollt ist, steht mit drin: keine Melodie, die
+ * man mitsummt, kein Aufbau, kein Schlagzeug. Der Teppich soll auffallen,
+ * wenn man ihn abschaltet, und sonst nicht.
+ */
+const MUSIC_STYLE =
+  "Calm, minimal instrumental underscore. Soft sustained pads and a gentle " +
+  "low pulse, slow and even. No melody or hook to follow, no build, no drop, " +
+  "no drums or percussion hits, no risers, no speech, no voices. Even " +
+  "loudness from start to end so it loops without a seam, mixed to sit far " +
+  "below a narrator.";
+
+/** Welcher Stil an die Beschreibung gehängt wird. */
+function styleFor(project: StoryProject, sound: StorySound): string {
+  // Nur der Teppich wird beim Finanz-Format Musik. Ein Akzent bleibt ein
+  // Geräusch — wenn im Text eine Münze fällt, soll eine Münze fallen.
+  return project.kind === "finanz" && sound.kind === "ambience"
+    ? MUSIC_STYLE
+    : SOUND_STYLE;
+}
+
 export type SfxResult = {
   project: StoryProject;
   /** Sounds actually paid for. */
@@ -131,7 +159,7 @@ export async function generateSounds(args: {
       // film's look happened to be current, and they are perfectly good
       // sounds. A hit outside the bucket is moved into it on the spot, so the
       // fallback stops being needed as the old entries get reused.
-      const key = soundKey(sound);
+      const key = soundKey(args.project, sound);
       let known = await lookup(key, SFX_STYLE).catch(() => null);
       if (!known) {
         known = await lookupAnyStyle(key).catch(() => null);
@@ -174,7 +202,7 @@ export async function generateSounds(args: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            text: `${sound.prompt.trim()} ${SOUND_STYLE}`,
+            text: `${sound.prompt.trim()} ${styleFor(args.project, sound)}`,
             duration_seconds: Math.min(22, Math.max(0.5, sound.seconds)),
             // Low, so the description is followed rather than embellished.
             // High values make the model "interpret", which for a bed of wind
@@ -193,7 +221,7 @@ export async function generateSounds(args: {
         characters += Math.round(sound.seconds * CHARS_PER_SECOND);
 
         const entry = await remember({
-          key: soundKey(sound),
+          key: soundKey(args.project, sound),
           name: sound.name,
           // The real length is carried on the entry so a reuse knows where the
           // loop restarts without fetching and measuring the file again.
@@ -264,6 +292,8 @@ export type KnownSound = {
   /** The English description it was generated from. */
   description: string;
   kind: "ambience" | "accent";
+  /** Ob dieser Teppich Musik ist. Siehe soundKey(). */
+  music: boolean;
   seconds: number;
   uses: number;
 };
@@ -286,10 +316,14 @@ export function parseSound(entry: {
   prompt: string;
   uses: number;
 }): KnownSound | null {
-  const match = /^sfx-(ambience|accent)-([a-z0-9][a-z0-9-]*)$/.exec(entry.key);
+  const match = /^sfx-(ambience|musik|accent)-([a-z0-9][a-z0-9-]*)$/.exec(entry.key);
   if (!match) return null;
 
-  const [, kind, key] = match;
+  const [, bucket, key] = match;
+  // "musik" ist ein eigener Eimer in der Bibliothek, aber im Projekt ist es
+  // ein Klangteppich wie jeder andere. Siehe soundKey().
+  const kind = bucket === "musik" ? "ambience" : bucket;
+  const music = bucket === "musik";
   // Split from the right: a description may itself contain a pipe, the
   // duration never does.
   const parts = entry.prompt.split("|");
@@ -306,15 +340,28 @@ export function parseSound(entry: {
     name: entry.name,
     description,
     kind: kind as KnownSound["kind"],
+    music,
     seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 10,
     uses: entry.uses,
   };
 }
 
-export async function soundLibrary(): Promise<{
+export async function soundLibrary(options?: {
+  /**
+   * Welche Teppiche angeboten werden.
+   *
+   * Muss getrennt sein: einem Finanzskript „Wind über Dünen" als vorhandenen
+   * Teppich anzubieten, führt dazu, dass es ihn wörtlich übernimmt — und
+   * erzeugt wird er dann trotzdem neu, weil Musik in einem anderen Eimer der
+   * Bibliothek liegt. Ein Angebot, das nie zutrifft, kostet Geld und sieht
+   * aus wie Sparsamkeit.
+   */
+  music?: boolean;
+}): Promise<{
   beds: KnownSound[];
   accents: KnownSound[];
 }> {
+  const wantMusic = options?.music === true;
   const { entries } = await readLibrary().catch(() => ({ entries: [] }));
   const beds: KnownSound[] = [];
   const accents: KnownSound[] = [];
@@ -322,7 +369,11 @@ export async function soundLibrary(): Promise<{
   for (const entry of entries) {
     const sound = parseSound(entry);
     if (!sound) continue;
-    (sound.kind === "ambience" ? beds : accents).push(sound);
+    if (sound.kind === "ambience") {
+      if (sound.music === wantMusic) beds.push(sound);
+    } else {
+      accents.push(sound);
+    }
   }
 
   // Proven first. A sound that has already been used in three films is a
@@ -373,8 +424,16 @@ const normalise = (text: string) =>
  * and one of them would come back as the other — silently, and as the wrong
  * kind of file entirely.
  */
-function soundKey(sound: StorySound): string {
-  return `sfx-${sound.kind}-${sound.key}`;
+function soundKey(project: StoryProject, sound: StorySound): string {
+  // Musik bekommt einen eigenen Namensraum in der Bibliothek. Sonst teilte
+  // sich ein „ruhiger-puls" aus einem Finanzvideo den Eintrag mit einem
+  // gleichnamigen Raumton aus einem Erklärfilm — und der zweite bekäme
+  // stillschweigend die Datei des ersten, mit dem falschen Charakter.
+  const kind =
+    project.kind === "finanz" && sound.kind === "ambience"
+      ? "musik"
+      : sound.kind;
+  return `sfx-${kind}-${sound.key}`;
 }
 
 /** What generating the missing sounds would cost right now. */
