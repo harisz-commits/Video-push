@@ -94,8 +94,23 @@ const FRAMING: Record<string, string> = {
    * slowly across the still while it is on screen, so the composition has to
    * survive being seen at a slight offset in any direction.
    */
+  /*
+   * "Leave a little air on all four sides" stand hier einmal und war der
+   * Grund, warum ein Teil der Bilder wie ein aufgeklebtes Blatt aussah: als
+   * Kompositionshinweis gemeint, von einem Bildmodell als Passepartout
+   * gelesen. Die Fassung darunter sagt beides getrennt — die Zeichnung geht
+   * bis an die Kante, das Motiv sitzt trotzdem nicht in der äußersten Ecke.
+   */
   story:
-    "The image fills the whole 16:9 frame edge to edge, with nothing placed over it. It will drift and zoom slowly by a few percent while on screen, so keep the subject away from the extreme edges and leave a little air on all four sides.",
+    "The illustration MUST fill the entire 16:9 canvas and bleed off all four edges. " +
+    "Absolutely no border, no margin, no matte, no passe-partout, no frame or frame line, " +
+    "no white or cream surround, no paper edge, no drop shadow, no vignette, no rounded corners: " +
+    "the drawing is the whole canvas, not a picture placed on a background. " +
+    "Do not render it as a card, a poster, a sticker, a page in a book, or a floating panel. " +
+    "The scenery continues past every edge and is simply cut off there. " +
+    "Nothing is placed over the image. It will drift and zoom slowly by a few percent while on " +
+    "screen, so keep the main subject clear of the outermost tenth of the frame — but fill that " +
+    "tenth with more of the same scenery, never with empty space.",
 };
 
 /**

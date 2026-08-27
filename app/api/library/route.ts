@@ -3,6 +3,7 @@ import {
   readLibrary,
   reindexFromProjects,
   repairSoundPaths,
+  trimStoredImages,
 } from "../../../lib/image-library";
 import { clientKey, errorResponse, rateLimit } from "../../../lib/guardrails";
 import { recoverVoices } from "../../../lib/projects";
@@ -110,7 +111,17 @@ export async function POST(req: Request) {
       error: (err as Error).message.slice(0, 120),
     }));
 
-    return Response.json({ ok: true, ...result, repaired, voices });
+    // Und die Ränder, die das Bildmodell manchmal mitmalt. Kostet nichts —
+    // kein Modell, keine Neuzeichnung, nur holen, messen, zurückschreiben —
+    // und rettet die Bilder, die entstanden sind, als der Prompt noch nach
+    // Luft an allen vier Seiten fragte. Siehe lib/deframe.ts.
+    const borders = await trimStoredImages().catch((err) => ({
+      checked: 0,
+      trimmed: [] as { key: string; sides: string }[],
+      failed: [{ key: "deframe", reason: (err as Error).message.slice(0, 120) }],
+    }));
+
+    return Response.json({ ok: true, ...result, repaired, voices, borders });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[/api/library] reindex", err);

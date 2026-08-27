@@ -782,3 +782,61 @@ export async function repairSoundPaths(): Promise<{
 
   return { moved: moved.size, alreadyFine, projects, failed };
 }
+
+/**
+ * Den mitgemalten Rand aus allen schon gezeichneten Bildern schneiden.
+ *
+ * Kostet nichts: kein Modell wird gerufen, nichts wird neu gezeichnet. Die
+ * Datei wird geholt, gemessen, und nur wenn wirklich ein Rand da ist, unter
+ * demselben Pfad zurückgeschrieben. Damit sind auch die Bilder in Ordnung,
+ * die entstanden sind, als der Prompt noch „leave a little air on all four
+ * sides" sagte — und die sonst nur durch Neuzeichnen zu retten wären.
+ *
+ * Derselbe Pfad, also dieselbe URL: kein Projekt muss angefasst werden, keine
+ * gespeicherte Adresse wird ungültig. Das Vorschaubild wird mitgezogen, sonst
+ * zeigt die Liste weiter den Rand.
+ */
+export async function trimStoredImages(limit = 400): Promise<{
+  checked: number;
+  trimmed: { key: string; sides: string }[];
+  failed: { key: string; reason: string }[];
+}> {
+  const { deframe } = await import("./deframe");
+  const { entries } = await readLibrary();
+
+  const trimmed: { key: string; sides: string }[] = [];
+  const failed: { key: string; reason: string }[] = [];
+  let checked = 0;
+
+  for (const entry of entries.slice(0, limit)) {
+    if (entry.key.startsWith("sfx-")) continue;
+    checked += 1;
+    try {
+      const response = await fetch(entry.url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const before = Buffer.from(await response.arrayBuffer());
+
+      const clean = await deframe(before);
+      if (!clean.changed) continue;
+
+      const path = libraryPath(entry.key, entry.style, entry.fingerprint);
+      await writeBinary(path, clean.bytes, "image/png");
+      await makeThumb(
+        thumbPath(entry.key, entry.style, entry.fingerprint),
+        clean.bytes,
+        "image/png",
+      );
+
+      const t = clean.trimmed;
+      trimmed.push({
+        key: entry.key,
+        sides: `oben ${t.top} %, unten ${t.bottom} %, links ${t.left} %, rechts ${t.right} %`,
+      });
+    } catch (err) {
+      // Ein Bild, das sich nicht holen lässt, hält die anderen nicht auf.
+      failed.push({ key: entry.key, reason: (err as Error).message.slice(0, 120) });
+    }
+  }
+
+  return { checked, trimmed, failed };
+}

@@ -1,3 +1,4 @@
+import { deframe } from "./deframe";
 import { generateImage } from "./gemini";
 import { resolveModel, type ImageModel } from "./image-models";
 import { findStored, lookup, noteUse, remember } from "./image-library";
@@ -39,6 +40,8 @@ export type DrawResult = {
   failed: { key: string; reason: string }[];
   /** Pictures not attempted because the clock ran out. */
   skipped: number;
+  /** Bilder, denen ein mitgemalter Rand abgeschnitten wurde. */
+  trimmed: number;
 };
 
 export async function drawStoryImages(args: {
@@ -72,6 +75,7 @@ export async function drawStoryImages(args: {
   >();
   let paid = 0;
   let reused = 0;
+  let trimmedBorders = 0;
   let skipped = 0;
   let next = 0;
   const failed: { key: string; reason: string }[] = [];
@@ -146,6 +150,13 @@ export async function drawStoryImages(args: {
           model,
         });
 
+        // Der Passepartout-Rand, den das Modell manchmal mitmalt, fällt hier
+        // weg und nicht erst beim Rendern: was in der Bibliothek liegt, soll
+        // schon in Ordnung sein — sonst müsste jedes spätere Video denselben
+        // Rand noch einmal wegrechnen. Siehe lib/deframe.ts.
+        const clean = await deframe(result.data);
+        if (clean.changed) trimmedBorders += 1;
+
         const entry = await remember({
           key: image.key,
           name: image.name,
@@ -153,7 +164,7 @@ export async function drawStoryImages(args: {
           style: style.name,
           fingerprint,
           model: result.model,
-          bytes: result.data,
+          bytes: clean.bytes,
           contentType: result.mimeType,
         });
 
@@ -203,6 +214,7 @@ export async function drawStoryImages(args: {
     cents: Number((paid * model.cents).toFixed(2)),
     failed,
     skipped,
+    trimmed: trimmedBorders,
   };
 }
 

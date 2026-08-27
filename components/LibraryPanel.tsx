@@ -84,6 +84,7 @@ export const LibraryPanel: React.FC<{ step: string }> = ({ step }) => {
       already: number;
       repaired?: { moved: number; projects: number };
       voices?: { restored: { project: string; seconds: number }[]; ambiguous: number };
+      borders?: { checked: number; trimmed: { key: string; sides: string }[] };
     }>("/api/library", {});
     if (!result.ok) {
       setError(result.error);
@@ -117,6 +118,12 @@ export const LibraryPanel: React.FC<{ step: string }> = ({ step }) => {
     if (repaired && repaired.moved > 0) {
       parts.push(
         `${repaired.moved} Klänge umbenannt, damit sie beim Rendern nicht mehr stumm bleiben (${repaired.projects} Videos angepasst). Diese Videos musst du neu rendern.`,
+      );
+    }
+    const borders = result.data.borders;
+    if (borders && borders.trimmed.length > 0) {
+      parts.push(
+        `${borders.trimmed.length} von ${borders.checked} Bildern hatten einen mitgemalten Rand — der ist jetzt weg. Videos mit diesen Bildern musst du neu rendern.`,
       );
     }
     setNote(parts.join(" "));
