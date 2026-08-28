@@ -22,6 +22,7 @@ import {
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
 import { TEXT_MODELS } from "../lib/text-models";
+import { hasDisclaimer, withDisclaimer } from "../lib/finance";
 import { SHORTS_PER_FILM } from "../lib/story-shorts";
 import { soundCost } from "../lib/sfx-cost";
 import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
@@ -1121,6 +1122,34 @@ export const VideoStudio: React.FC<{
       status: "queued",
       progress: 0,
       shortId: short?.id,
+    });
+  }
+
+  /**
+   * Den Pflichthinweis nachrüsten.
+   *
+   * Nur für Videos, die vor dieser Regel geschrieben wurden — neue bekommen
+   * ihn in der Pipeline. Die Aufnahme wird dabei verworfen: es kommen zwei
+   * Sätze dazu, und eine Tonspur, die zu einem anderen Skript gehört, wäre
+   * schlimmer als gar keine.
+   */
+  function insertDisclaimer() {
+    setProject((current) => {
+      const next = withDisclaimer({
+        scenes: current.scenes,
+        shots: current.shots,
+      });
+      if (!next.inserted) return current;
+      return {
+        ...current,
+        scenes: next.scenes,
+        shots: next.shots,
+        cues: undefined,
+        audioUrl: undefined,
+        audioSeconds: undefined,
+        alignment: undefined,
+        shorts: [],
+      };
     });
   }
 
@@ -2377,6 +2406,27 @@ export const VideoStudio: React.FC<{
             </Panel>
 
             <Panel step={panelStep(6)} title="Rendern">
+              {/*
+                Der Hinweis ist beim Finanz-Format Bedingung, nicht Empfehlung
+                — der Render verweigert ohne ihn. Neue Videos bekommen ihn beim
+                Schreiben; das hier ist für die, die vorher entstanden sind.
+              */}
+              {finance && !hasDisclaimer(project) ? (
+                <>
+                  <Note tone="alert">
+                    Diesem Video fehlt der Hinweis, dass es keine
+                    Anlageberatung ist. Ohne ihn wird nicht gerendert.
+                  </Note>
+                  <Button onClick={insertDisclaimer}>
+                    Hinweis einsetzen
+                  </Button>
+                  <Note tone="info">
+                    Er kommt nach dem Einstieg, wird gesprochen und steht im
+                    Bild. Weil zwei Sätze dazukommen, muss die Stimme danach
+                    neu aufgenommen werden.
+                  </Note>
+                </>
+              ) : null}
               <Button
                 onClick={() => void startRender()}
                 disabled={Boolean(render && render.status !== "done" && render.status !== "error")}
@@ -2613,7 +2663,7 @@ export const VideoStudio: React.FC<{
                     BESCHREIBUNG
                   </div>
                   <textarea
-                    value={renderDescription(project.youtube)}
+                    value={renderDescription(project.youtube, project.kind)}
                     readOnly
                     rows={14}
                     style={{
@@ -2629,7 +2679,7 @@ export const VideoStudio: React.FC<{
                   <Button
                     variant="ghost"
                     onClick={() =>
-                      void copy("description", renderDescription(project.youtube!))
+                      void copy("description", renderDescription(project.youtube!, project.kind))
                     }
                   >
                     {copied === "description" ? "kopiert" : "Beschreibung kopieren"}

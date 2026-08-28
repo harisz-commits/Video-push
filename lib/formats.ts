@@ -6,6 +6,7 @@ import {
   STORY_COMP_NAME,
   type Format,
 } from "./constants";
+import { hasDisclaimer } from "./finance";
 import { QuizProject, resolveQuizTiming } from "./quiz";
 import { StoryProject, resolveStoryTiming, undrawnImages } from "./story";
 import { resolveSceneTimings } from "./align";
@@ -92,6 +93,13 @@ export function renderBlockedReason(project: AnyProject): string | null {
     // geschätzt.
     if (!project.scenes.length) {
       return "Dieses Finanzvideo hat noch keine Szenen.";
+    }
+    // Der Hinweis ist kein Wunsch, sondern die Bedingung, unter der dieses
+    // Format überhaupt veröffentlicht werden darf. Neue Videos bekommen ihn
+    // beim Schreiben; ältere kommen hier vorbei und werden nicht gerendert,
+    // bevor er drin ist. Siehe withDisclaimer().
+    if (!hasDisclaimer(project)) {
+      return "Diesem Finanzvideo fehlt der Hinweis, dass es keine Anlageberatung ist. Setz ihn im Rendern-Feld ein — danach muss die Stimme neu aufgenommen werden, weil ein Satz dazukommt.";
     }
     if (!project.audioUrl || !project.cues?.length) {
       return "Für diesen Render fehlt die Stimme. Ohne sie stehen die Szenenwechsel nur geschätzt — erzeuge zuerst das Voiceover.";

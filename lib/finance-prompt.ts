@@ -51,6 +51,11 @@ KEINE ANLAGEBERATUNG — harte Regel:
   konkrete Kaufempfehlungen nein.
 - Vergangene Renditen werden als Vergangenheit benannt, nie als Erwartung.
   Rechnest du mit einem Prozentsatz, sag dazu, dass es eine Annahme ist.
+- SCHREIB DEN HINWEIS NICHT SELBST. Der Satz "Das ist keine Anlageberatung,
+  sondern meine persönliche Meinung" wird nach dem Einstieg automatisch
+  eingesetzt, wortgleich in jedem Video. Erwähne ihn nirgends — was du dazu
+  schreibst, wird verworfen, und zwei verschieden formulierte Hinweise
+  nebeneinander sind schlechter als einer.
 ${SPOKEN_LANGUAGE_RULES}
 
 DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):

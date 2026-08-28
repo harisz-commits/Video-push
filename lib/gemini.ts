@@ -110,7 +110,19 @@ const FRAMING: Record<string, string> = {
     "The scenery continues past every edge and is simply cut off there. " +
     "Nothing is placed over the image. It will drift and zoom slowly by a few percent while on " +
     "screen, so keep the main subject clear of the outermost tenth of the frame — but fill that " +
-    "tenth with more of the same scenery, never with empty space.",
+    "tenth with more of the same scenery, never with empty space. " +
+    // Der zweite Weg zum aufgeklebten Blatt, und er kommt nicht vom Rand,
+    // sondern vom Bildaufbau: bittet man um einen Querschnitt oder einen
+    // Bodenaufbau, malt das Modell gern einen isometrischen Block, der auf
+    // einer leeren Fläche steht. Der Rand ist dann sauber und das Bild
+    // trotzdem eine Illustration auf Papier. Also wird die Darstellungsform
+    // ausgeschlossen und die Alternative gleich mitgesagt.
+    "NEVER draw the scene as an isometric block, a cut-away cube, a slab, a diorama on a plinth, " +
+    "a 3D chunk of terrain with visible side walls, a specimen on a stand, or any object sitting " +
+    "on an empty surface. For a cross-section or a view of underground layers, cut straight " +
+    "THROUGH the world so that the section itself fills the frame edge to edge — the viewer is " +
+    "inside the cut, not looking at a model of it on a table. No visible corners, no perspective " +
+    "side faces, no baseplate, no shadow under the scene.",
 };
 
 /**

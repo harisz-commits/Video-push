@@ -1,7 +1,7 @@
 import { parseJsonObject } from "./json";
 import { complete } from "./llm";
 import { slugify } from "./image-library";
-import { FinanceScene } from "./finance";
+import { FinanceScene, withDisclaimer } from "./finance";
 import {
   buildFinanceOutlinePrompt,
   buildFinanceSectionPrompt,
@@ -99,6 +99,13 @@ export async function generateFinance(args: {
       onProgress: progress,
     });
 
+    // Der Hinweis wird eingesetzt, nicht erbeten — und hier, VOR der Aufnahme,
+    // damit er auch gesprochen wird. Siehe withDisclaimer().
+    const withNote = withDisclaimer({
+      scenes: script.scenes,
+      shots: script.shots,
+    });
+
     const project = StoryProject.parse({
       kind: "finanz",
       id: `finance-${args.jobId}`,
@@ -118,15 +125,15 @@ export async function generateFinance(args: {
       // gehört werden; hier ist er Musik unter einer Erklärung, und Musik, die
       // man bemerkt, während jemand Zahlen nennt, ist zu laut.
       soundLevel: 0.1,
-      scenes: script.scenes,
+      scenes: withNote.scenes,
       sounds: script.sounds,
-      shots: script.shots,
+      shots: withNote.shots,
       fps: 30,
       width: 1920,
       height: 1080,
     });
 
-    const words = script.shots.reduce(
+    const words = withNote.shots.reduce(
       (n, shot) => n + shot.text.trim().split(/\s+/).length,
       0,
     );

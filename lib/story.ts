@@ -257,13 +257,28 @@ export type YoutubeListing = z.infer<typeof YoutubeListing>;
  */
 export const DEFAULT_YOUTUBE_MODEL = "gemini-3.5-flash-lite";
 
+/**
+ * Der Hinweis, wie er unter jedem Finanzvideo steht.
+ *
+ * Dieselbe Aussage wie die gesprochene, kürzer: gesprochen wird sie im Video,
+ * hier steht sie für den, der nur die Beschreibung liest. Siehe
+ * DISCLAIMER_SHOTS in lib/finance.ts.
+ */
+export const DESCRIPTION_DISCLAIMER =
+  "Keine Anlageberatung. Dieses Video gibt meine persönliche Meinung wieder und ist keine Empfehlung, ein bestimmtes Produkt zu kaufen oder zu verkaufen. Was du mit deinem Geld machst, entscheidest du selbst.";
+
 /** Die Beschreibung, wie sie ins Feld bei YouTube gehört. */
-export function renderDescription(listing: {
-  description: string;
-  chapters: { seconds: number; label: string }[];
-  tags: string[];
-}): string {
+export function renderDescription(
+  listing: {
+    description: string;
+    chapters: { seconds: number; label: string }[];
+    tags: string[];
+  },
+  /** Beim Finanz-Format kommt der Pflichthinweis mit. */
+  kind: "video" | "finanz" = "video",
+): string {
   const parts = [listing.description];
+  if (kind === "finanz") parts.push(DESCRIPTION_DISCLAIMER);
   if (listing.chapters.length) {
     parts.push(
       [

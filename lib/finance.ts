@@ -311,3 +311,89 @@ export function resolveAufteilung(scene: { parts: unknown[]; ring?: boolean }): 
   if (scene.parts.length > 4) return false;
   return scene.ring ?? true;
 }
+
+/**
+ * Der Hinweis, der in JEDEM Finanzvideo vorkommen muss.
+ *
+ * Wortgleich und maschinell eingesetzt, nicht vom Modell geschrieben. Beides
+ * mit Absicht: ein rechtlicher Hinweis, den ein Sprachmodell jedes Mal neu
+ * formuliert, ist jedes Mal ein anderer Hinweis, und einer, um den man ein
+ * Modell bittet, fehlt irgendwann. Das Skript bekommt ihn nach dem Einstieg
+ * ins Thema eingefügt — gesprochen UND im Bild.
+ *
+ * Nach dem Einstieg und nicht als erster Satz: der erste Satz entscheidet, ob
+ * weitergeschaut wird. Ein Video, das mit einem Haftungsausschluss anfängt,
+ * hat keinen Zuschauer mehr, den es zu schützen gälte.
+ */
+export const DISCLAIMER_KEY = "hinweis-keine-anlageberatung";
+
+/** Nach wievielen Einstellungen er kommt. */
+export const DISCLAIMER_AFTER = 3;
+
+export const DISCLAIMER_SHOTS = [
+  "Kurz vorweg: Das hier ist keine Anlageberatung, sondern meine persönliche Meinung.",
+  "Was du mit deinem Geld machst, entscheidest du selbst.",
+] as const;
+
+export const DISCLAIMER_SCENE: FinanceScene = {
+  key: DISCLAIMER_KEY,
+  name: "Hinweis: keine Anlageberatung",
+  type: "aussage",
+  headline: "Keine Anlageberatung",
+  text: "Persönliche Meinung, keine Empfehlung. Was du mit deinem Geld machst, entscheidest du selbst.",
+};
+
+/** Ob dieses Video den Hinweis schon enthält. */
+export function hasDisclaimer(project: {
+  scenes: FinanceScene[];
+  shots: { text: string }[];
+}): boolean {
+  return (
+    project.scenes.some((s) => s.key === DISCLAIMER_KEY) ||
+    project.shots.some((s) => /anlageberatung/i.test(s.text))
+  );
+}
+
+/**
+ * Den Hinweis einsetzen, falls er fehlt.
+ *
+ * Rein und wiederholbar, damit dasselbe beim Erzeugen und beim Nachrüsten
+ * eines älteren Videos passiert. Ein vom Modell selbst geschriebener Hinweis
+ * fliegt dabei raus: er stünde sonst neben unserem, mit anderem Wortlaut, und
+ * zwei verschieden formulierte Haftungsausschlüsse sind schlechter als einer.
+ */
+export function withDisclaimer<
+  S extends { id: string; text: string; image: string; motion: string },
+>(project: {
+  scenes: FinanceScene[];
+  shots: S[];
+}): { scenes: FinanceScene[]; shots: S[]; inserted: boolean } {
+  if (project.scenes.some((s) => s.key === DISCLAIMER_KEY)) {
+    return { ...project, inserted: false };
+  }
+
+  // Was das Modell selbst dazu geschrieben hat, kommt weg — unserer folgt.
+  const kept = project.shots.filter((s) => !/anlageberatung/i.test(s.text));
+  const at = Math.min(DISCLAIMER_AFTER, kept.length);
+  const template = kept[0];
+  if (!template) return { ...project, inserted: false };
+
+  const added = DISCLAIMER_SHOTS.map((text, i) => ({
+    ...template,
+    id: `d${i + 1}`,
+    text,
+    image: DISCLAIMER_KEY,
+    // Der Klangteppich läuft durch; ein Akzent wäre hier fehl am Platz.
+    accent: undefined,
+  })) as unknown as S[];
+
+  const shots = [...kept.slice(0, at), ...added, ...kept.slice(at)].map(
+    (shot, i) => ({ ...shot, id: `s${i + 1}` }),
+  );
+
+  return {
+    scenes: [...project.scenes, DISCLAIMER_SCENE],
+    shots,
+    inserted: true,
+  };
+}
