@@ -79,9 +79,7 @@ const LANES = 2;
  * fight the narration instead of sitting under it.
  */
 const SOUND_STYLE =
-  "Natural, realistic, documentary sound. No music, no melody, no cinematic " +
-  "riser or sting, no speech, no voices. Clean, dry recording with no " +
-  "reverb tail added, suitable to sit quietly under a narrator.";
+  "Natural documentary sound. No music, no sting, no speech. Dry, even, sits under a narrator.";
 
 /**
  * Und der Stil fürs Finanz-Format: leise Musik statt Umgebung.
@@ -96,11 +94,75 @@ const SOUND_STYLE =
  * wenn man ihn abschaltet, und sonst nicht.
  */
 const MUSIC_STYLE =
-  "Calm, minimal instrumental underscore. Soft sustained pads and a gentle " +
-  "low pulse, slow and even. No melody or hook to follow, no build, no drop, " +
-  "no drums or percussion hits, no risers, no speech, no voices. Even " +
-  "loudness from start to end so it loops without a seam, mixed to sit far " +
-  "below a narrator.";
+  "Minimal instrumental underscore. Soft pads, gentle low pulse. No melody, no build, " +
+  "no drums, no speech. Even throughout so it loops, far below a narrator.";
+
+/**
+ * Wieviele Zeichen der Beschreibungstext haben darf.
+ *
+ * ElevenLabs lehnt zu lange Texte mit `text_too_long` ab, und das ist genau
+ * passiert: der Musik-Stil war dreihundert Zeichen lang, die Beschreibung
+ * durfte vierhundert sein, macht siebenhundert. Der Dokumentarstil war mit
+ * sechshundert knapp darunter und hätte beim nächsten längeren Prompt
+ * dasselbe getan.
+ *
+ * Bewusst niedrig angesetzt: eine Geräuschbeschreibung, die zweihundert
+ * Zeichen braucht, beschreibt kein Geräusch mehr. Und weil eine Zahl aus dem
+ * Gedächtnis eines Tages nicht mehr stimmt, wird ein abgelehnter Text
+ * zusätzlich noch einmal kürzer geschickt — siehe die Wiederholung unten.
+ */
+const TEXT_LIMIT = 380;
+
+/**
+ * Wie lang eine gespeicherte Klangbeschreibung sein darf.
+ *
+ * Damit gar nicht erst gekürzt werden muss: Beschreibung plus Stil bleiben so
+ * unter dem Limit, und der Text kommt beim Anbieter an, wie das Modell ihn
+ * gemeint hat. Vierhundert Zeichen standen hier, weil das die Länge der
+ * anderen Textfelder ist — für „Wind über trockenem Gras" braucht es keine.
+ */
+export const SOUND_PROMPT_LIMIT = 220;
+const TEXT_RETRY = 190;
+
+/**
+ * Beschreibung und Stil zu einem Text, der in das Limit passt.
+ *
+ * Gekürzt wird die Beschreibung, nicht der Stil: der Stil ist der Grund,
+ * warum zwei Klänge aus verschiedenen Videos zusammenpassen, und ein zur
+ * Hälfte angehängter Stil wäre ein anderer Stil. Und gekürzt wird an einer
+ * Wortgrenze — ein Satz, der mitten im Wort abbricht, ist eine Anweisung, die
+ * das Modell auslegt.
+ */
+export function soundText(
+  prompt: string,
+  style: string,
+  limit: number,
+): string {
+  const room = limit - style.length - 2;
+  if (room <= 0) return style.slice(0, limit);
+  // Immer mit einem Punkt dazwischen, auch wenn gar nicht gekürzt wurde: ohne
+  // ihn stand da „Wind over dry grass Minimal instrumental underscore" — ein
+  // Satz, der etwas anderes behauptet als zwei.
+  return `${trimSoundPrompt(prompt, room)}. ${style}`;
+}
+
+/**
+ * Eine Klangbeschreibung auf Länge bringen, an einer Satzgrenze.
+ *
+ * Auch von den Pipelines benutzt, wenn sie eine Beschreibung speichern. Ein
+ * schlichtes `slice()` stand dort und schnitt mitten im Wort — und was
+ * gespeichert ist, geht später genau so an den Anbieter.
+ */
+export function trimSoundPrompt(prompt: string, limit: number): string {
+  const wanted = prompt.trim().replace(/[,.\s]+$/, "");
+  if (wanted.length <= limit) return wanted;
+
+  const cut = wanted.slice(0, limit);
+  const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf(", "));
+  const word = cut.lastIndexOf(" ");
+  const at = stop > limit * 0.4 ? stop : word > limit * 0.4 ? word : cut.length;
+  return cut.slice(0, at).replace(/[,.\s]+$/, "");
+}
 
 /** Welcher Stil an die Beschreibung gehängt wird. */
 function styleFor(project: StoryProject, sound: StorySound): string {
@@ -195,21 +257,38 @@ export async function generateSounds(args: {
       }
 
       try {
-        const response = await fetch(ENDPOINT, {
-          method: "POST",
-          headers: {
-            "xi-api-key": args.apiKey,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: `${sound.prompt.trim()} ${styleFor(args.project, sound)}`,
-            duration_seconds: Math.min(22, Math.max(0.5, sound.seconds)),
-            // Low, so the description is followed rather than embellished.
-            // High values make the model "interpret", which for a bed of wind
-            // means adding a storm.
-            prompt_influence: 0.4,
-          }),
-        });
+        const ask = (limit: number) =>
+          fetch(ENDPOINT, {
+            method: "POST",
+            headers: {
+              "xi-api-key": args.apiKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              text: soundText(
+                sound.prompt,
+                styleFor(args.project, sound),
+                limit,
+              ),
+              duration_seconds: Math.min(22, Math.max(0.5, sound.seconds)),
+              // Low, so the description is followed rather than embellished.
+              // High values make the model "interpret", which for a bed of wind
+              // means adding a storm.
+              prompt_influence: 0.4,
+            }),
+          });
+
+        let response = await ask(TEXT_LIMIT);
+        if (response.status === 400) {
+          const detail = await response
+            .clone()
+            .text()
+            .catch(() => "");
+          // Ein zu langer Text darf den Klang nicht kosten. Stimmt die Zahl
+          // oben eines Tages nicht mehr, weil der Anbieter sie senkt, geht
+          // derselbe Klang mit der kurzen Fassung noch einmal raus.
+          if (/text_too_long/i.test(detail)) response = await ask(TEXT_RETRY);
+        }
 
         if (!response.ok) {
           const detail = await response.text().catch(() => "");
@@ -237,14 +316,19 @@ export async function generateSounds(args: {
       } catch (err) {
         // One sound that will not generate must not cost the rest. The shot
         // keeps its key, finds no url, and simply plays nothing.
-        failed.push({ key: sound.key, reason: (err as Error).message.slice(0, 160) });
+        failed.push({
+          key: sound.key,
+          reason: (err as Error).message.slice(0, 160),
+        });
       }
 
       await args.onProgress?.(made.size + failed.length, wanted.length);
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(LANES, wanted.length) }, lane));
+  await Promise.all(
+    Array.from({ length: Math.min(LANES, wanted.length) }, lane),
+  );
 
   return {
     project: {
@@ -316,7 +400,9 @@ export function parseSound(entry: {
   prompt: string;
   uses: number;
 }): KnownSound | null {
-  const match = /^sfx-(ambience|musik|accent)-([a-z0-9][a-z0-9-]*)$/.exec(entry.key);
+  const match = /^sfx-(ambience|musik|accent)-([a-z0-9][a-z0-9-]*)$/.exec(
+    entry.key,
+  );
   if (!match) return null;
 
   const [, bucket, key] = match;
@@ -437,4 +523,3 @@ function soundKey(project: StoryProject, sound: StorySound): string {
 }
 
 /** What generating the missing sounds would cost right now. */
-

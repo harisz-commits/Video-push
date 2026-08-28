@@ -1,7 +1,12 @@
 import { parseJsonObject } from "./json";
 import { complete } from "./llm";
 import { researchTopic } from "./story-research";
-import { soundLibrary, type KnownSound } from "./sfx";
+import {
+  soundLibrary,
+  SOUND_PROMPT_LIMIT,
+  trimSoundPrompt,
+  type KnownSound,
+} from "./sfx";
 import { slugify } from "./image-library";
 import {
   StoryProject,
@@ -127,7 +132,11 @@ export async function generateStory(args: {
     // regenerating a style from the same topic produces something adjacent
     // rather than identical, and adjacent is exactly what breaks both the
     // series and the picture library.
-    let style: { title: string; style: StoryStyle; characters: StoryCharacter[] };
+    let style: {
+      title: string;
+      style: StoryStyle;
+      characters: StoryCharacter[];
+    };
     if (args.style) {
       await progress("Bildstil steht fest");
       style = {
@@ -291,7 +300,11 @@ async function writeStyle(args: {
   topic: string;
   wish?: string;
   characters?: CharacterSeed[];
-}): Promise<{ title: string; style: StoryStyle; characters: StoryCharacter[] }> {
+}): Promise<{
+  title: string;
+  style: StoryStyle;
+  characters: StoryCharacter[];
+}> {
   const reply = await complete({
     model: args.model,
     apiKey: args.apiKey,
@@ -600,11 +613,16 @@ async function writeScript(args: {
               index,
               words,
               // A rotating slice, not the whole pool. See MOTIFS_PER_SECTION.
-              motifs: plan.motifs.length <= MOTIFS_PER_SECTION
-                ? plan.motifs
-                : Array.from({ length: MOTIFS_PER_SECTION }, (_, k) =>
-                    plan.motifs[(index * MOTIFS_PER_SECTION + k) % plan.motifs.length],
-                  ),
+              motifs:
+                plan.motifs.length <= MOTIFS_PER_SECTION
+                  ? plan.motifs
+                  : Array.from(
+                      { length: MOTIFS_PER_SECTION },
+                      (_, k) =>
+                        plan.motifs[
+                          (index * MOTIFS_PER_SECTION + k) % plan.motifs.length
+                        ],
+                    ),
               beds: plan.beds,
               imageBudget: perSection,
               // What the arithmetic allows, so the writer can spread rather
@@ -648,7 +666,9 @@ async function writeScript(args: {
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(LANES, sectionCount) }, lane));
+  await Promise.all(
+    Array.from({ length: Math.min(LANES, sectionCount) }, lane),
+  );
 
   // Stitched in outline order, not in the order they came back.
   const images = new Map<string, StoryImage>();
@@ -898,7 +918,11 @@ async function writeOutline(args: {
     const key = slugify(typeof m.key === "string" && m.key ? m.key : name);
     if (seen.has(key)) continue;
     seen.add(key);
-    motifs.push({ key, name: name.slice(0, 120) || key, prompt: prompt.slice(0, 700) });
+    motifs.push({
+      key,
+      name: name.slice(0, 120) || key,
+      prompt: prompt.slice(0, 700),
+    });
   }
 
   const beds: StorySound[] = [];
@@ -914,7 +938,7 @@ async function writeOutline(args: {
     beds.push({
       key,
       name: name.slice(0, 120) || key,
-      prompt: prompt.slice(0, 400),
+      prompt: trimSoundPrompt(prompt, SOUND_PROMPT_LIMIT),
       kind: "ambience",
       // Ten seconds, looped. Long enough not to hear the seam, short enough
       // that a bed costs a twentieth of what generating it in full would.
@@ -981,7 +1005,9 @@ function reconcile(
   // must not be treated as pointing at nothing.
   const known = new Set([...images.keys(), ...motifs.map((m) => m.key)]);
   if (known.size === 0) {
-    throw new Error("Das Modell hat keine brauchbaren Bildbeschreibungen geliefert.");
+    throw new Error(
+      "Das Modell hat keine brauchbaren Bildbeschreibungen geliefert.",
+    );
   }
 
   // The section's own one-shot sounds. Beds come from the outline and are
@@ -1003,7 +1029,7 @@ function reconcile(
     sounds.set(key, {
       key,
       name: name.slice(0, 120) || key,
-      prompt: prompt.slice(0, 400),
+      prompt: trimSoundPrompt(prompt, SOUND_PROMPT_LIMIT),
       kind: "accent",
       seconds: Math.min(4, Math.max(1, Number(a.seconds) || 2)),
     });
@@ -1076,6 +1102,11 @@ function reconcile(
 }
 
 /** Fallback rotation, so a model that forgets `motion` still gets variety. */
-const MOTIONS: StoryShot["motion"][] = ["in", "left", "out", "right", "in", "up"];
-
-
+const MOTIONS: StoryShot["motion"][] = [
+  "in",
+  "left",
+  "out",
+  "right",
+  "in",
+  "up",
+];

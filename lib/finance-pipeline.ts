@@ -9,7 +9,12 @@ import {
   FINANCE_SCRIPT_SYSTEM_PROMPT,
   WORDS_PER_MINUTE,
 } from "./finance-prompt";
-import { soundLibrary, type KnownSound } from "./sfx";
+import {
+  soundLibrary,
+  SOUND_PROMPT_LIMIT,
+  trimSoundPrompt,
+  type KnownSound,
+} from "./sfx";
 import { StoryProject, type StoryShot, type StorySound } from "./story";
 import { researchTopic } from "./story-research";
 import { costCents, resolveTextModel, type TextModel } from "./text-models";
@@ -275,7 +280,12 @@ async function writeScript(args: {
           accents?: unknown;
           shots?: unknown;
         };
-        results[index] = reconcile(json.scenes, json.shots, json.accents, plan.beds);
+        results[index] = reconcile(
+          json.scenes,
+          json.shots,
+          json.accents,
+          plan.beds,
+        );
       } catch {
         // Ein Abschnitt, der nicht lesbar ist, darf die anderen nicht kosten.
         short = true;
@@ -286,7 +296,9 @@ async function writeScript(args: {
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(LANES, sectionCount) }, lane));
+  await Promise.all(
+    Array.from({ length: Math.min(LANES, sectionCount) }, lane),
+  );
 
   const scenes = new Map<string, FinanceScene>();
   const sounds = new Map<string, StorySound>();
@@ -346,9 +358,7 @@ async function writeOutline(args: {
     model: args.model,
     apiKey: args.apiKey,
     system: FINANCE_OUTLINE_SYSTEM_PROMPT,
-    messages: [
-      { role: "user", content: buildFinanceOutlinePrompt(args) },
-    ],
+    messages: [{ role: "user", content: buildFinanceOutlinePrompt(args) }],
     maxTokens: 6000,
     effort: "medium",
   });
@@ -392,7 +402,7 @@ async function writeOutline(args: {
     beds.push({
       key,
       name: name.slice(0, 120),
-      prompt: prompt.slice(0, 400),
+      prompt: trimSoundPrompt(prompt, SOUND_PROMPT_LIMIT),
       kind: "ambience",
       seconds: Math.min(20, Math.max(8, Math.round(Number(b.seconds) || 12))),
     });
@@ -469,7 +479,7 @@ export function reconcile(
     accents.push({
       key,
       name: name.slice(0, 120),
-      prompt: prompt.slice(0, 400),
+      prompt: trimSoundPrompt(prompt, SOUND_PROMPT_LIMIT),
       kind: "accent",
       seconds: Math.min(4, Math.max(1, Math.round(Number(a.seconds) || 2))),
     });
@@ -557,5 +567,3 @@ function buildWarning(args: {
   }
   return undefined;
 }
-
-
