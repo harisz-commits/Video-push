@@ -204,9 +204,23 @@ export const VideoStudio: React.FC<{
   format?: "video" | "finanz";
 }> = ({ seed, format = "video" }) => {
   const finance = format === "finanz";
-  /** Getrennte Speicherschlüssel, damit die Reiter sich nicht überschreiben. */
-  const jobKey = finance ? `${JOB_KEY}.finanz` : JOB_KEY;
-  const projectKey = finance ? `${PROJECT_KEY}.finanz` : PROJECT_KEY;
+  /**
+   * Getrennte Speicherschlüssel, damit die Reiter sich nicht überschreiben.
+   *
+   * ALLE, nicht nur zwei. Beim ersten Bau waren nur Skript und Projekt
+   * getrennt und Zeichnen, Klang, Stimme und Shorts blieben gemeinsam — zwei
+   * Reiter, ein Fach: wer im Finanz-Reiter eine Stimme erzeugt und dann im
+   * Video-Reiter eine, überschreibt den ersten Auftragszettel und verliert
+   * die erste Aufnahme, falls der Reiter dazwischen neu geladen wird. Genau
+   * dagegen wurden diese Zettel überhaupt eingeführt.
+   */
+  const slot = (key: string) => (finance ? `${key}.finanz` : key);
+  const jobKey = slot(JOB_KEY);
+  const projectKey = slot(PROJECT_KEY);
+  const drawKey = slot(DRAW_KEY);
+  const sfxKey = slot(SFX_KEY);
+  const voiceKey = slot(VOICE_KEY);
+  const shortsKey = slot(SHORTS_KEY);
   const [project, setProject] = useState<Story>(seed);
   const [topic, setTopic] = useState("");
   const [minutes, setMinutes] = useState(5);
@@ -352,6 +366,14 @@ export const VideoStudio: React.FC<{
   const [saveError, setSaveError] = useState<string | null>(null);
   /** Retries so far, so the backoff grows instead of hammering. */
   const saveAttempt = useRef(0);
+  /**
+   * Beim nächsten Speichern nicht warten.
+   *
+   * Gesetzt, wenn etwas Bezahltes angekommen ist — eine Aufnahme, gezeichnete
+   * Bilder, erzeugte Klänge, geschnittene Shorts. Siehe die Autospeicherung
+   * weiter unten.
+   */
+  const saveNow = useRef(false);
   const [render, setRender] = useState<{
     renderId: string;
     status: string;
@@ -592,7 +614,14 @@ export const VideoStudio: React.FC<{
     if (lastSaved.current === payload) return;
     if (!projectId && payload === JSON.stringify(seed)) return;
 
-    const id = window.setTimeout(() => void save(), 1200);
+    // Normalerweise mit Verzögerung, damit ein Schieberegler nicht bei jedem
+    // Pixel speichert. Nach einem bezahlten Ergebnis aber sofort: die 1,2
+    // Sekunden sind ein Fenster, in dem ein Neuladen eine gerade erzeugte
+    // Aufnahme verliert, und genau darin ist eine verschwunden. Ein Wert am
+    // Regler ist in zwei Sekunden wieder eingestellt, eine Stimme nicht.
+    const urgent = saveNow.current;
+    saveNow.current = false;
+    const id = window.setTimeout(() => void save(), urgent ? 0 : 1200);
     return () => window.clearTimeout(id);
   }, [project, projectId, save, seed]);
 
@@ -738,6 +767,8 @@ export const VideoStudio: React.FC<{
       if (result.data.status === "running") return;
 
       if (result.data.status === "done" && result.data.project) {
+        // Bezahltes Ergebnis: sofort speichern, nicht in 1,2 Sekunden.
+        saveNow.current = true;
         const parsed = StoryProject.safeParse(result.data.project);
         if (parsed.success) {
           lastSaved.current = null;
@@ -788,22 +819,22 @@ export const VideoStudio: React.FC<{
    * its result, and nobody came back for it.
    */
   useEffect(() => {
-    const draw = recallJob(DRAW_KEY);
+    const draw = recallJob(drawKey);
     if (draw) {
       setDrawJobId(draw.jobId);
       setDrawBusy(true);
     }
-    const sfx = recallJob(SFX_KEY);
+    const sfx = recallJob(sfxKey);
     if (sfx) {
       setSfxJobId(sfx.jobId);
       setSfxBusy(true);
     }
-    const voice = recallJob(VOICE_KEY);
+    const voice = recallJob(voiceKey);
     if (voice) {
       setVoiceJobId(voice.jobId);
       setVoiceBusy(true);
     }
-    const shorts = recallJob(SHORTS_KEY);
+    const shorts = recallJob(shortsKey);
     if (shorts) {
       setShortsJobId(shorts.jobId);
       setShortsBusy(true);
@@ -824,7 +855,7 @@ export const VideoStudio: React.FC<{
       setDrawBusy(false);
       return;
     }
-    rememberJob(DRAW_KEY, result.data.jobId, project.id);
+    rememberJob(drawKey, result.data.jobId, project.id);
     setDrawJobId(result.data.jobId);
   }
 
@@ -841,7 +872,7 @@ export const VideoStudio: React.FC<{
       if (!result.ok) {
         failures += 1;
         if (failures > TOLERATED_POLL_FAILURES) {
-          rememberJob(DRAW_KEY, null);
+          rememberJob(drawKey, null);
           setDrawError(result.error);
           setDrawBusy(false);
           setDrawJobId(null);
@@ -853,6 +884,8 @@ export const VideoStudio: React.FC<{
       if (result.data.status === "running") return;
 
       if (result.data.status === "done" && result.data.project) {
+        // Bezahltes Ergebnis: sofort speichern, nicht in 1,2 Sekunden.
+        saveNow.current = true;
         const parsed = StoryProject.safeParse(result.data.project);
         // Applied only to the video it belongs to. A job picked up after a
         // reload may finish while a different project is open, and silently
@@ -872,7 +905,7 @@ export const VideoStudio: React.FC<{
       } else {
         setDrawError(result.data.error ?? "Die Bilder konnten nicht gezeichnet werden.");
       }
-      rememberJob(DRAW_KEY, null);
+      rememberJob(drawKey, null);
       setDrawJobId(null);
       setDrawStep(null);
       setDrawBusy(false);
@@ -899,7 +932,7 @@ export const VideoStudio: React.FC<{
       setSfxBusy(false);
       return;
     }
-    rememberJob(SFX_KEY, result.data.jobId, project.id);
+    rememberJob(sfxKey, result.data.jobId, project.id);
     setSfxJobId(result.data.jobId);
   }
 
@@ -923,7 +956,7 @@ export const VideoStudio: React.FC<{
       if (!result.ok) {
         failures += 1;
         if (failures > TOLERATED_POLL_FAILURES) {
-          rememberJob(SFX_KEY, null);
+          rememberJob(sfxKey, null);
           setSfxError(result.error);
           setSfxBusy(false);
           setSfxJobId(null);
@@ -935,6 +968,8 @@ export const VideoStudio: React.FC<{
       if (result.data.status === "running") return;
 
       if (result.data.status === "done" && result.data.project) {
+        // Bezahltes Ergebnis: sofort speichern, nicht in 1,2 Sekunden.
+        saveNow.current = true;
         const parsed = StoryProject.safeParse(result.data.project);
         if (parsed.success) {
           setProject((current) =>
@@ -950,7 +985,7 @@ export const VideoStudio: React.FC<{
       } else {
         setSfxError(result.data.error ?? "Die Geräusche konnten nicht erzeugt werden.");
       }
-      rememberJob(SFX_KEY, null);
+      rememberJob(sfxKey, null);
       setSfxJobId(null);
       setSfxStep(null);
       setSfxBusy(false);
@@ -981,7 +1016,7 @@ export const VideoStudio: React.FC<{
       setVoiceBusy(false);
       return;
     }
-    rememberJob(VOICE_KEY, result.data.jobId, project.id);
+    rememberJob(voiceKey, result.data.jobId, project.id);
     setVoiceJobId(result.data.jobId);
   }
 
@@ -1020,7 +1055,7 @@ export const VideoStudio: React.FC<{
           // again for next time. The recording can then never be made at all,
           // and the panel says the voice is missing — which it is, because the
           // one control that would produce it is permanently busy.
-          rememberJob(VOICE_KEY, null);
+          rememberJob(voiceKey, null);
           setVoiceError(result.error);
           setVoiceJobId(null);
           setVoiceBusy(false);
@@ -1037,7 +1072,8 @@ export const VideoStudio: React.FC<{
         // one that cannot be found again from storage - the file is named
         // after a random job id - so it must not be attached to the wrong
         // project either.
-        const belongsTo = recallJob(VOICE_KEY)?.projectId;
+        const belongsTo = recallJob(voiceKey)?.projectId;
+        saveNow.current = true;
         setProject((p) => (belongsTo && belongsTo !== p.id ? p : {
           ...p,
           audioUrl: data.audioUrl,
@@ -1069,7 +1105,7 @@ export const VideoStudio: React.FC<{
       } else {
         setVoiceError(result.data.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
       }
-      rememberJob(VOICE_KEY, null);
+      rememberJob(voiceKey, null);
       setVoiceJobId(null);
       setVoiceBusy(false);
     };
@@ -1213,7 +1249,7 @@ export const VideoStudio: React.FC<{
       setShortsBusy(false);
       return;
     }
-    rememberJob(SHORTS_KEY, result.data.jobId, project.id);
+    rememberJob(shortsKey, result.data.jobId, project.id);
     setShortsJobId(result.data.jobId);
   }
 
@@ -1235,7 +1271,7 @@ export const VideoStudio: React.FC<{
       if (!result.ok) {
         failures += 1;
         if (failures > TOLERATED_POLL_FAILURES) {
-          rememberJob(SHORTS_KEY, null);
+          rememberJob(shortsKey, null);
           setShortsError(result.error);
           setShortsJobId(null);
           setShortsBusy(false);
@@ -1247,6 +1283,8 @@ export const VideoStudio: React.FC<{
       if (result.data.status === "running") return;
 
       if (result.data.status === "done" && result.data.project) {
+        // Bezahltes Ergebnis: sofort speichern, nicht in 1,2 Sekunden.
+        saveNow.current = true;
         const parsed = StoryProject.safeParse(result.data.project);
         if (parsed.success) {
           setProject((current) =>
@@ -1260,7 +1298,7 @@ export const VideoStudio: React.FC<{
       } else {
         setShortsError(result.data.error ?? "Die Shorts konnten nicht geschnitten werden.");
       }
-      rememberJob(SHORTS_KEY, null);
+      rememberJob(shortsKey, null);
       setShortsJobId(null);
       setShortsStep(null);
       setShortsBusy(false);
