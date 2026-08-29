@@ -4,6 +4,7 @@ import { keyFor, keyNameFor } from "../../../lib/llm";
 import {
   DEFAULT_FINANCE_MODEL,
   generateFinance,
+  importFinanceScript,
 } from "../../../lib/finance-pipeline";
 import { FinanceFormat } from "../../../lib/finance";
 import { resolveTextModel, type TextModel } from "../../../lib/text-models";
@@ -31,6 +32,7 @@ export const maxDuration = 300;
  */
 export async function POST(req: Request) {
   let topic: string;
+  let script: string | undefined;
   let minutes: number;
   let research: boolean;
   let format: FinanceFormat;
@@ -38,15 +40,26 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
       topic?: unknown;
+      script?: unknown;
       minutes?: unknown;
       research?: unknown;
       format?: unknown;
       model?: unknown;
     };
-    if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
+    // Ein eingefügtes Skript ersetzt das Thema: dann wird nichts geschrieben,
+    // sondern nur bebildert. Siehe importFinanceScript().
+    script =
+      typeof body.script === "string" && body.script.trim().length > 40
+        ? body.script.trim().slice(0, 60_000)
+        : undefined;
+    if (
+      !script &&
+      (typeof body.topic !== "string" || body.topic.trim().length < 3)
+    ) {
       throw new Error("topic");
     }
-    topic = body.topic.trim().slice(0, 2000);
+    topic =
+      typeof body.topic === "string" ? body.topic.trim().slice(0, 2000) : "";
     minutes = Math.min(25, Math.max(1, Number(body.minutes) || 6));
     // An bei fehlender Angabe. Bei Finanzinhalten ist ein aus dem Gedächtnis
     // geschriebenes Skript nicht bloß ungenau — es steht als Zahl im Bild,
@@ -87,6 +100,11 @@ export async function POST(req: Request) {
     startedAt,
     updatedAt: startedAt,
   } satisfies StoryJob);
+
+  if (script) {
+    waitUntil(importFinanceScript({ jobId, script, apiKey, model, startedAt }));
+    return Response.json({ jobId });
+  }
 
   waitUntil(
     generateFinance({

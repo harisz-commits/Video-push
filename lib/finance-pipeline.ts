@@ -3,8 +3,10 @@ import { complete } from "./llm";
 import { slugify } from "./image-library";
 import { FinanceScene, withDisclaimer, type FinanceFormat } from "./finance";
 import {
+  buildFinanceImportPrompt,
   buildFinanceOutlinePrompt,
   buildFinanceSectionPrompt,
+  FINANCE_IMPORT_SYSTEM_PROMPT,
   type OpenLoop,
   FINANCE_OUTLINE_SYSTEM_PROMPT,
   FINANCE_SCRIPT_SYSTEM_PROMPT,
@@ -18,6 +20,7 @@ import {
 } from "./sfx";
 import { StoryProject, type StoryShot, type StorySound } from "./story";
 import { researchTopic } from "./story-research";
+import { splitScript, textIsUnchanged } from "./script-import";
 import { costCents, resolveTextModel, type TextModel } from "./text-models";
 import { storyJobPath, writeJson, type StoryJob } from "./store";
 
@@ -598,4 +601,233 @@ function buildWarning(args: {
     return "Die Fakten kamen ohne eine einzige Websuche zustande. Sieh sie durch, bevor du das Video rendern lässt.";
   }
   return undefined;
+}
+
+/**
+ * Ein fertiges Skript übernehmen und nur bebildern.
+ *
+ * Der Unterschied zu generateFinance() ist der ganze Zweck: dort schreibt das
+ * Modell den Text, hier bekommt es ihn und darf ihn nicht anfassen. Zerlegt
+ * wird im Code, zugeordnet vom Modell, und was gesprochen wird, stammt Zeichen
+ * für Zeichen aus dem, was eingefügt wurde.
+ *
+ * Die Zusage wird geprüft, nicht behauptet: nach dem Zerlegen wird der Text
+ * gegen das Original gehalten, und ein Unterschied bricht ab, statt ein Video
+ * zu erzeugen, das etwas anderes sagt als bestellt.
+ */
+export async function importFinanceScript(args: {
+  jobId: string;
+  script: string;
+  apiKey: string;
+  model?: TextModel;
+  startedAt: number;
+}): Promise<void> {
+  const model = args.model ?? resolveTextModel(DEFAULT_FINANCE_MODEL);
+  const spent = { input: 0, output: 0 };
+  const topic = args.script.trim().slice(0, 120);
+
+  const progress = (step: string) =>
+    writeJson(storyJobPath(args.jobId), {
+      jobId: args.jobId,
+      topic,
+      status: "running",
+      step,
+      startedAt: args.startedAt,
+      updatedAt: Date.now(),
+    } satisfies StoryJob);
+
+  try {
+    await progress("Skript wird zerlegt");
+    const sentences = splitScript(args.script);
+    if (sentences.length < 2) {
+      throw new Error(
+        "Aus diesem Text ließen sich keine Sätze lesen. Er braucht mindestens zwei.",
+      );
+    }
+    if (!textIsUnchanged(args.script, sentences)) {
+      // Kann nur ein Fehler im Zerlegen sein — und dann lieber gar kein Video
+      // als eines, das etwas anderes sagt.
+      throw new Error(
+        "Beim Zerlegen ging Text verloren. Das Video wurde nicht erzeugt.",
+      );
+    }
+
+    await progress("Grafiken werden zugeordnet");
+    const known = await soundLibrary({ music: true }).catch(() => ({
+      beds: [] as KnownSound[],
+      accents: [] as KnownSound[],
+    }));
+    const bed = known.beds[0];
+
+    const reply = await complete({
+      model,
+      apiKey: args.apiKey,
+      system: FINANCE_IMPORT_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: buildFinanceImportPrompt({
+            sentences,
+            beds: bed ? [{ key: bed.key, name: bed.name }] : [],
+          }),
+        },
+      ],
+      maxTokens: 16000,
+      effort: "medium",
+    });
+    spent.input += reply.usage.input;
+    spent.output += reply.usage.output;
+
+    const json = parseJsonObject(reply.text) as {
+      title?: unknown;
+      scenes?: unknown;
+      spans?: unknown;
+    };
+
+    const assembled = assignScenes(
+      sentences,
+      json.scenes,
+      json.spans,
+      bed?.key,
+    );
+    const withNote = withDisclaimer({
+      scenes: assembled.scenes,
+      shots: assembled.shots,
+    });
+
+    const project = StoryProject.parse({
+      kind: "finanz",
+      id: `finance-${args.jobId}`,
+      topic,
+      title:
+        typeof json.title === "string" && json.title.trim().length > 2
+          ? json.title.trim().slice(0, 120)
+          : sentences[0].slice(0, 80),
+      style: {
+        name: "Kanal-Identität",
+        directive:
+          "Not used by this format — finance scenes are drawn in code from the shared design tokens rather than generated from a prompt.",
+        palette: ["#0E1A2B", "#E3B23C", "#4FB99F", "#C4452F"],
+      },
+      soundLevel: 0.1,
+      scenes: withNote.scenes,
+      sounds: bed
+        ? [{ ...bed, prompt: bed.description, kind: "ambience" }]
+        : [],
+      shots: withNote.shots,
+      fps: 30,
+      width: 1920,
+      height: 1080,
+    });
+
+    await writeJson(storyJobPath(args.jobId), {
+      jobId: args.jobId,
+      topic,
+      status: "done",
+      project,
+      warning: assembled.warning,
+      cost: {
+        model: model.id,
+        label: model.label,
+        inputTokens: spent.input,
+        outputTokens: spent.output,
+        cents: Number(costCents(model, spent).toFixed(3)),
+      },
+      startedAt: args.startedAt,
+      updatedAt: Date.now(),
+    } satisfies StoryJob);
+  } catch (err) {
+    await writeJson(storyJobPath(args.jobId), {
+      jobId: args.jobId,
+      topic,
+      status: "error",
+      error: (err as Error).message.slice(0, 400),
+      startedAt: args.startedAt,
+      updatedAt: Date.now(),
+    } satisfies StoryJob).catch(() => undefined);
+  }
+}
+
+/**
+ * Die Zuordnung des Modells auf die Sätze legen.
+ *
+ * Die Sätze sind gesetzt — sie kommen aus dem eingefügten Skript und werden
+ * hier nur verteilt. Was das Modell liefert, ist eine Meinung darüber, welche
+ * Grafik wohin gehört, und was davon nicht aufgeht, wird zurechtgerückt statt
+ * abgelehnt: ein Satz ohne Szene bekommt die Szene davor. Eine Lücke in der
+ * Zuordnung darf kein Video kosten, dessen Text schon feststeht.
+ */
+export function assignScenes(
+  sentences: string[],
+  rawScenes: unknown,
+  rawSpans: unknown,
+  bed?: string,
+): { scenes: FinanceScene[]; shots: StoryShot[]; warning?: string } {
+  const scenes: FinanceScene[] = [];
+  let dropped = 0;
+
+  for (const raw of Array.isArray(rawScenes) ? rawScenes : []) {
+    const candidate = raw as { key?: unknown; name?: unknown };
+    const key = slugify(
+      typeof candidate.key === "string" && candidate.key
+        ? candidate.key
+        : typeof candidate.name === "string"
+          ? candidate.name
+          : "",
+    );
+    const parsed = FinanceScene.safeParse({ ...(raw as object), key });
+    if (!parsed.success) {
+      dropped += 1;
+      continue;
+    }
+    if (!scenes.some((s) => s.key === parsed.data.key))
+      scenes.push(parsed.data);
+  }
+
+  if (!scenes.length) {
+    throw new Error("Das Modell hat keine brauchbare Grafik geliefert.");
+  }
+
+  // Je Satz die Szene, in deren Spanne er liegt.
+  const perSentence = new Array<string | undefined>(sentences.length);
+  const keys = new Set(scenes.map((s) => s.key));
+  for (const raw of Array.isArray(rawSpans) ? rawSpans : []) {
+    const span = raw as { from?: unknown; to?: unknown; scene?: unknown };
+    const key = slugify(typeof span.scene === "string" ? span.scene : "");
+    if (!keys.has(key)) continue;
+    const from = Math.max(0, Math.round(Number(span.from)));
+    const to = Math.min(sentences.length - 1, Math.round(Number(span.to)));
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) continue;
+    for (let i = from; i <= to; i += 1) perSentence[i] ??= key;
+  }
+
+  // Lücken schließen: erst nach vorn, dann der Anfang von hinten.
+  let last: string | undefined;
+  for (let i = 0; i < perSentence.length; i += 1) {
+    if (perSentence[i]) last = perSentence[i];
+    else perSentence[i] = last;
+  }
+  const first = perSentence.find(Boolean) ?? scenes[0].key;
+  for (let i = 0; i < perSentence.length; i += 1) perSentence[i] ??= first;
+
+  const gaps = perSentence.filter((k) => k === undefined).length;
+  const shots: StoryShot[] = sentences.map((text, i) => ({
+    id: `s${i + 1}`,
+    text,
+    image: perSentence[i]!,
+    motion: "in",
+    ambience: bed,
+  }));
+
+  const used = new Set(shots.map((s) => s.image));
+  return {
+    scenes: scenes.filter((s) => used.has(s.key)),
+    shots,
+    warning:
+      dropped > 0
+        ? `${dropped} ${dropped === 1 ? "Grafik wurde" : "Grafiken wurden"} verworfen, weil Pflichtangaben fehlten. Die betroffenen Sätze zeigen die Grafik davor. Der gesprochene Text ist unverändert.`
+        : gaps > 0
+          ? "Für einen Teil der Sätze hat das Modell keine Grafik zugeordnet — dort bleibt die vorige stehen. Der gesprochene Text ist unverändert."
+          : undefined,
+  };
 }

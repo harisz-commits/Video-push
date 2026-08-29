@@ -34,6 +34,7 @@ import {
   withDisclaimer,
   type FinanceFormat as FinanceFormatId,
 } from "../lib/finance";
+import { describeSplit, splitScript } from "../lib/script-import";
 import { SHORTS_PER_FILM } from "../lib/story-shorts";
 import { soundCost } from "../lib/sfx-cost";
 import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
@@ -308,6 +309,21 @@ export const VideoStudio: React.FC<{
    * das ist der Unterschied zwischen fünf Videos und fünfmal demselben.
    */
   const [financeFormat, setFinanceFormat] = useState<FinanceFormatId>("fehler");
+  /**
+   * Ein selbst geschriebenes Skript.
+   *
+   * Ist es gefüllt, wird nichts mehr geschrieben: die Sätze werden im Code
+   * zerlegt und das Modell ordnet nur noch Grafiken zu. Warum der Text dem
+   * Modell nicht zum Zurückschreiben gegeben wird, steht in
+   * lib/script-import.ts.
+   */
+  const [ownScript, setOwnScript] = useState("");
+  const ownSplit = useMemo(
+    () => (ownScript.trim() ? describeSplit(splitScript(ownScript)) : null),
+    [ownScript],
+  );
+  /** Ab hier übernimmt der eingefügte Text. Ein kurzer Rest zählt nicht. */
+  const usingOwnScript = finance && ownScript.trim().length > 40;
 
   // ---- What the look should be, before there is one -----------------------
   const [styleWish, setStyleWish] = useState("");
@@ -733,13 +749,17 @@ export const VideoStudio: React.FC<{
     const result = await postJson<{ jobId: string }>(
       finance ? "/api/finance" : "/api/story",
       finance
-        ? {
-            topic,
-            minutes,
-            model: textModelId,
-            research,
-            format: financeFormat,
-          }
+        ? usingOwnScript
+          ? // Eingefügtes Skript: kein Thema, keine Länge, kein Format —
+            // es gibt nichts zu schreiben, nur zu bebildern.
+            { script: ownScript, model: textModelId }
+          : {
+              topic,
+              minutes,
+              model: textModelId,
+              research,
+              format: financeFormat,
+            }
         : {
             topic,
             minutes,
@@ -1825,51 +1845,107 @@ export const VideoStudio: React.FC<{
 
           {finance ? (
             <>
+              {/*
+                Das eigene Skript steht VOR allem anderen, weil es alles
+                andere abschaltet: ist es gefüllt, gibt es kein Thema, kein
+                Format und keine Recherche mehr — es gibt ja nichts mehr zu
+                schreiben.
+              */}
               <div
                 className="mono"
                 style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}
               >
-                WAS FÜR EIN VIDEO
+                EIGENES SKRIPT — OPTIONAL
               </div>
-              <div style={{ display: "grid", gap: 6 }}>
-                {FINANCE_FORMATS.map((f) => (
-                  <label
-                    key={f.id}
+              <textarea
+                value={ownScript}
+                placeholder="Hier ein fertiges Skript einfügen. Dann wird kein Wort daran geändert — die Sätze werden nur zerlegt und mit Grafiken belegt."
+                onChange={(e) => setOwnScript(e.target.value)}
+                aria-label="Eigenes Skript"
+                rows={6}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: "1px solid var(--grid)",
+                  background: "#fff",
+                  fontSize: 13,
+                  lineHeight: 1.45,
+                  resize: "vertical",
+                }}
+              />
+              {ownSplit ? (
+                <div
+                  className="mono"
+                  style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}
+                >
+                  {ownSplit.sentences} Sätze ·{" "}
+                  {ownSplit.words.toLocaleString("de-DE")} Wörter · etwa{" "}
+                  {ownSplit.minutes.toFixed(1).replace(".", ",")} Minuten
+                </div>
+              ) : null}
+              {usingOwnScript ? (
+                <Note tone="info">
+                  Dein Text wird Wort für Wort übernommen. Das Modell schreibt
+                  nichts und ändert nichts — es entscheidet nur, welche Grafik
+                  zu welchen Sätzen gehört. Der Pflichthinweis „keine
+                  Anlageberatung" kommt als einziges dazu.
+                </Note>
+              ) : null}
+
+              {usingOwnScript ? null : (
+                <>
+                  <div
+                    className="mono"
                     style={{
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "flex-start",
-                      padding: "8px 10px",
-                      border: "1px solid var(--grid)",
-                      background: financeFormat === f.id ? "#f4f7fb" : "#fff",
-                      fontSize: 12.5,
-                      lineHeight: 1.4,
-                      cursor: "pointer",
+                      fontSize: 11,
+                      color: "#5b6672",
+                      margin: "16px 0 6px",
                     }}
                   >
-                    <input
-                      type="radio"
-                      name="finance-format"
-                      checked={financeFormat === f.id}
-                      onChange={() => setFinanceFormat(f.id)}
-                      style={{ marginTop: 2 }}
-                    />
-                    <span>
-                      {f.label}
-                      <span
-                        className="mono"
+                    WAS FÜR EIN VIDEO
+                  </div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {FINANCE_FORMATS.map((f) => (
+                      <label
+                        key={f.id}
                         style={{
-                          display: "block",
-                          fontSize: 10.5,
-                          color: "#5b6672",
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "flex-start",
+                          padding: "8px 10px",
+                          border: "1px solid var(--grid)",
+                          background:
+                            financeFormat === f.id ? "#f4f7fb" : "#fff",
+                          fontSize: 12.5,
+                          lineHeight: 1.4,
+                          cursor: "pointer",
                         }}
                       >
-                        {f.note}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
+                        <input
+                          type="radio"
+                          name="finance-format"
+                          checked={financeFormat === f.id}
+                          onChange={() => setFinanceFormat(f.id)}
+                          style={{ marginTop: 2 }}
+                        />
+                        <span>
+                          {f.label}
+                          <span
+                            className="mono"
+                            style={{
+                              display: "block",
+                              fontSize: 10.5,
+                              color: "#5b6672",
+                            }}
+                          >
+                            {f.note}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           ) : null}
 
@@ -2002,9 +2078,13 @@ export const VideoStudio: React.FC<{
           <div style={{ height: 10 }} />
           <Button
             onClick={() => void generate()}
-            disabled={busy || topic.trim().length < 3}
+            disabled={busy || (!usingOwnScript && topic.trim().length < 3)}
           >
-            {busy ? (step ?? "Wird geschrieben…") : "Skript schreiben"}
+            {busy
+              ? (step ?? "Wird geschrieben…")
+              : usingOwnScript
+                ? "Skript übernehmen"
+                : "Skript schreiben"}
           </Button>
           {error ? <Note tone="alert">{error}</Note> : null}
           {warning ? <Note tone="alert">{warning}</Note> : null}
@@ -2027,11 +2107,13 @@ export const VideoStudio: React.FC<{
             </Note>
           ) : null}
           <Note tone="info">
-            {finance
-              ? "Es wird nichts gezeichnet. Die Grafiken entstehen beim Rendern aus den Zahlen im Skript — ein Finanzvideo kostet nur das Skript und die Stimme."
-              : `Erst schreiben, dann zeichnen. Ein Skript kostet Bruchteile eines Cents und lässt sich wegwerfen; ${imageBudget} Bilder kosten ${formatCents(
-                  imageBudget * imageModel.cents,
-                )}.`}
+            {usingOwnScript
+              ? "Dein Text wird nicht geschrieben, nur bebildert — das kostet einen Bruchteil dessen, was ein geschriebenes Skript kostet."
+              : finance
+                ? "Es wird nichts gezeichnet. Die Grafiken entstehen beim Rendern aus den Zahlen im Skript — ein Finanzvideo kostet nur das Skript und die Stimme."
+                : `Erst schreiben, dann zeichnen. Ein Skript kostet Bruchteile eines Cents und lässt sich wegwerfen; ${imageBudget} Bilder kosten ${formatCents(
+                    imageBudget * imageModel.cents,
+                  )}.`}
           </Note>
         </Panel>
 

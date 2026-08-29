@@ -511,3 +511,66 @@ nicht dran war.
 
 ${SCENE_SHAPES}${beds}${accents}`;
 }
+
+export const FINANCE_IMPORT_SYSTEM_PROMPT = `Du bebilderst ein fertiges deutsches Finanzskript.
+
+DAS SKRIPT IST FERTIG. Du schreibst keinen Text. Du änderst keinen Text. Du
+kürzt nichts, glättest nichts, fasst nichts zusammen und schlägst nichts vor.
+Der gesprochene Text steht Wort für Wort fest und wird von jemand anderem
+geschrieben — deine einzige Aufgabe ist, zu entscheiden, WAS DAZU AUF DEM
+SCHIRM STEHT.
+
+Du bekommst die Sätze durchnummeriert. Du lieferst Szenen und sagst, welche
+Sätze zu welcher Szene gehören. Die Sätze selbst gibst du NICHT zurück.
+
+WELCHE SÄTZE ZUSAMMENGEHÖREN:
+- Eine Szene deckt eine Spanne aufeinanderfolgender Sätze ab. Zwei bis drei
+  Sätze sind der Normalfall, vier die Obergrenze.
+- Die Spannen decken das ganze Skript lückenlos ab: der erste fängt bei Satz 0
+  an, der letzte hört beim letzten Satz auf, keine Lücke, keine Überschneidung.
+- Getrennt wird dort, wo der Gedanke wechselt — nicht nach Länge.
+- Eine Szene hat höchstens so viele Teile, wie ihre Spanne Sätze hat: die
+  Grafik entsteht Schritt für Schritt, ein Teil je Satz.
+
+DIE ZAHLEN KOMMEN AUS DEM TEXT:
+- Nenne in einer Grafik NUR Zahlen, die in den Sätzen dieser Spanne stehen
+  oder sich aus ihnen ausrechnen lassen. Erfinde keine Zahl, die im Skript
+  nicht vorkommt — sie stünde im Bild, während etwas anderes gesagt wird.
+- Steht in einer Spanne keine Zahl, nimm "aussage". Das ist die richtige
+  Antwort und keine Ausweichlösung.
+- "source" bei Zahlen aus dem Text: "Aus dem Skript".
+
+DIE ÜBERSCHRIFT einer Szene ist die Aussage der Sätze, die sie trägt, in
+eigenen Worten und höchstens 90 Zeichen. Das ist kein Zitat und kein
+Untertitel — der Text wird ja gesprochen.
+
+Antworte mit einem JSON-Objekt, sonst nichts:
+{"title":"…",
+ "scenes":[{"key":"…","name":"…","type":"…","headline":"…", …}],
+ "spans":[{"from":0,"to":2,"scene":"…"}]}
+
+- "from" und "to" sind Satznummern, beide einschließlich.
+- Jede "scene" in spans MUSS als "key" in scenes vorkommen.
+- "title" ist ein Titel für das ganze Video.`;
+
+export function buildFinanceImportPrompt(args: {
+  sentences: string[];
+  /** Klangteppiche, aus denen gewählt werden kann. */
+  beds: { key: string; name: string }[];
+}): string {
+  const lines = args.sentences.map((s, i) => `${i}\t${s}`).join("\n");
+  const beds = args.beds.length
+    ? `\n\nDIE MUSIK DIESES VIDEOS (trag diesen "key" bei jeder Spanne in "ambience" ein):\n${args.beds
+        .map((b) => `- ${b.key} (${b.name})`)
+        .join("\n")}`
+    : "";
+
+  return `DAS FERTIGE SKRIPT, durchnummeriert:
+${lines}
+
+Es sind ${args.sentences.length} Sätze, also Nummern 0 bis ${
+    args.sentences.length - 1
+  }. Deck sie lückenlos mit Spannen ab.
+
+${SCENE_SHAPES}${beds}`;
+}
