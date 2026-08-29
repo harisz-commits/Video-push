@@ -45,6 +45,42 @@ const SERIES_COLORS = [C.wheat, C.mint, C.signal];
  * Damit lassen sich die getakteten Einblendungen dort einsetzen, wo bisher
  * enter() stand, ohne jede Verwendungsstelle umzuschreiben.
  */
+/**
+ * Einen Satz in Teilsätze zerlegen, ohne ein Zeichen zu verlieren.
+ *
+ * Die Trennzeichen bleiben am vorigen Teil, damit der Satz zusammengesetzt
+ * genau der Satz bleibt, der er war.
+ */
+function splitClauses(text: string): string[] {
+  // Zeichenweise statt mit einem Trenn-Ausdruck, und zwar damit der Leerraum
+  // NACH dem Komma beim vorigen Teil bleibt. Ein Trenner, der ihn verschluckt,
+  // ergibt auf dem Schirm „anfängt,zahlt" — die Teile stehen ja unmittelbar
+  // nebeneinander. Aneinandergehängt ist das Ergebnis Zeichen für Zeichen der
+  // Ausgangssatz.
+  const parts: string[] = [];
+  let current = "";
+  for (let i = 0; i < text.length; i += 1) {
+    current += text[i];
+    if (!",;:—–".includes(text[i])) continue;
+    while (i + 1 < text.length && /\s/.test(text[i + 1])) {
+      current += text[i + 1];
+      i += 1;
+    }
+    parts.push(current);
+    current = "";
+  }
+  if (current) parts.push(current);
+  // Unter zwei Teilen lohnt die Staffelung nicht; über vier wird sie unruhig.
+  if (parts.length < 2) return [text];
+  if (parts.length <= 4) return parts;
+  const per = Math.ceil(parts.length / 4);
+  const merged: string[] = [];
+  for (let i = 0; i < parts.length; i += per) {
+    merged.push(parts.slice(i, i + per).join(""));
+  }
+  return merged;
+}
+
 function fade(opacity: number) {
   const clamped = Math.max(0, Math.min(1, opacity));
   return { opacity: clamped, style: { opacity: clamped } as const };
@@ -67,7 +103,9 @@ function layout(scene: FinanceScene) {
 
 // ---- Große Zahl -----------------------------------------------------------
 
-export const ZahlScene: React.FC<SceneProps<Extract<FinanceScene, { type: "zahl" }>>> = ({ scene, frame, beats }) => {
+export const ZahlScene: React.FC<
+  SceneProps<Extract<FinanceScene, { type: "zahl" }>>
+> = ({ scene, frame, beats }) => {
   const { fps } = useVideoConfig();
   // Zählt hoch statt zu erscheinen. Eine Zahl, die läuft, wird angeschaut;
   // eine, die dasteht, wird überlesen.
@@ -163,7 +201,9 @@ export const BalkenScene: React.FC<
           <React.Fragment key={category.label}>
             {category.values.map((value, si) => {
               const height = (value / max) * plotHeight * grow;
-              const width = scene.stacked ? groupWidth : groupWidth / category.values.length;
+              const width = scene.stacked
+                ? groupWidth
+                : groupWidth / category.values.length;
               const x = scene.stacked ? left : left + width * si;
               const bottom = scene.stacked ? stackTop : 0;
               if (scene.stacked) stackTop += height;
@@ -226,7 +266,9 @@ export const LinieScene: React.FC<
   // Liegen mehrere Sätze auf ihr, verteilt sie sich auf die Sätze — sie wächst
   // also mit, während erzählt wird, statt vor dem ersten Satz fertig zu sein.
   const draw =
-    beats.length > 1 ? revealed(frame, beats, 1, fps) : drive(frame, fps, 8, 40);
+    beats.length > 1
+      ? revealed(frame, beats, 1, fps)
+      : drive(frame, fps, 8, 40);
 
   const px = (i: number) =>
     box.x + AXIS_LEFT + (plotWidth * i) / Math.max(1, count - 1);
@@ -252,7 +294,10 @@ export const LinieScene: React.FC<
       >
         {scene.series.map((series, si) => {
           const d = series.points
-            .map((v, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(v).toFixed(1)}`)
+            .map(
+              (v, i) =>
+                `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(v).toFixed(1)}`,
+            )
             .join(" ");
           return (
             <path
@@ -276,10 +321,18 @@ export const LinieScene: React.FC<
       {scene.markers.map((marker, mi) => {
         const at = Math.min(count - 1, Math.max(0, marker.at));
         const reached = draw >= at / Math.max(1, count - 1);
-        const pop = drive(frame, fps, 8 + (40 * at) / Math.max(1, count - 1), 10);
+        const pop = drive(
+          frame,
+          fps,
+          8 + (40 * at) / Math.max(1, count - 1),
+          10,
+        );
         if (!reached) return null;
         return (
-          <div key={mi} style={{ position: "absolute", left: px(at), top: box.top }}>
+          <div
+            key={mi}
+            style={{ position: "absolute", left: px(at), top: box.top }}
+          >
             <div
               style={{
                 position: "absolute",
@@ -357,14 +410,18 @@ export const ZinseszinsScene: React.FC<
   const max = scale.max;
   const gridProgress = drive(frame, fps, 0, 16);
   const draw =
-    beats.length > 1 ? revealed(frame, beats, 1, fps) : drive(frame, fps, 8, 52);
+    beats.length > 1
+      ? revealed(frame, beats, 1, fps)
+      : drive(frame, fps, 8, 52);
 
   const px = (i: number) => box.x + AXIS_LEFT + (plotWidth * i) / scene.years;
   const py = (v: number) => box.top + plotHeight - (v / max) * plotHeight;
   const upto = Math.max(1, Math.round(draw * scene.years));
 
   const area = [
-    ...total.slice(0, upto + 1).map((v, i) => `${i === 0 ? "M" : "L"}${px(i)},${py(v)}`),
+    ...total
+      .slice(0, upto + 1)
+      .map((v, i) => `${i === 0 ? "M" : "L"}${px(i)},${py(v)}`),
     ...paid
       .slice(0, upto + 1)
       .reverse()
@@ -380,7 +437,11 @@ export const ZinseszinsScene: React.FC<
 
   const gain = total[scene.years] - paid[scene.years];
   // Das Ergebnis steht erst da, wenn die Kurve angekommen ist.
-  const label = enter(frame, fps, beats.length > 1 ? beats[beats.length - 1] : 48);
+  const label = enter(
+    frame,
+    fps,
+    beats.length > 1 ? beats[beats.length - 1] : 48,
+  );
 
   return (
     <>
@@ -403,7 +464,13 @@ export const ZinseszinsScene: React.FC<
         {/* Die Fläche zwischen beiden Linien IST das Argument dieser Szene:
             was der Zins gemacht hat, und wie lange sie nach nichts aussieht. */}
         <path d={area} fill={C.mint} opacity={0.22} />
-        <path d={line(paid)} fill="none" stroke={C.muted} strokeWidth={4} strokeDasharray="10 8" />
+        <path
+          d={line(paid)}
+          fill="none"
+          stroke={C.muted}
+          strokeWidth={4}
+          strokeDasharray="10 8"
+        />
         <path
           d={line(total)}
           fill="none"
@@ -689,7 +756,13 @@ export const WasserfallScene: React.FC<
     });
     running = next;
   }
-  bars.push({ label: scene.endLabel, from: 0, to: running, after: running, kind: "end" });
+  bars.push({
+    label: scene.endLabel,
+    from: 0,
+    to: running,
+    after: running,
+    kind: "end",
+  });
 
   const scale = axis(Math.max(...bars.map((b) => b.to), 0));
   const max = scale.max;
@@ -753,7 +826,8 @@ export const WasserfallScene: React.FC<
               style={{
                 position: "absolute",
                 left,
-                top: box.top + plotHeight - (bar.from / max) * plotHeight - height,
+                top:
+                  box.top + plotHeight - (bar.from / max) * plotHeight - height,
                 width,
                 height,
                 background: colorOf(bar.kind),
@@ -764,11 +838,7 @@ export const WasserfallScene: React.FC<
               style={{
                 position: "absolute",
                 left: left - slot * 0.2,
-                top:
-                  box.top +
-                  plotHeight -
-                  (bar.to / max) * plotHeight -
-                  40,
+                top: box.top + plotHeight - (bar.to / max) * plotHeight - 40,
                 width: slot,
                 textAlign: "center",
                 fontFamily: FONT.mono,
@@ -873,7 +943,14 @@ export const AufteilungScene: React.FC<
                   background: palette[i % palette.length],
                 }}
               />
-              <span style={{ fontFamily: FONT.body, fontWeight: 500, fontSize: 30, color: C.ink }}>
+              <span
+                style={{
+                  fontFamily: FONT.body,
+                  fontWeight: 500,
+                  fontSize: 30,
+                  color: C.ink,
+                }}
+              >
                 {part.label}
               </span>
               <span
@@ -904,7 +981,11 @@ export const AufteilungScene: React.FC<
 
   return (
     <>
-      <svg width={1920} height={1080} style={{ position: "absolute", left: 0, top: 0 }}>
+      <svg
+        width={1920}
+        height={1080}
+        style={{ position: "absolute", left: 0, top: 0 }}
+      >
         {scene.parts.map((part, i) => {
           const span = (part.value / total) * Math.PI * 2 * sweep;
           const from = angle;
@@ -957,7 +1038,14 @@ export const AufteilungScene: React.FC<
                 background: palette[i % palette.length],
               }}
             />
-            <span style={{ fontFamily: FONT.body, fontWeight: 500, fontSize: 32, color: C.ink }}>
+            <span
+              style={{
+                fontFamily: FONT.body,
+                fontWeight: 500,
+                fontSize: 32,
+                color: C.ink,
+              }}
+            >
               {part.label}
             </span>
             <span
@@ -987,7 +1075,8 @@ export const FlussScene: React.FC<
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const gap = 44;
-  const width = (box.width - gap * (scene.nodes.length - 1)) / scene.nodes.length;
+  const width =
+    (box.width - gap * (scene.nodes.length - 1)) / scene.nodes.length;
   const top = box.top + 70;
   const height = 190;
   const show = revealed(frame, beats, scene.nodes.length, fps);
@@ -1241,7 +1330,10 @@ export const FormelScene: React.FC<
   const { fps } = useVideoConfig();
   const box = layout(scene);
   const top = box.top + 30;
-  const rowHeight = Math.min(112, (box.height - 120) / (scene.steps.length + 1));
+  const rowHeight = Math.min(
+    112,
+    (box.height - 120) / (scene.steps.length + 1),
+  );
   const show = revealed(frame, beats, scene.steps.length, fps);
   const result = enter(
     frame,
@@ -1329,6 +1421,20 @@ export const AussageScene: React.FC<
   const show = enter(frame, fps, 6);
   const who = enter(frame, fps, 16);
 
+  /**
+   * Der Satz kommt in Teilen, nicht am Stück.
+   *
+   * Die einzige Szene, die bisher gar nichts tat: ein Satz erschien und stand
+   * dann zehn Sekunden still. Auf einem Schirm, auf dem sich alle paar
+   * Sekunden etwas rühren soll, war das die Stelle, an der nichts geschah.
+   *
+   * Getrennt an Teilsatzgrenzen, weil ein Satz dort auch beim Sprechen
+   * atmet — Wort für Wort einzublenden wäre ein Effekt, Teilsatz für
+   * Teilsatz ist die Betonung.
+   */
+  const teile = splitClauses(scene.text);
+  const revealedParts = revealed(frame, beats, teile.length, fps);
+
   return (
     <>
       <div
@@ -1347,7 +1453,22 @@ export const AussageScene: React.FC<
           transformOrigin: "left center",
         }}
       >
-        {scene.text}
+        {teile.map((teil, i) => (
+          <span
+            key={i}
+            style={{
+              // Was noch nicht dran war, steht schon da, aber blass — so
+              // springt der Satz beim Auftauchen nicht um, und man sieht,
+              // wieviel noch kommt.
+              opacity:
+                beats.length > 1
+                  ? 0.16 + 0.84 * Math.max(0, Math.min(1, revealedParts - i))
+                  : 1,
+            }}
+          >
+            {teil}
+          </span>
+        ))}
       </div>
       {scene.attribution ? (
         <div

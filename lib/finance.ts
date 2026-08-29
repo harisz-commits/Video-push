@@ -27,7 +27,33 @@ const MAX_POINTS = 40;
 /** Zeilen in einer Gegenüberstellung, einer Tabelle, einer Aufteilung. */
 const MAX_ROWS = 6;
 
-const Label = z.string().min(1).max(60);
+/**
+ * Text, der auf den Schirm kommt — gekürzt, nicht abgelehnt.
+ *
+ * Zwei Gründe für das Kürzen statt des Ablehnens. Erstens sind die Grenzen
+ * hier eng, weil zu viel Text der häufigste Grund war, dass eine Szene nach
+ * Vortragsfolie aussah — und ein Modell, das um zehn Zeichen darüber liegt,
+ * soll deswegen keine Grafik verlieren. Zweitens: die Grenzen wurden
+ * nachträglich enger gezogen, und gespeicherte Projekte mit längeren Texten
+ * müssen sich weiter öffnen lassen. Ein Schema, das alte Arbeit unlesbar
+ * macht, ist kein besseres Schema.
+ */
+const text = (max: number, min = 0) =>
+  z
+    .string()
+    .transform((value) => {
+      const trimmed = value.trim();
+      if (trimmed.length <= max) return trimmed;
+      // An der Wortgrenze, mit Auslassungszeichen: ein Text, der mitten im
+      // Wort abbricht, sieht nach Fehler aus. Er IST einer — nur einer, den
+      // wir nicht mehr reparieren können, wenn er schon gespeichert ist.
+      const cut = trimmed.slice(0, max - 1);
+      const space = cut.lastIndexOf(" ");
+      return `${(space > max * 0.5 ? cut.slice(0, space) : cut).replace(/[,;:\s]+$/, "")}…`;
+    })
+    .pipe(z.string().min(min));
+
+const Label = text(34, 1);
 const Money = z.number().finite();
 
 /**
@@ -46,9 +72,11 @@ const Base = {
   /** Kurzer deutscher Name für die Liste im Studio. */
   name: z.string().min(3).max(120),
   /** Die Überschrift im Bild. Kein Titel des Videos, sondern die Aussage. */
-  headline: z.string().min(3).max(90),
+  /** Die Aussage, nicht der Gegenstand. Kurz — sie wird ja gesprochen. */
+  headline: text(62, 3),
   /** Eine Zeile darunter, wenn die Überschrift allein zu wenig sagt. */
-  sub: z.string().max(140).optional(),
+  /** Nur wenn die Überschrift allein zu wenig sagt: Annahmen, Zeitraum. */
+  sub: text(72).optional(),
   /**
    * Ob eine Figur mit im Bild steht, und was sie tut.
    *
@@ -67,7 +95,7 @@ const ZahlScene = z.object({
   suffix: z.string().max(12).optional(),
   decimals: z.number().int().min(0).max(2).default(0),
   /** Die Bezugsgröße. Ohne sie ist eine große Zahl eine leere Zahl. */
-  caption: z.string().min(3).max(140),
+  caption: text(85, 3),
   source: Source,
 });
 
@@ -137,14 +165,14 @@ const VergleichScene = z.object({
   type: z.literal("vergleich"),
   left: z.object({
     title: Label,
-    rows: z.array(z.string().max(90)).min(1).max(MAX_ROWS),
+    rows: z.array(text(46, 1)).min(1).max(MAX_ROWS),
   }),
   right: z.object({
     title: Label,
-    rows: z.array(z.string().max(90)).min(1).max(MAX_ROWS),
+    rows: z.array(text(46, 1)).min(1).max(MAX_ROWS),
   }),
   /** Der Satz unter beiden Spalten, wenn es einen gibt. */
-  verdict: z.string().max(140).optional(),
+  verdict: text(80).optional(),
   source: Source.optional(),
 });
 
@@ -199,7 +227,7 @@ const ZeitstrahlScene = z.object({
   ...Base,
   type: z.literal("zeitstrahl"),
   events: z
-    .array(z.object({ year: Label, label: z.string().max(90) }))
+    .array(z.object({ year: Label, label: text(48, 1) }))
     .min(2)
     .max(MAX_ROWS),
   source: Source,
@@ -211,7 +239,7 @@ const TabelleScene = z.object({
   type: z.literal("tabelle"),
   columns: z.array(Label).min(2).max(4),
   rows: z
-    .array(z.array(z.string().max(40)).min(2).max(4))
+    .array(z.array(text(22, 1)).min(2).max(4))
     .min(2)
     .max(MAX_ROWS),
   source: Source,
@@ -224,13 +252,13 @@ const FormelScene = z.object({
   steps: z
     .array(
       z.object({
-        expression: z.string().max(70),
-        note: z.string().max(80).optional(),
+        expression: text(48, 1),
+        note: text(42).optional(),
       }),
     )
     .min(2)
     .max(5),
-  result: z.string().max(70).optional(),
+  result: text(48).optional(),
   source: Source.optional(),
 });
 
@@ -244,8 +272,8 @@ const FormelScene = z.object({
 const AussageScene = z.object({
   ...Base,
   type: z.literal("aussage"),
-  text: z.string().min(4).max(220),
-  attribution: z.string().max(80).optional(),
+  text: text(105, 4),
+  attribution: text(44).optional(),
   source: Source.optional(),
 });
 
@@ -280,6 +308,28 @@ export const FINANCE_SCENE_TYPES = [
   "formel",
   "aussage",
 ] as const;
+
+/**
+ * Welche Szenen Zahlen zeigen und welche nur Text.
+ *
+ * Der Unterschied entscheidet, ob ein Finanzvideo aussieht wie eines oder wie
+ * eine Vortragsmappe. Drei der zwölf zeigen keine Zahl — und genau die sind
+ * für ein Modell die bequemsten, weil man sie ohne Daten füllen kann. Also
+ * werden sie gezählt und begrenzt, statt darauf zu hoffen.
+ */
+export const TEXT_SCENES: FinanceSceneType[] = [
+  "aussage",
+  "vergleich",
+  "zeitstrahl",
+];
+
+/** Wieviele Szenen ohne Zahlen ein Video höchstens verträgt, als Anteil. */
+export const TEXT_SCENE_SHARE = 0.3;
+
+/** Wie oft eine reine Textszene höchstens vorkommt. */
+export function countTextScenes(scenes: FinanceScene[]): number {
+  return scenes.filter((s) => TEXT_SCENES.includes(s.type)).length;
+}
 
 /** Wie eine Szene im Studio heißt, in einem Wort. */
 export const SCENE_LABELS: Record<FinanceSceneType, string> = {

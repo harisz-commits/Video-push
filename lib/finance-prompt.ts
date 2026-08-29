@@ -105,12 +105,34 @@ DIE SZENEN ENTSTEHEN IN SCHRITTEN, NICHT AUF EINMAL:
   DARAUF SCHREIBEN: Satz 1 handelt vom ersten Teil, Satz 2 vom zweiten. Ein
   Satz, der die Gesamtsumme nennt, während erst zwei von fünf Stufen zu sehen
   sind, geht ins Leere.
-- Daraus folgt die Länge: höchstens so viele Sätze auf einer Szene, wie die
-  Szene Teile hat. Eine Tabelle mit drei Zeilen trägt drei Sätze, keine sechs.
-- ZWEI BIS DREI Sätze auf einer Szene sind der Normalfall. Vier ist die
-  Obergrenze, und nur bei einer Szene mit mindestens vier Teilen.
+- Daraus folgt die Länge: HÖCHSTENS SO VIELE SÄTZE AUF EINER SZENE, WIE DIE
+  SZENE TEILE HAT. Eine Tabelle mit drei Zeilen trägt drei Sätze, keine
+  sechs. Ein Wasserfall mit vier Stufen trägt vier. Eine "aussage" trägt
+  einen oder zwei — sie hat fast nichts, was sich aufbauen könnte, und ist
+  deshalb die Szene, auf der am ehesten Stillstand entsteht.
+- EIN BIS ZWEI Sätze auf einer Szene sind der Normalfall. Drei nur, wenn die
+  Szene mindestens drei Teile hat. Vier ist die Obergrenze und die Ausnahme.
+- Rechne mit rund vier Sekunden je Satz. Drei Sätze auf einer Szene sind
+  zwölf Sekunden — das ist zu lang, wenn sich in der Zeit nur zweimal etwas
+  rührt.
 
 - Aneinandergehängt ergeben alle Einstellungstexte den fertigen Fließtext.
+
+WAS AUF DEM SCHIRM STEHT — die wichtigste Regel für die Grafiken:
+- ZWEI VON DREI SZENEN MÜSSEN ZAHLEN ZEIGEN. Ein Finanzvideo, das
+  überwiegend Sätze auf dunklem Grund zeigt, ist eine Vortragsmappe. Die
+  Zahlen sind der Grund, warum jemand zuschaut statt zu lesen.
+- Die drei Szenen OHNE Zahlen — "aussage", "vergleich", "zeitstrahl" — sind
+  die Ausnahme, nicht der Ausweg. "aussage" HÖCHSTENS ZWEIMAL im ganzen
+  Abschnitt, und nie zwei Textszenen hintereinander.
+- Findest du zu einem Satz keine Zahl, such eine: was kostet das, wie oft
+  kommt es vor, über wieviele Jahre, wieviel Prozent. Fast jede Aussage über
+  Geld hat eine Zahl darunter. Erst wenn wirklich keine da ist, nimm
+  "aussage".
+- WENIG TEXT IM BILD. Die Überschrift ist kurz, die Unterzeile meistens
+  überflüssig, und Beschriftungen sind Wörter, keine Sätze: „nach 10 J."
+  statt „nach zehn Jahren Laufzeit". Der Text wird GESPROCHEN — was im Bild
+  steht, wiederholt ihn nicht, sondern zeigt das, wovon er handelt.
 
 DIE SZENEN — welche wofür:
 - "zahl": EINE große Zahl mit dem, woran man sie misst. Für den Einstieg und
@@ -129,8 +151,9 @@ DIE SZENEN — welche wofür:
 - "zeitstrahl": Jahreszahlen mit Ereignissen.
 - "tabelle": Zahlen nebeneinander, wenn keine Grafik sie besser zeigt.
 - "formel": eine Rechnung, Schritt für Schritt. Für "so kommt die Zahl zustande".
-- "aussage": ein Satz, der stehen bleibt. Definitionen, Merksätze, Übergänge.
-  Nimm sie, statt ein Diagramm für etwas zu bauen, das keine Daten hat.
+- "aussage": ein Satz, der stehen bleibt. Nur für einen Merksatz, der
+  wirklich hängen bleiben soll — nicht als Ausweg, wenn dir keine Zahl
+  einfällt. Höchstens zweimal.
 
 QUELLEN — harte Regel:
 - Jede Szene mit Zahlen braucht "source": woher die Zahl kommt, in einem
@@ -473,10 +496,11 @@ ${rollen.join("\n")}`
     )
     .join("\n");
 
-  // Eine Szene je gut sieben Sekunden. Vorher waren es vier je Minute, also
-  // eine alle fünfzehn Sekunden — ein Elf-Minuten-Video kam so auf neun-
-  // unddreißig Szenen, und dazwischen bewegte sich nichts.
-  const scenes = Math.max(2, Math.round((args.words / WORDS_PER_MINUTE) * 8));
+  // Eine Szene je knapp sechs Sekunden. Vorher vier je Minute (eine alle
+  // fünfzehn Sekunden), dann acht — und es waren im fertigen Video immer noch
+  // oft zehn. Zehn je Minute plus die Schritte innerhalb einer Szene ergeben
+  // eine Bewegung alle drei bis vier Sekunden.
+  const scenes = Math.max(2, Math.round((args.words / WORDS_PER_MINUTE) * 10));
 
   return `Thema des Videos:
 ${args.topic}

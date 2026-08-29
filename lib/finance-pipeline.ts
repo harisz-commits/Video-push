@@ -1,7 +1,13 @@
 import { parseJsonObject } from "./json";
 import { complete } from "./llm";
 import { slugify } from "./image-library";
-import { FinanceScene, withDisclaimer, type FinanceFormat } from "./finance";
+import {
+  countTextScenes,
+  FinanceScene,
+  TEXT_SCENE_SHARE,
+  withDisclaimer,
+  type FinanceFormat,
+} from "./finance";
 import {
   buildFinanceImportPrompt,
   buildFinanceOutlinePrompt,
@@ -158,6 +164,8 @@ export async function generateFinance(args: {
       warning: buildWarning({
         short: script.short,
         dropped: script.dropped,
+        textScenes: countTextScenes(withNote.scenes),
+        scenes: withNote.scenes.length,
         words,
         minutes: args.minutes,
         researched: args.research !== false,
@@ -579,6 +587,9 @@ export function reconcile(
 function buildWarning(args: {
   short: boolean;
   dropped: number;
+  /** Szenen ohne Zahlen — aussage, vergleich, zeitstrahl. */
+  textScenes: number;
+  scenes: number;
   words: number;
   minutes: number;
   researched: boolean;
@@ -593,6 +604,12 @@ function buildWarning(args: {
     return `${args.dropped} ${
       args.dropped === 1 ? "Szene wurde" : "Szenen wurden"
     } verworfen, weil Pflichtangaben fehlten — meistens die Quelle. Die Sätze dazu stehen jetzt auf der Szene davor.`;
+  }
+  // Der Hinweis-Einschub ist eine Textszene und war nie gewollt — er zählt
+  // deshalb nicht gegen die Quote.
+  const text = Math.max(0, args.textScenes - 1);
+  if (args.scenes > 3 && text > args.scenes * TEXT_SCENE_SHARE) {
+    return `${text} von ${args.scenes} Szenen zeigen keine Zahlen, sondern nur Text. Das sieht nach Vortragsfolien aus — schreib das Skript noch einmal, dann sucht das Modell erneut nach Zahlen.`;
   }
   if (args.researched && args.facts === 0) {
     return "Die Recherche hat nichts geliefert — das Skript ist aus dem Gedächtnis geschrieben. Bei Zahlen und Renditen ist das die unsicherste Grundlage.";
