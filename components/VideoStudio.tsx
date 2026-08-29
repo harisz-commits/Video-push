@@ -1,7 +1,13 @@
 "use client";
 
 import { Player, type PlayerRef } from "@remotion/player";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { IMAGE_MODELS, resolveModel } from "../lib/image-models";
 import {
   DEFAULT_SPEECH_MODEL_ID,
@@ -22,7 +28,12 @@ import {
 } from "../lib/story";
 import { WORDS_PER_MINUTE } from "../lib/story-prompt";
 import { TEXT_MODELS } from "../lib/text-models";
-import { hasDisclaimer, withDisclaimer } from "../lib/finance";
+import {
+  FINANCE_FORMATS,
+  hasDisclaimer,
+  withDisclaimer,
+  type FinanceFormat as FinanceFormatId,
+} from "../lib/finance";
 import { SHORTS_PER_FILM } from "../lib/story-shorts";
 import { soundCost } from "../lib/sfx-cost";
 import { subtitleCues, subtitleFilename, toSrt } from "../lib/subtitles";
@@ -132,7 +143,12 @@ type StoryJobState = {
   error?: string;
   /** Finished, but shorter than asked for. See lib/story-pipeline.ts. */
   warning?: string;
-  cost?: { label: string; inputTokens: number; outputTokens: number; cents: number };
+  cost?: {
+    label: string;
+    inputTokens: number;
+    outputTokens: number;
+    cents: number;
+  };
   startedAt?: number;
 };
 
@@ -247,7 +263,9 @@ export const VideoStudio: React.FC<{
    * of the film.
    */
   const appearances = SHOTS_PER_MINUTE / Math.max(0.5, imagesPerMinute);
-  const [imageModelId, setImageModelId] = useState("gemini-3.1-flash-lite-image");
+  const [imageModelId, setImageModelId] = useState(
+    "gemini-3.1-flash-lite-image",
+  );
   const imageModel = resolveModel(imageModelId);
 
   /**
@@ -283,6 +301,13 @@ export const VideoStudio: React.FC<{
   const [perspective, setPerspective] = useState<"erklaerung" | "erlebnis">(
     "erklaerung",
   );
+  /**
+   * Welche Sorte Finanzvideo.
+   *
+   * Nicht bloß ein Etikett: die fünf haben verschiedene Skript-Skelette, und
+   * das ist der Unterschied zwischen fünf Videos und fünfmal demselben.
+   */
+  const [financeFormat, setFinanceFormat] = useState<FinanceFormatId>("fehler");
 
   // ---- What the look should be, before there is one -----------------------
   const [styleWish, setStyleWish] = useState("");
@@ -297,7 +322,9 @@ export const VideoStudio: React.FC<{
   const [voices, setVoices] = useState<VoiceRow[]>([]);
   const [voiceId, setVoiceId] = useState("");
   const [speechModelId, setSpeechModelId] = useState(DEFAULT_SPEECH_MODEL_ID);
-  const [languages, setLanguages] = useState<{ id: string; name: string }[]>([]);
+  const [languages, setLanguages] = useState<{ id: string; name: string }[]>(
+    [],
+  );
   const [language, setLanguage] = useState("de");
   const speechModel = resolveSpeechModel(speechModelId);
   const chosenVoice = voices.find((v) => v.voiceId === voiceId);
@@ -421,7 +448,10 @@ export const VideoStudio: React.FC<{
    */
   const finishedVideo = useMemo(() => {
     if (render?.status === "done" && render.outputUrl && !render.shortId) {
-      return { url: render.outputUrl, sizeBytes: undefined as number | undefined };
+      return {
+        url: render.outputUrl,
+        sizeBytes: undefined as number | undefined,
+      };
     }
     // The film, never one of its vertical cuts. A short is also a finished
     // render with a file, and offering the newest of those would hand somebody
@@ -489,9 +519,9 @@ export const VideoStudio: React.FC<{
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const result = await getJson<{ languages: { id: string; name: string }[] }>(
-        `/api/languages?model=${encodeURIComponent(speechModelId)}`,
-      );
+      const result = await getJson<{
+        languages: { id: string; name: string }[];
+      }>(`/api/languages?model=${encodeURIComponent(speechModelId)}`);
       if (!cancelled && result.ok) setLanguages(result.data.languages ?? []);
     })();
     return () => {
@@ -630,7 +660,11 @@ export const VideoStudio: React.FC<{
     setLookNote(null);
     const result = await postJson<{ character: Saved }>(
       "/api/story/characters",
-      { key: seed.key || undefined, name: seed.name, description: seed.description },
+      {
+        key: seed.key || undefined,
+        name: seed.name,
+        description: seed.description,
+      },
     );
     if (!result.ok) {
       setLookNote(result.error);
@@ -699,20 +733,26 @@ export const VideoStudio: React.FC<{
     const result = await postJson<{ jobId: string }>(
       finance ? "/api/finance" : "/api/story",
       finance
-        ? { topic, minutes, model: textModelId, research }
+        ? {
+            topic,
+            minutes,
+            model: textModelId,
+            research,
+            format: financeFormat,
+          }
         : {
-      topic,
-      minutes,
-      imageBudget,
-      imagesPerMinute,
-      // Ignored by the route when a look is chosen — a kept look is already a
-      // decision, and asking for both would be asking for two.
-      styleWish: lookId ? undefined : styleWish.trim() || undefined,
-      lookId: lookId || undefined,
-      characters: cast.filter((c) => c.description.trim().length >= 3),
-      model: textModelId,
-      research,
-      perspective,
+            topic,
+            minutes,
+            imageBudget,
+            imagesPerMinute,
+            // Ignored by the route when a look is chosen — a kept look is already a
+            // decision, and asking for both would be asking for two.
+            styleWish: lookId ? undefined : styleWish.trim() || undefined,
+            lookId: lookId || undefined,
+            characters: cast.filter((c) => c.description.trim().length >= 3),
+            model: textModelId,
+            research,
+            perspective,
           },
     );
     if (!result.ok) {
@@ -899,11 +939,15 @@ export const VideoStudio: React.FC<{
         const free = result.data.reused ?? 0;
         setDrawNote(
           `${paid} gezeichnet für ${formatCents(result.data.cents ?? 0)}` +
-            (free > 0 ? `, ${free} aus der Bibliothek übernommen — kostenlos.` : "."),
+            (free > 0
+              ? `, ${free} aus der Bibliothek übernommen — kostenlos.`
+              : "."),
         );
         if (result.data.warning) setDrawError(result.data.warning);
       } else {
-        setDrawError(result.data.error ?? "Die Bilder konnten nicht gezeichnet werden.");
+        setDrawError(
+          result.data.error ?? "Die Bilder konnten nicht gezeichnet werden.",
+        );
       }
       rememberJob(drawKey, null);
       setDrawJobId(null);
@@ -983,7 +1027,9 @@ export const VideoStudio: React.FC<{
         );
         if (result.data.warning) setSfxError(result.data.warning);
       } else {
-        setSfxError(result.data.error ?? "Die Geräusche konnten nicht erzeugt werden.");
+        setSfxError(
+          result.data.error ?? "Die Geräusche konnten nicht erzeugt werden.",
+        );
       }
       rememberJob(sfxKey, null);
       setSfxJobId(null);
@@ -1074,24 +1120,28 @@ export const VideoStudio: React.FC<{
         // project either.
         const belongsTo = recallJob(voiceKey)?.projectId;
         saveNow.current = true;
-        setProject((p) => (belongsTo && belongsTo !== p.id ? p : {
-          ...p,
-          audioUrl: data.audioUrl,
-          cues: data.cues,
-          audioSeconds: data.audioSeconds,
-          // The old character alignment belongs to whoever spoke last. Keeping
-          // it beside fresh cues would leave two disagreeing sources of truth,
-          // and the timing code prefers cues — so the stale one would sit
-          // there being wrong and invisible.
-          alignment: undefined,
-          voice: {
-            provider: "elevenlabs",
-            name: data.voice,
-            label: data.voiceLabel,
-            model: data.model,
-            language: data.language,
-          },
-        }));
+        setProject((p) =>
+          belongsTo && belongsTo !== p.id
+            ? p
+            : {
+                ...p,
+                audioUrl: data.audioUrl,
+                cues: data.cues,
+                audioSeconds: data.audioSeconds,
+                // The old character alignment belongs to whoever spoke last. Keeping
+                // it beside fresh cues would leave two disagreeing sources of truth,
+                // and the timing code prefers cues — so the stale one would sit
+                // there being wrong and invisible.
+                alignment: undefined,
+                voice: {
+                  provider: "elevenlabs",
+                  name: data.voice,
+                  label: data.voiceLabel,
+                  model: data.model,
+                  language: data.language,
+                },
+              },
+        );
         setVoiceNote(
           [
             `${(data.characters ?? 0).toLocaleString("de-DE")} Zeichen gesprochen`,
@@ -1103,7 +1153,9 @@ export const VideoStudio: React.FC<{
             .join(" · "),
         );
       } else {
-        setVoiceError(result.data.error ?? "Die Sprachausgabe ist fehlgeschlagen.");
+        setVoiceError(
+          result.data.error ?? "Die Sprachausgabe ist fehlgeschlagen.",
+        );
       }
       rememberJob(voiceKey, null);
       setVoiceJobId(null);
@@ -1296,7 +1348,9 @@ export const VideoStudio: React.FC<{
         }
         if (result.data.warning) setShortsError(result.data.warning);
       } else {
-        setShortsError(result.data.error ?? "Die Shorts konnten nicht geschnitten werden.");
+        setShortsError(
+          result.data.error ?? "Die Shorts konnten nicht geschnitten werden.",
+        );
       }
       rememberJob(shortsKey, null);
       setShortsJobId(null);
@@ -1312,7 +1366,8 @@ export const VideoStudio: React.FC<{
   }, [shortsJobId]);
 
   useEffect(() => {
-    if (!render || render.status === "done" || render.status === "error") return;
+    if (!render || render.status === "done" || render.status === "error")
+      return;
     let cancelled = false;
     const tick = async () => {
       const result = await getJson<typeof render>(
@@ -1396,7 +1451,9 @@ export const VideoStudio: React.FC<{
               fontSize: 13,
             }}
           >
-            <option value="">{finance ? "— Neues Finanzvideo —" : "— Neues Video —"}</option>
+            <option value="">
+              {finance ? "— Neues Finanzvideo —" : "— Neues Video —"}
+            </option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.title} · {p.detail} · {ago(p.updatedAt)}
@@ -1405,16 +1462,16 @@ export const VideoStudio: React.FC<{
           </select>
           {saveState === "failed" ? (
             <Note tone="alert">
-              Das Projekt konnte nicht gespeichert werden — es liegt nur noch
-              in diesem Tab. Schließ ihn nicht, bevor hier „gespeichert“ steht.
+              Das Projekt konnte nicht gespeichert werden — es liegt nur noch in
+              diesem Tab. Schließ ihn nicht, bevor hier „gespeichert“ steht.
               {saveError ? ` (${saveError})` : ""} Es wird von selbst noch
               einmal versucht.
             </Note>
           ) : null}
           {projects.length === 0 ? (
             <Note tone="info">
-              Noch kein gespeichertes {finance ? "Finanzvideo" : "Video"}. Sobald
-              eines erzeugt ist, landet es hier automatisch.
+              Noch kein gespeichertes {finance ? "Finanzvideo" : "Video"}.
+              Sobald eines erzeugt ist, landet es hier automatisch.
             </Note>
           ) : null}
         </Panel>
@@ -1442,8 +1499,17 @@ export const VideoStudio: React.FC<{
             }}
           />
 
-          <label className="mono" style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "12px 0 6px" }}>
-            {minutes} Minuten · etwa {estimatedWords.toLocaleString("de-DE")} Wörter
+          <label
+            className="mono"
+            style={{
+              fontSize: 11,
+              color: "#5b6672",
+              display: "block",
+              margin: "12px 0 6px",
+            }}
+          >
+            {minutes} Minuten · etwa {estimatedWords.toLocaleString("de-DE")}{" "}
+            Wörter
           </label>
           <input
             type="range"
@@ -1463,14 +1529,14 @@ export const VideoStudio: React.FC<{
           */}
           {finance ? null : (
             <>
-          {/*
+              {/*
             A rate, not a count. The two together decide how often a viewer
             sees the same drawing, and that is the number worth showing — a
             budget of sixty across twenty-five minutes sounds generous and
             means every picture comes back ten times, which nobody works out
             from two sliders on their own.
           */}
-          {/*
+              {/*
             The number that actually decides whether a film looks repetitive.
             The rate on its own says nothing: at four pictures a minute against
             roughly twenty shots a minute, every picture has to carry five
@@ -1478,312 +1544,400 @@ export const VideoStudio: React.FC<{
             "they ran out". Shown as appearances rather than as seconds,
             because that is what the eye counts.
           */}
-          <label className="mono" style={{ fontSize: 11, color: appearances > 3 ? "var(--alert)" : "#5b6672", display: "block", margin: "12px 0 6px" }}>
-            {imagesPerMinute.toFixed(1).replace(".", ",")} Bilder pro Minute ={" "}
-            {imageBudget} Bilder · {formatCents(imageBudget * imageModel.cents)} ·
-            rechnerisch {appearances.toFixed(1).replace(".", ",")}× je Bild zu
-            sehen
-          </label>
-          <input
-            type="range"
-            min={1}
-            max={12}
-            step={0.5}
-            value={imagesPerMinute}
-            onChange={(e) => setImagesPerMinute(Number(e.target.value))}
-            style={{ width: "100%" }}
-            aria-label="Bilder pro Minute"
-          />
-          <div className="mono" style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}>
-            Das ist die Anzahl, nicht der Takt. Wie lange ein Bild am Stück
-            steht, entscheidet der Text — bleibt es stehen, läuft die
-            Kamerafahrt weiter, ohne Schnitt. Das zählt als EIN Auftritt.
-          </div>
-          {appearances > 3 ? (
-            <Note tone="alert">
-              Bei dieser Rate muss jedes Bild {appearances.toFixed(1).replace(".", ",")}
-              × auftauchen. Ab dem vierten Mal wirkt es, als wären die Bilder
-              ausgegangen. Für höchstens drei Auftritte bräuchtest du{" "}
-              {Math.ceil(SHOTS_PER_MINUTE / 3)} Bilder pro Minute — das kostet{" "}
-              {formatCents(Math.ceil(SHOTS_PER_MINUTE / 3) * minutes * imageModel.cents)}.
-            </Note>
-          ) : null}
+              <label
+                className="mono"
+                style={{
+                  fontSize: 11,
+                  color: appearances > 3 ? "var(--alert)" : "#5b6672",
+                  display: "block",
+                  margin: "12px 0 6px",
+                }}
+              >
+                {imagesPerMinute.toFixed(1).replace(".", ",")} Bilder pro Minute
+                = {imageBudget} Bilder ·{" "}
+                {formatCents(imageBudget * imageModel.cents)} · rechnerisch{" "}
+                {appearances.toFixed(1).replace(".", ",")}× je Bild zu sehen
+              </label>
+              <input
+                type="range"
+                min={1}
+                max={12}
+                step={0.5}
+                value={imagesPerMinute}
+                onChange={(e) => setImagesPerMinute(Number(e.target.value))}
+                style={{ width: "100%" }}
+                aria-label="Bilder pro Minute"
+              />
+              <div
+                className="mono"
+                style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}
+              >
+                Das ist die Anzahl, nicht der Takt. Wie lange ein Bild am Stück
+                steht, entscheidet der Text — bleibt es stehen, läuft die
+                Kamerafahrt weiter, ohne Schnitt. Das zählt als EIN Auftritt.
+              </div>
+              {appearances > 3 ? (
+                <Note tone="alert">
+                  Bei dieser Rate muss jedes Bild{" "}
+                  {appearances.toFixed(1).replace(".", ",")}× auftauchen. Ab dem
+                  vierten Mal wirkt es, als wären die Bilder ausgegangen. Für
+                  höchstens drei Auftritte bräuchtest du{" "}
+                  {Math.ceil(SHOTS_PER_MINUTE / 3)} Bilder pro Minute — das
+                  kostet{" "}
+                  {formatCents(
+                    Math.ceil(SHOTS_PER_MINUTE / 3) *
+                      minutes *
+                      imageModel.cents,
+                  )}
+                  .
+                </Note>
+              ) : null}
 
-          <select
-            value={imageModelId}
-            onChange={(e) => setImageModelId(e.target.value)}
-            aria-label="Bildmodell"
-            style={{
-              width: "100%",
-              padding: "9px 10px",
-              border: "1px solid var(--grid)",
-              background: "#fff",
-              fontSize: 13,
-              marginTop: 12,
-            }}
-          >
-            {IMAGE_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} — {formatCents(m.cents)} je Bild
-              </option>
-            ))}
-          </select>
+              <select
+                value={imageModelId}
+                onChange={(e) => setImageModelId(e.target.value)}
+                aria-label="Bildmodell"
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  border: "1px solid var(--grid)",
+                  background: "#fff",
+                  fontSize: 13,
+                  marginTop: 12,
+                }}
+              >
+                {IMAGE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {formatCents(m.cents)} je Bild
+                  </option>
+                ))}
+              </select>
 
-          {/*
+              {/*
             The look, before there is one. Two mutually exclusive ways to
             decide it: reuse a kept one, or say what it should be. Exclusive on
             purpose — a wish next to a saved look would be an instruction to
             change something that was saved precisely so it would not change.
           */}
-          <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
-            BILDSTIL
-          </div>
-          <select
-            value={lookId}
-            onChange={(e) => setLookId(e.target.value)}
-            aria-label="Gespeicherter Bildstil"
-            style={{
-              width: "100%",
-              padding: "9px 10px",
-              border: "1px solid var(--grid)",
-              background: "#fff",
-              fontSize: 13,
-            }}
-          >
-            <option value="">— Stil neu festlegen lassen —</option>
-            {looks.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.label}
-                {l.uses > 0 ? ` · ${l.uses}× benutzt` : ""}
-              </option>
-            ))}
-          </select>
+              <div
+                className="mono"
+                style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}
+              >
+                BILDSTIL
+              </div>
+              <select
+                value={lookId}
+                onChange={(e) => setLookId(e.target.value)}
+                aria-label="Gespeicherter Bildstil"
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  border: "1px solid var(--grid)",
+                  background: "#fff",
+                  fontSize: 13,
+                }}
+              >
+                <option value="">— Stil neu festlegen lassen —</option>
+                {looks.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                    {l.uses > 0 ? ` · ${l.uses}× benutzt` : ""}
+                  </option>
+                ))}
+              </select>
 
-          {lookId ? (
-            <Note tone="info">
-              Der gespeicherte Stil wird unverändert übernommen. Das ist der
-              Punkt: Videos mit demselben Stil teilen sich die Bild-Bibliothek,
-              ein neu erfundener Stil teilt sich nichts.
-            </Note>
-          ) : (
-            <textarea
-              value={styleWish}
-              placeholder="Stilwunsch, optional: „wärmere Erdtöne, keine Strichmännchen, mehr Papierschnitt“"
-              onChange={(e) => setStyleWish(e.target.value)}
-              aria-label="Stilwunsch"
-              rows={2}
-              style={{
-                width: "100%",
-                padding: "9px 10px",
-                border: "1px solid var(--grid)",
-                background: "#fff",
-                fontSize: 13,
-                lineHeight: 1.4,
-                resize: "vertical",
-                marginTop: 8,
-              }}
-            />
-          )}
+              {lookId ? (
+                <Note tone="info">
+                  Der gespeicherte Stil wird unverändert übernommen. Das ist der
+                  Punkt: Videos mit demselben Stil teilen sich die
+                  Bild-Bibliothek, ein neu erfundener Stil teilt sich nichts.
+                </Note>
+              ) : (
+                <textarea
+                  value={styleWish}
+                  placeholder="Stilwunsch, optional: „wärmere Erdtöne, keine Strichmännchen, mehr Papierschnitt“"
+                  onChange={(e) => setStyleWish(e.target.value)}
+                  aria-label="Stilwunsch"
+                  rows={2}
+                  style={{
+                    width: "100%",
+                    padding: "9px 10px",
+                    border: "1px solid var(--grid)",
+                    background: "#fff",
+                    fontSize: 13,
+                    lineHeight: 1.4,
+                    resize: "vertical",
+                    marginTop: 8,
+                  }}
+                />
+              )}
 
-          {/*
+              {/*
             The cast. Optional, and empty by default, because the format's
             normal answer for people — anonymous stick figures — is the right
             one for an explainer. A figure is for a series that wants a face.
           */}
-          <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
-            FIGUREN ({cast.length})
-          </div>
+              <div
+                className="mono"
+                style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}
+              >
+                FIGUREN ({cast.length})
+              </div>
 
-          {cast.map((c, i) => (
-            <div
-              key={i}
-              style={{
-                border: "1px solid var(--grid)",
-                padding: 8,
-                marginBottom: 6,
-                background: "#fff",
-              }}
-            >
-              <div style={{ display: "flex", gap: 6 }}>
-                <input
-                  value={c.name}
-                  placeholder="Name, z. B. Der Forscher"
-                  onChange={(e) =>
+              {cast.map((c, i) => (
+                <div
+                  key={i}
+                  style={{
+                    border: "1px solid var(--grid)",
+                    padding: 8,
+                    marginBottom: 6,
+                    background: "#fff",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      value={c.name}
+                      placeholder="Name, z. B. Der Forscher"
+                      onChange={(e) =>
+                        setCast((list) =>
+                          list.map((x, j) =>
+                            j === i ? { ...x, name: e.target.value } : x,
+                          ),
+                        )
+                      }
+                      aria-label="Name der Figur"
+                      style={{
+                        flex: 1,
+                        padding: "6px 8px",
+                        border: "1px solid var(--grid)",
+                        fontSize: 13,
+                      }}
+                    />
+                    <Button
+                      variant="ghost"
+                      onClick={() => void keepCharacter(c)}
+                      disabled={
+                        c.name.trim().length < 2 ||
+                        c.description.trim().length < 3
+                      }
+                    >
+                      merken
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        setCast((list) => list.filter((_, j) => j !== i))
+                      }
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                  <textarea
+                    value={c.description}
+                    placeholder="Wie sie aussieht: „schmale Gestalt im roten Anorak, Klemmbrett unter dem Arm, keine Gesichtszüge“"
+                    onChange={(e) =>
+                      setCast((list) =>
+                        list.map((x, j) =>
+                          j === i ? { ...x, description: e.target.value } : x,
+                        ),
+                      )
+                    }
+                    aria-label="Beschreibung der Figur"
+                    rows={2}
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "6px 8px",
+                      border: "1px solid var(--grid)",
+                      fontSize: 12.5,
+                      lineHeight: 1.4,
+                      resize: "vertical",
+                    }}
+                  />
+                </div>
+              ))}
+
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
                     setCast((list) =>
-                      list.map((x, j) =>
-                        j === i ? { ...x, name: e.target.value } : x,
-                      ),
+                      list.length >= 6
+                        ? list
+                        : [...list, { key: "", name: "", description: "" }],
                     )
                   }
-                  aria-label="Name der Figur"
-                  style={{
-                    flex: 1,
-                    padding: "6px 8px",
-                    border: "1px solid var(--grid)",
-                    fontSize: 13,
-                  }}
-                />
-                <Button
-                  variant="ghost"
-                  onClick={() => void keepCharacter(c)}
-                  disabled={c.name.trim().length < 2 || c.description.trim().length < 3}
+                  disabled={cast.length >= 6}
                 >
-                  merken
+                  + Figur
                 </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setCast((list) => list.filter((_, j) => j !== i))}
-                >
-                  ✕
-                </Button>
+                {saved.length > 0 ? (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const found = saved.find((c) => c.key === e.target.value);
+                      if (!found) return;
+                      setCast((list) =>
+                        list.some((c) => c.key === found.key) ||
+                        list.length >= 6
+                          ? list
+                          : [
+                              ...list,
+                              {
+                                key: found.key,
+                                name: found.name,
+                                description: found.description,
+                              },
+                            ],
+                      );
+                    }}
+                    aria-label="Gespeicherte Figur übernehmen"
+                    style={{
+                      flex: 1,
+                      minWidth: 160,
+                      padding: "8px 10px",
+                      border: "1px solid var(--grid)",
+                      background: "#fff",
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <option value="">— gemerkte Figur übernehmen —</option>
+                    {saved.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.name}
+                        {c.uses > 0 ? ` · ${c.uses}×` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
               </div>
-              <textarea
-                value={c.description}
-                placeholder="Wie sie aussieht: „schmale Gestalt im roten Anorak, Klemmbrett unter dem Arm, keine Gesichtszüge“"
-                onChange={(e) =>
-                  setCast((list) =>
-                    list.map((x, j) =>
-                      j === i ? { ...x, description: e.target.value } : x,
-                    ),
-                  )
-                }
-                aria-label="Beschreibung der Figur"
-                rows={2}
-                style={{
-                  width: "100%",
-                  marginTop: 6,
-                  padding: "6px 8px",
-                  border: "1px solid var(--grid)",
-                  fontSize: 12.5,
-                  lineHeight: 1.4,
-                  resize: "vertical",
-                }}
-              />
-            </div>
-          ))}
-
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                setCast((list) =>
-                  list.length >= 6
-                    ? list
-                    : [...list, { key: "", name: "", description: "" }],
-                )
-              }
-              disabled={cast.length >= 6}
-            >
-              + Figur
-            </Button>
-            {saved.length > 0 ? (
-              <select
-                value=""
-                onChange={(e) => {
-                  const found = saved.find((c) => c.key === e.target.value);
-                  if (!found) return;
-                  setCast((list) =>
-                    list.some((c) => c.key === found.key) || list.length >= 6
-                      ? list
-                      : [
-                          ...list,
-                          {
-                            key: found.key,
-                            name: found.name,
-                            description: found.description,
-                          },
-                        ],
-                  );
-                }}
-                aria-label="Gespeicherte Figur übernehmen"
-                style={{
-                  flex: 1,
-                  minWidth: 160,
-                  padding: "8px 10px",
-                  border: "1px solid var(--grid)",
-                  background: "#fff",
-                  fontSize: 12.5,
-                }}
-              >
-                <option value="">— gemerkte Figur übernehmen —</option>
-                {saved.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {c.name}
-                    {c.uses > 0 ? ` · ${c.uses}×` : ""}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-          </div>
-          {lookNote ? <Note tone="info">{lookNote}</Note> : null}
-          {cast.length > 0 ? (
-            <Note tone="info">
-              Beschreib sie in deinen Worten. Beim Festlegen des Stils wird
-              jede Figur in genau diesen Look übersetzt — dieselbe Figur sieht
-              in einem anderen Video deshalb anders aus, und das ist gewollt.
-            </Note>
-          ) : null}
+              {lookNote ? <Note tone="info">{lookNote}</Note> : null}
+              {cast.length > 0 ? (
+                <Note tone="info">
+                  Beschreib sie in deinen Worten. Beim Festlegen des Stils wird
+                  jede Figur in genau diesen Look übersetzt — dieselbe Figur
+                  sieht in einem anderen Video deshalb anders aus, und das ist
+                  gewollt.
+                </Note>
+              ) : null}
             </>
           )}
 
+          {finance ? (
+            <>
+              <div
+                className="mono"
+                style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}
+              >
+                WAS FÜR EIN VIDEO
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {FINANCE_FORMATS.map((f) => (
+                  <label
+                    key={f.id}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "flex-start",
+                      padding: "8px 10px",
+                      border: "1px solid var(--grid)",
+                      background: financeFormat === f.id ? "#f4f7fb" : "#fff",
+                      fontSize: 12.5,
+                      lineHeight: 1.4,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="finance-format"
+                      checked={financeFormat === f.id}
+                      onChange={() => setFinanceFormat(f.id)}
+                      style={{ marginTop: 2 }}
+                    />
+                    <span>
+                      {f.label}
+                      <span
+                        className="mono"
+                        style={{
+                          display: "block",
+                          fontSize: 10.5,
+                          color: "#5b6672",
+                        }}
+                      >
+                        {f.note}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </>
+          ) : null}
 
           {finance ? null : (
             <>
-          <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
-            WIE ERZÄHLT WIRD
-          </div>
-          <div style={{ display: "grid", gap: 6 }}>
-            {(
-              [
-                {
-                  id: "erklaerung" as const,
-                  title: "Erklärstück",
-                  note: "Erklärt eine Sache und sagt dem Zuschauer im ersten Satz, was sie mit ihm zu tun hat. Nennt, wer verdient und wer zahlt.",
-                },
-                {
-                  id: "erlebnis" as const,
-                  title: "Du bist dabei",
-                  note: "Der Zuschauer ist die Person, um die es geht. Braucht ein Thema mit Menschen — eine Reise, ein Beruf, ein Tag in einer anderen Zeit.",
-                },
-              ]
-            ).map((p) => (
-              <label
-                key={p.id}
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "flex-start",
-                  padding: "8px 10px",
-                  border: "1px solid var(--grid)",
-                  background: perspective === p.id ? "#f4f7fb" : "#fff",
-                  fontSize: 12.5,
-                  lineHeight: 1.4,
-                  cursor: "pointer",
-                }}
+              <div
+                className="mono"
+                style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}
               >
-                <input
-                  type="radio"
-                  name="perspective"
-                  checked={perspective === p.id}
-                  onChange={() => setPerspective(p.id)}
-                  style={{ marginTop: 2 }}
-                />
-                <span>
-                  {p.title}
-                  <span
-                    className="mono"
-                    style={{ display: "block", fontSize: 10.5, color: "#5b6672" }}
+                WIE ERZÄHLT WIRD
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {[
+                  {
+                    id: "erklaerung" as const,
+                    title: "Erklärstück",
+                    note: "Erklärt eine Sache und sagt dem Zuschauer im ersten Satz, was sie mit ihm zu tun hat. Nennt, wer verdient und wer zahlt.",
+                  },
+                  {
+                    id: "erlebnis" as const,
+                    title: "Du bist dabei",
+                    note: "Der Zuschauer ist die Person, um die es geht. Braucht ein Thema mit Menschen — eine Reise, ein Beruf, ein Tag in einer anderen Zeit.",
+                  },
+                ].map((p) => (
+                  <label
+                    key={p.id}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "flex-start",
+                      padding: "8px 10px",
+                      border: "1px solid var(--grid)",
+                      background: perspective === p.id ? "#f4f7fb" : "#fff",
+                      fontSize: 12.5,
+                      lineHeight: 1.4,
+                      cursor: "pointer",
+                    }}
                   >
-                    {p.note}
-                  </span>
-                </span>
-              </label>
-            ))}
-          </div>
+                    <input
+                      type="radio"
+                      name="perspective"
+                      checked={perspective === p.id}
+                      onChange={() => setPerspective(p.id)}
+                      style={{ marginTop: 2 }}
+                    />
+                    <span>
+                      {p.title}
+                      <span
+                        className="mono"
+                        style={{
+                          display: "block",
+                          fontSize: 10.5,
+                          color: "#5b6672",
+                        }}
+                      >
+                        {p.note}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
             </>
           )}
 
-          <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+          <div
+            className="mono"
+            style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}
+          >
             WER SCHREIBT
           </div>
           <select
@@ -1800,13 +1954,18 @@ export const VideoStudio: React.FC<{
           >
             {TEXT_MODELS.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label} — {m.provider === "anthropic" ? "Anthropic" : "Google"}
+                {m.label} —{" "}
+                {m.provider === "anthropic" ? "Anthropic" : "Google"}
                 {" · "}
-                {m.outputPerM.toFixed(2).replace(".", ",")} $ je Mio. Wörter-Token
+                {m.outputPerM.toFixed(2).replace(".", ",")} $ je Mio.
+                Wörter-Token
               </option>
             ))}
           </select>
-          <div className="mono" style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}>
+          <div
+            className="mono"
+            style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}
+          >
             {TEXT_MODELS.find((m) => m.id === textModelId)?.note}
           </div>
 
@@ -1841,7 +2000,10 @@ export const VideoStudio: React.FC<{
           </label>
 
           <div style={{ height: 10 }} />
-          <Button onClick={() => void generate()} disabled={busy || topic.trim().length < 3}>
+          <Button
+            onClick={() => void generate()}
+            disabled={busy || topic.trim().length < 3}
+          >
             {busy ? (step ?? "Wird geschrieben…") : "Skript schreiben"}
           </Button>
           {error ? <Note tone="alert">{error}</Note> : null}
@@ -1857,9 +2019,11 @@ export const VideoStudio: React.FC<{
           {busy ? (
             <Note tone="info">
               <span className="mono">
-                {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
+                {Math.floor(elapsed / 60)}:
+                {String(elapsed % 60).padStart(2, "0")}
               </span>{" "}
-              — läuft auf dem Server.{finance ? "" : " Es wird noch nichts gezeichnet."}
+              — läuft auf dem Server.
+              {finance ? "" : " Es wird noch nichts gezeichnet."}
             </Note>
           ) : null}
           <Note tone="info">
@@ -1885,7 +2049,10 @@ export const VideoStudio: React.FC<{
                 step="02"
                 title="Fakten"
                 right={
-                  <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                  <span
+                    className="mono"
+                    style={{ fontSize: 11, color: "#5b6672" }}
+                  >
                     {project.research.split("\n").filter(Boolean).length} belegt
                   </span>
                 }
@@ -1923,231 +2090,288 @@ export const VideoStudio: React.FC<{
               könnte.
             */}
             {finance ? null : (
-            <Panel
-              step={panelStep(2)}
-              title="Stil"
-              right={
-                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
-                  {drawnCount > 0 ? `${drawnCount} gezeichnet` : "nichts gezeichnet"}
-                </span>
-              }
-            >
-              <input
-                value={project.style.name}
-                onChange={(e) =>
-                  setProject((p) => ({
-                    ...p,
-                    style: { ...p.style, name: e.target.value.slice(0, 80) },
-                  }))
+              <Panel
+                step={panelStep(2)}
+                title="Stil"
+                right={
+                  <span
+                    className="mono"
+                    style={{ fontSize: 11, color: "#5b6672" }}
+                  >
+                    {drawnCount > 0
+                      ? `${drawnCount} gezeichnet`
+                      : "nichts gezeichnet"}
+                  </span>
                 }
-                aria-label="Name des Stils"
-                style={{
-                  width: "100%",
-                  padding: "8px 10px",
-                  border: "1px solid var(--grid)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              />
+              >
+                <input
+                  value={project.style.name}
+                  onChange={(e) =>
+                    setProject((p) => ({
+                      ...p,
+                      style: { ...p.style, name: e.target.value.slice(0, 80) },
+                    }))
+                  }
+                  aria-label="Name des Stils"
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    border: "1px solid var(--grid)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                />
 
-              <div style={{ display: "flex", gap: 6, margin: "10px 0", flexWrap: "wrap" }}>
-                {project.style.palette.map((c, i) => (
-                  <input
-                    key={i}
-                    type="color"
-                    value={c}
-                    title={c}
-                    onChange={(e) =>
-                      setProject((p) => ({
-                        ...p,
-                        style: {
-                          ...p.style,
-                          palette: p.style.palette.map((old, j) =>
-                            j === i ? e.target.value : old,
-                          ),
-                        },
-                      }))
-                    }
-                    aria-label={`Farbe ${i + 1}`}
-                    style={{
-                      width: 34,
-                      height: 30,
-                      padding: 0,
-                      border: "1px solid var(--grid)",
-                      background: "#fff",
-                      cursor: "pointer",
-                    }}
-                  />
-                ))}
-                <span className="mono" style={{ fontSize: 10.5, color: "#5b6672", alignSelf: "center" }}>
-                  wird als verbindliche Palette an jedes Bild gehängt
-                </span>
-              </div>
-
-              <textarea
-                value={project.style.directive}
-                onChange={(e) =>
-                  setProject((p) => ({
-                    ...p,
-                    style: { ...p.style, directive: e.target.value.slice(0, 1200) },
-                  }))
-                }
-                aria-label="Stiltext"
-                rows={7}
-                style={{
-                  width: "100%",
-                  padding: "9px 10px",
-                  border: "1px solid var(--grid)",
-                  background: "#fff",
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                  fontFamily: "var(--mono, ui-monospace), monospace",
-                  resize: "vertical",
-                }}
-              />
-
-              {(project.characters ?? []).length > 0 ? (
-                <div style={{ marginTop: 10 }}>
-                  {(project.characters ?? []).map((c: StoryCharacter) => (
-                    <details
-                      key={c.key}
-                      style={{
-                        borderBottom: "1px solid var(--grid)",
-                        padding: "5px 0",
-                        fontSize: 12,
-                      }}
-                    >
-                      <summary style={{ cursor: "pointer" }}>
-                        {c.name}
-                        <span className="mono" style={{ fontSize: 10, color: "#5b6672" }}>
-                          {" "}
-                          · {project.images.filter((i) => i.characters?.includes(c.key)).length} Bilder
-                        </span>
-                      </summary>
-                      <p style={{ margin: "6px 0 0", color: "#5b6672", lineHeight: 1.45 }}>
-                        {c.appearance ?? c.description}
-                      </p>
-                    </details>
-                  ))}
-                </div>
-              ) : null}
-
-              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-                <Button variant="ghost" onClick={() => void keepLook()}>
-                  Stil merken
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={discardImages}
-                  disabled={drawnCount === 0}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    margin: "10px 0",
+                    flexWrap: "wrap",
+                  }}
                 >
-                  Bilder verwerfen
-                </Button>
-              </div>
-              {lookNote ? <Note tone="info">{lookNote}</Note> : null}
-              <Note tone="info">
-                Änderungen wirken nur auf Bilder, die noch nicht gezeichnet
-                sind. Damit ein geänderter Stil sichtbar wird, musst du die
-                vorhandenen verwerfen — das kostet erneut.
-              </Note>
-            </Panel>
+                  {project.style.palette.map((c, i) => (
+                    <input
+                      key={i}
+                      type="color"
+                      value={c}
+                      title={c}
+                      onChange={(e) =>
+                        setProject((p) => ({
+                          ...p,
+                          style: {
+                            ...p.style,
+                            palette: p.style.palette.map((old, j) =>
+                              j === i ? e.target.value : old,
+                            ),
+                          },
+                        }))
+                      }
+                      aria-label={`Farbe ${i + 1}`}
+                      style={{
+                        width: 34,
+                        height: 30,
+                        padding: 0,
+                        border: "1px solid var(--grid)",
+                        background: "#fff",
+                        cursor: "pointer",
+                      }}
+                    />
+                  ))}
+                  <span
+                    className="mono"
+                    style={{
+                      fontSize: 10.5,
+                      color: "#5b6672",
+                      alignSelf: "center",
+                    }}
+                  >
+                    wird als verbindliche Palette an jedes Bild gehängt
+                  </span>
+                </div>
+
+                <textarea
+                  value={project.style.directive}
+                  onChange={(e) =>
+                    setProject((p) => ({
+                      ...p,
+                      style: {
+                        ...p.style,
+                        directive: e.target.value.slice(0, 1200),
+                      },
+                    }))
+                  }
+                  aria-label="Stiltext"
+                  rows={7}
+                  style={{
+                    width: "100%",
+                    padding: "9px 10px",
+                    border: "1px solid var(--grid)",
+                    background: "#fff",
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                    fontFamily: "var(--mono, ui-monospace), monospace",
+                    resize: "vertical",
+                  }}
+                />
+
+                {(project.characters ?? []).length > 0 ? (
+                  <div style={{ marginTop: 10 }}>
+                    {(project.characters ?? []).map((c: StoryCharacter) => (
+                      <details
+                        key={c.key}
+                        style={{
+                          borderBottom: "1px solid var(--grid)",
+                          padding: "5px 0",
+                          fontSize: 12,
+                        }}
+                      >
+                        <summary style={{ cursor: "pointer" }}>
+                          {c.name}
+                          <span
+                            className="mono"
+                            style={{ fontSize: 10, color: "#5b6672" }}
+                          >
+                            {" "}
+                            ·{" "}
+                            {
+                              project.images.filter((i) =>
+                                i.characters?.includes(c.key),
+                              ).length
+                            }{" "}
+                            Bilder
+                          </span>
+                        </summary>
+                        <p
+                          style={{
+                            margin: "6px 0 0",
+                            color: "#5b6672",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          {c.appearance ?? c.description}
+                        </p>
+                      </details>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    marginTop: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <Button variant="ghost" onClick={() => void keepLook()}>
+                    Stil merken
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={discardImages}
+                    disabled={drawnCount === 0}
+                  >
+                    Bilder verwerfen
+                  </Button>
+                </div>
+                {lookNote ? <Note tone="info">{lookNote}</Note> : null}
+                <Note tone="info">
+                  Änderungen wirken nur auf Bilder, die noch nicht gezeichnet
+                  sind. Damit ein geänderter Stil sichtbar wird, musst du die
+                  vorhandenen verwerfen — das kostet erneut.
+                </Note>
+              </Panel>
             )}
 
             {finance ? null : (
-            <Panel
-              step={panelStep(3)}
-              title="Bilder"
-              right={
-                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
-                  {drawnCount}/{project.images.length}
-                </span>
-              }
-            >
-              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                {project.style.palette.map((c) => (
+              <Panel
+                step={panelStep(3)}
+                title="Bilder"
+                right={
                   <span
-                    key={c}
-                    title={c}
-                    style={{
-                      width: 26,
-                      height: 26,
-                      background: c,
-                      border: "1px solid var(--grid)",
-                    }}
-                  />
-                ))}
-                <span style={{ fontSize: 12, alignSelf: "center", marginLeft: 6 }}>
-                  {project.style.name}
-                </span>
-              </div>
-
-              <Button
-                onClick={() => void draw()}
-                disabled={drawBusy || undrawn.length === 0}
-              >
-                {drawBusy
-                  ? (drawStep ?? "wird gezeichnet…")
-                  : undrawn.length === 0
-                    ? "Alle Bilder gezeichnet"
-                    : `${undrawn.length} Bilder zeichnen — ${formatCents(drawCost)}`}
-              </Button>
-              {drawError ? <Note tone="alert">{drawError}</Note> : null}
-              {drawNote ? <Note tone="info">{drawNote}</Note> : null}
-
-              <div style={{ marginTop: 12, maxHeight: 260, overflowY: "auto" }}>
-                {project.images.map((img) => (
-                  <div
-                    key={img.key}
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "center",
-                      padding: "5px 0",
-                      borderBottom: "1px solid var(--grid)",
-                      fontSize: 12,
-                    }}
+                    className="mono"
+                    style={{ fontSize: 11, color: "#5b6672" }}
                   >
-                    {img.url ? (
-                      // The small copy, not the drawing. Seventy-five rows
-                      // pointing at full-size PNGs was about a hundred
-                      // megabytes of blob traffic every time this project was
-                      // opened — for pictures shown 48 pixels wide. Older
-                      // entries have no thumbnail and still fall back.
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={img.thumbUrl ?? img.url}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        style={{ width: 48, height: 27, objectFit: "cover" }}
-                      />
-                    ) : (
-                      <span
-                        style={{
-                          width: 48,
-                          height: 27,
-                          background: "var(--grid)",
-                          display: "inline-block",
-                        }}
-                      />
-                    )}
-                    <span style={{ flex: 1 }}>{img.name}</span>
-                    {img.reused ? (
-                      <span className="mono" style={{ fontSize: 10, color: "#5b6672" }}>
-                        Bibliothek
-                      </span>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </Panel>
+                    {drawnCount}/{project.images.length}
+                  </span>
+                }
+              >
+                <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                  {project.style.palette.map((c) => (
+                    <span
+                      key={c}
+                      title={c}
+                      style={{
+                        width: 26,
+                        height: 26,
+                        background: c,
+                        border: "1px solid var(--grid)",
+                      }}
+                    />
+                  ))}
+                  <span
+                    style={{ fontSize: 12, alignSelf: "center", marginLeft: 6 }}
+                  >
+                    {project.style.name}
+                  </span>
+                </div>
+
+                <Button
+                  onClick={() => void draw()}
+                  disabled={drawBusy || undrawn.length === 0}
+                >
+                  {drawBusy
+                    ? (drawStep ?? "wird gezeichnet…")
+                    : undrawn.length === 0
+                      ? "Alle Bilder gezeichnet"
+                      : `${undrawn.length} Bilder zeichnen — ${formatCents(drawCost)}`}
+                </Button>
+                {drawError ? <Note tone="alert">{drawError}</Note> : null}
+                {drawNote ? <Note tone="info">{drawNote}</Note> : null}
+
+                <div
+                  style={{ marginTop: 12, maxHeight: 260, overflowY: "auto" }}
+                >
+                  {project.images.map((img) => (
+                    <div
+                      key={img.key}
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                        padding: "5px 0",
+                        borderBottom: "1px solid var(--grid)",
+                        fontSize: 12,
+                      }}
+                    >
+                      {img.url ? (
+                        // The small copy, not the drawing. Seventy-five rows
+                        // pointing at full-size PNGs was about a hundred
+                        // megabytes of blob traffic every time this project was
+                        // opened — for pictures shown 48 pixels wide. Older
+                        // entries have no thumbnail and still fall back.
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={img.thumbUrl ?? img.url}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          style={{ width: 48, height: 27, objectFit: "cover" }}
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            width: 48,
+                            height: 27,
+                            background: "var(--grid)",
+                            display: "inline-block",
+                          }}
+                        />
+                      )}
+                      <span style={{ flex: 1 }}>{img.name}</span>
+                      {img.reused ? (
+                        <span
+                          className="mono"
+                          style={{ fontSize: 10, color: "#5b6672" }}
+                        >
+                          Bibliothek
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </Panel>
             )}
 
             <Panel
               step={panelStep(4)}
               title="Klang"
               right={
-                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                <span
+                  className="mono"
+                  style={{ fontSize: 11, color: "#5b6672" }}
+                >
                   {(project.sounds ?? []).filter((s) => s.url).length}/
                   {(project.sounds ?? []).length}
                 </span>
@@ -2188,7 +2412,12 @@ export const VideoStudio: React.FC<{
 
                   <label
                     className="mono"
-                    style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "10px 0 4px" }}
+                    style={{
+                      fontSize: 11,
+                      color: "#5b6672",
+                      display: "block",
+                      margin: "10px 0 4px",
+                    }}
                   >
                     Lautstärke unter der Stimme:{" "}
                     {Math.round(project.soundLevel * 100)} %
@@ -2209,7 +2438,9 @@ export const VideoStudio: React.FC<{
                     aria-label="Klanglautstärke"
                   />
 
-                  <div style={{ marginTop: 10, maxHeight: 200, overflowY: "auto" }}>
+                  <div
+                    style={{ marginTop: 10, maxHeight: 200, overflowY: "auto" }}
+                  >
                     {(project.sounds ?? []).map((snd) => (
                       <div
                         key={snd.key}
@@ -2224,7 +2455,11 @@ export const VideoStudio: React.FC<{
                       >
                         <span
                           className="mono"
-                          style={{ fontSize: 10, color: "#5b6672", minWidth: 62 }}
+                          style={{
+                            fontSize: 10,
+                            color: "#5b6672",
+                            minWidth: 62,
+                          }}
                         >
                           {snd.kind === "ambience" ? "Teppich" : "Akzent"}
                         </span>
@@ -2239,9 +2474,16 @@ export const VideoStudio: React.FC<{
                           </span>
                         ) : null}
                         {snd.url ? (
-                          <audio src={snd.url} controls style={{ height: 24, width: 130 }} />
+                          <audio
+                            src={snd.url}
+                            controls
+                            style={{ height: 24, width: 130 }}
+                          />
                         ) : (
-                          <span className="mono" style={{ fontSize: 10, color: "#5b6672" }}>
+                          <span
+                            className="mono"
+                            style={{ fontSize: 10, color: "#5b6672" }}
+                          >
                             {snd.seconds}s
                           </span>
                         )}
@@ -2256,8 +2498,13 @@ export const VideoStudio: React.FC<{
               step={panelStep(5)}
               title="Stimme"
               right={
-                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
-                  {project.audioUrl ? `${timing.audioSeconds.toFixed(0)} s` : "fehlt"}
+                <span
+                  className="mono"
+                  style={{ fontSize: 11, color: "#5b6672" }}
+                >
+                  {project.audioUrl
+                    ? `${timing.audioSeconds.toFixed(0)} s`
+                    : "fehlt"}
                 </span>
               }
             >
@@ -2284,7 +2531,8 @@ export const VideoStudio: React.FC<{
               >
                 {SPEECH_MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.label} — {m.credits === 1 ? "voller Preis" : `${m.credits}× Preis`}
+                    {m.label} —{" "}
+                    {m.credits === 1 ? "voller Preis" : `${m.credits}× Preis`}
                   </option>
                 ))}
               </select>
@@ -2388,7 +2636,12 @@ export const VideoStudio: React.FC<{
               {voiceNote ? <Note tone="info">{voiceNote}</Note> : null}
               <label
                 className="mono"
-                style={{ fontSize: 11, color: "#5b6672", display: "block", margin: "10px 0 4px" }}
+                style={{
+                  fontSize: 11,
+                  color: "#5b6672",
+                  display: "block",
+                  margin: "10px 0 4px",
+                }}
               >
                 Tempo {project.speed.toFixed(2).replace(".", ",")}
               </label>
@@ -2407,13 +2660,18 @@ export const VideoStudio: React.FC<{
               <Note tone="info">
                 Gemessen: 1,15 ergab 146 Wörter pro Minute, 1,20 etwa 152. Mehr
                 gibt ElevenLabs nicht her. Kostet ungefähr{" "}
-                {Math.round(estimatedChars * speechModel.credits).toLocaleString("de-DE")}{" "}
+                {Math.round(
+                  estimatedChars * speechModel.credits,
+                ).toLocaleString("de-DE")}{" "}
                 Zeichen vom Kontingent
                 {speechModel.credits === 1
                   ? ""
                   : ` (${estimatedChars.toLocaleString("de-DE")} × ${speechModel.credits.toLocaleString("de-DE")})`}
                 {" · "}
-                {Math.max(1, Math.ceil(estimatedChars / speechModel.maxChars))}{" "}
+                {Math.max(
+                  1,
+                  Math.ceil(estimatedChars / speechModel.maxChars),
+                )}{" "}
                 {Math.ceil(estimatedChars / speechModel.maxChars) === 1
                   ? "Aufnahme"
                   : "Aufnahmen"}
@@ -2430,7 +2688,8 @@ export const VideoStudio: React.FC<{
                 <>
                   <div style={{ height: 10 }} />
                   <Button variant="download" onClick={downloadSubtitles}>
-                    ↓ Untertitel für YouTube ({subtitleCues(project).length} Zeilen)
+                    ↓ Untertitel für YouTube ({subtitleCues(project).length}{" "}
+                    Zeilen)
                   </Button>
                   <div
                     className="mono"
@@ -2452,22 +2711,24 @@ export const VideoStudio: React.FC<{
               {finance && !hasDisclaimer(project) ? (
                 <>
                   <Note tone="alert">
-                    Diesem Video fehlt der Hinweis, dass es keine
-                    Anlageberatung ist. Ohne ihn wird nicht gerendert.
+                    Diesem Video fehlt der Hinweis, dass es keine Anlageberatung
+                    ist. Ohne ihn wird nicht gerendert.
                   </Note>
-                  <Button onClick={insertDisclaimer}>
-                    Hinweis einsetzen
-                  </Button>
+                  <Button onClick={insertDisclaimer}>Hinweis einsetzen</Button>
                   <Note tone="info">
                     Er kommt nach dem Einstieg, wird gesprochen und steht im
-                    Bild. Weil zwei Sätze dazukommen, muss die Stimme danach
-                    neu aufgenommen werden.
+                    Bild. Weil zwei Sätze dazukommen, muss die Stimme danach neu
+                    aufgenommen werden.
                   </Note>
                 </>
               ) : null}
               <Button
                 onClick={() => void startRender()}
-                disabled={Boolean(render && render.status !== "done" && render.status !== "error")}
+                disabled={Boolean(
+                  render &&
+                  render.status !== "done" &&
+                  render.status !== "error",
+                )}
               >
                 {render && render.status !== "done" && render.status !== "error"
                   ? `${Math.round((render.progress ?? 0) * 100)} % — ${render.phase ?? "läuft"}`
@@ -2493,7 +2754,10 @@ export const VideoStudio: React.FC<{
               step={panelStep(7)}
               title="Shorts"
               right={
-                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                <span
+                  className="mono"
+                  style={{ fontSize: 11, color: "#5b6672" }}
+                >
                   {project.shorts.length > 0
                     ? `${project.shorts.length} · 9:16`
                     : finishedVideo
@@ -2519,8 +2783,8 @@ export const VideoStudio: React.FC<{
                 <Note tone="info">
                   Erst das Video rendern. Die Ausschnitte werden aus den
                   gemessenen Zeiten geschnitten —{" "}
-                  {finance ? "Grafiken" : "Bilder"}, Stimme und Klang sind
-                  schon da, es entsteht nur je ein gesprochener Hook.
+                  {finance ? "Grafiken" : "Bilder"}, Stimme und Klang sind schon
+                  da, es entsteht nur je ein gesprochener Hook.
                 </Note>
               ) : null}
 
@@ -2545,11 +2809,17 @@ export const VideoStudio: React.FC<{
                     <div style={{ fontWeight: 600 }}>{short.title}</div>
                     <div
                       className="mono"
-                      style={{ fontSize: 10.5, color: "#5b6672", margin: "3px 0 6px" }}
+                      style={{
+                        fontSize: 10.5,
+                        color: "#5b6672",
+                        margin: "3px 0 6px",
+                      }}
                     >
                       Einstellung {short.from + 1}–{short.to + 1} ·{" "}
                       {Math.round(seconds + (short.hookSeconds ?? 0))} s
-                      {short.hookSeconds ? " · Hook gesprochen" : " · ohne Hook"}
+                      {short.hookSeconds
+                        ? " · Hook gesprochen"
+                        : " · ohne Hook"}
                     </div>
                     <div style={{ color: "#5b6672", lineHeight: 1.4 }}>
                       „{short.hook}“
@@ -2560,8 +2830,8 @@ export const VideoStudio: React.FC<{
                       onClick={() => void startRender(short)}
                       disabled={Boolean(
                         render &&
-                          render.status !== "done" &&
-                          render.status !== "error",
+                        render.status !== "done" &&
+                        render.status !== "error",
                       )}
                     >
                       {running
@@ -2591,14 +2861,20 @@ export const VideoStudio: React.FC<{
               step={panelStep(8)}
               title="YouTube"
               right={
-                <span className="mono" style={{ fontSize: 11, color: "#5b6672" }}>
+                <span
+                  className="mono"
+                  style={{ fontSize: 11, color: "#5b6672" }}
+                >
                   {project.youtube
                     ? `${project.youtube.chapters.length} Kapitel`
                     : "offen"}
                 </span>
               }
             >
-              <div className="mono" style={{ fontSize: 11, color: "#5b6672", marginBottom: 6 }}>
+              <div
+                className="mono"
+                style={{ fontSize: 11, color: "#5b6672", marginBottom: 6 }}
+              >
                 WER SCHREIBT
               </div>
               <select
@@ -2615,17 +2891,24 @@ export const VideoStudio: React.FC<{
               >
                 {TEXT_MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.label} — {m.provider === "anthropic" ? "Anthropic" : "Google"}
+                    {m.label} —{" "}
+                    {m.provider === "anthropic" ? "Anthropic" : "Google"}
                   </option>
                 ))}
               </select>
-              <div className="mono" style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}>
+              <div
+                className="mono"
+                style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}
+              >
                 Zusammenfassen ist die leichteste Aufgabe im Studio — ein
                 Lite-Modell reicht dafür und kostet Bruchteile eines Cents.
               </div>
 
               <div style={{ height: 10 }} />
-              <Button onClick={() => void writeListing()} disabled={youtubeBusy}>
+              <Button
+                onClick={() => void writeListing()}
+                disabled={youtubeBusy}
+              >
                 {youtubeBusy
                   ? "wird geschrieben…"
                   : project.youtube
@@ -2645,7 +2928,14 @@ export const VideoStudio: React.FC<{
 
               {project.youtube ? (
                 <>
-                  <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+                  <div
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      color: "#5b6672",
+                      margin: "16px 0 6px",
+                    }}
+                  >
                     TITEL — {project.youtube.title.length} ZEICHEN
                   </div>
                   {project.youtube.titles.map((title) => (
@@ -2672,7 +2962,10 @@ export const VideoStudio: React.FC<{
                         onChange={() =>
                           setProject((current) =>
                             current.youtube
-                              ? { ...current, youtube: { ...current.youtube, title } }
+                              ? {
+                                  ...current,
+                                  youtube: { ...current.youtube, title },
+                                }
                               : current,
                           )
                         }
@@ -2682,10 +2975,16 @@ export const VideoStudio: React.FC<{
                         {title}
                         <span
                           className="mono"
-                          style={{ display: "block", fontSize: 10.5, color: "#5b6672" }}
+                          style={{
+                            display: "block",
+                            fontSize: 10.5,
+                            color: "#5b6672",
+                          }}
                         >
                           {title.length} Zeichen
-                          {title.length > 70 ? " — YouTube schneidet in der Suche ab" : ""}
+                          {title.length > 70
+                            ? " — YouTube schneidet in der Suche ab"
+                            : ""}
                         </span>
                       </span>
                     </label>
@@ -2697,7 +2996,14 @@ export const VideoStudio: React.FC<{
                     {copied === "title" ? "kopiert" : "Titel kopieren"}
                   </Button>
 
-                  <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+                  <div
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      color: "#5b6672",
+                      margin: "16px 0 6px",
+                    }}
+                  >
                     BESCHREIBUNG
                   </div>
                   <textarea
@@ -2717,23 +3023,43 @@ export const VideoStudio: React.FC<{
                   <Button
                     variant="ghost"
                     onClick={() =>
-                      void copy("description", renderDescription(project.youtube!, project.kind))
+                      void copy(
+                        "description",
+                        renderDescription(project.youtube!, project.kind),
+                      )
                     }
                   >
-                    {copied === "description" ? "kopiert" : "Beschreibung kopieren"}
+                    {copied === "description"
+                      ? "kopiert"
+                      : "Beschreibung kopieren"}
                   </Button>
 
                   {project.youtube.tags.length ? (
                     <>
-                      <div className="mono" style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}>
+                      <div
+                        className="mono"
+                        style={{
+                          fontSize: 11,
+                          color: "#5b6672",
+                          margin: "16px 0 6px",
+                        }}
+                      >
                         TAGS — {project.youtube.tags.length}
                       </div>
-                      <div style={{ fontSize: 12.5, color: "#5b6672", lineHeight: 1.5 }}>
+                      <div
+                        style={{
+                          fontSize: 12.5,
+                          color: "#5b6672",
+                          lineHeight: 1.5,
+                        }}
+                      >
                         {project.youtube.tags.join(", ")}
                       </div>
                       <Button
                         variant="ghost"
-                        onClick={() => void copy("tags", project.youtube!.tags.join(", "))}
+                        onClick={() =>
+                          void copy("tags", project.youtube!.tags.join(", "))
+                        }
                       >
                         {copied === "tags" ? "kopiert" : "Tags kopieren"}
                       </Button>
@@ -2794,8 +3120,8 @@ export const VideoStudio: React.FC<{
             className="mono"
             style={{ fontSize: 11, color: "#5b6672", padding: "10px 2px" }}
           >
-            {formatTimecode(timing.totalFrames / project.fps)} ·{" "}
-            {takes.length} Einstellungen aus {project.shots.length} Sätzen ·{" "}
+            {formatTimecode(timing.totalFrames / project.fps)} · {takes.length}{" "}
+            Einstellungen aus {project.shots.length} Sätzen ·{" "}
             {finance
               ? `${project.scenes.length} Szenen`
               : `${project.images.length} Bilder`}{" "}
@@ -2824,60 +3150,62 @@ export const VideoStudio: React.FC<{
               (sh) => i >= sh.from && i <= sh.to,
             );
             return (
-            <div
-              key={shot.id}
-              style={{
-                display: "flex",
-                gap: 8,
-                padding: "6px 0",
-                borderBottom: "1px solid var(--grid)",
-                fontSize: 12.5,
-                lineHeight: 1.45,
-              }}
-            >
-              <span
-                className="mono"
-                style={{ fontSize: 10, color: "#5b6672", minWidth: 44 }}
+              <div
+                key={shot.id}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  padding: "6px 0",
+                  borderBottom: "1px solid var(--grid)",
+                  fontSize: 12.5,
+                  lineHeight: 1.45,
+                }}
               >
-                {timing.shots[i]
-                  ? formatTimecode(timing.shots[i].from / project.fps)
-                  : ""}
-              </span>
-              {/*
+                <span
+                  className="mono"
+                  style={{ fontSize: 10, color: "#5b6672", minWidth: 44 }}
+                >
+                  {timing.shots[i]
+                    ? formatTimecode(timing.shots[i].from / project.fps)
+                    : ""}
+                </span>
+                {/*
                 Which sentences share one picture, and therefore one
                 uninterrupted camera move. Without this the list reads as one
                 cut per line, which is exactly what it is not.
               */}
-              <span
-                className="mono"
-                style={{ fontSize: 10, color: "#5b6672", minWidth: 12 }}
-                title={
-                  i > 0 && project.shots[i - 1].image === shot.image
-                    ? "bleibt auf demselben Bild — kein Schnitt"
-                    : shot.image
-                }
-              >
-                {i > 0 && project.shots[i - 1].image === shot.image ? "│" : "▸"}
-              </span>
-              <span style={{ flex: 1 }}>{shot.text}</span>
-              {inShort >= 0 ? (
                 <span
                   className="mono"
-                  title={`Short ${inShort + 1}: ${project.shorts[inShort].title}`}
-                  style={{
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    color: "#fff",
-                    background: "var(--download)",
-                    padding: "1px 5px",
-                    alignSelf: "flex-start",
-                    marginTop: 2,
-                  }}
+                  style={{ fontSize: 10, color: "#5b6672", minWidth: 12 }}
+                  title={
+                    i > 0 && project.shots[i - 1].image === shot.image
+                      ? "bleibt auf demselben Bild — kein Schnitt"
+                      : shot.image
+                  }
                 >
-                  S{inShort + 1}
+                  {i > 0 && project.shots[i - 1].image === shot.image
+                    ? "│"
+                    : "▸"}
                 </span>
-              ) : null}
-            </div>
+                <span style={{ flex: 1 }}>{shot.text}</span>
+                {inShort >= 0 ? (
+                  <span
+                    className="mono"
+                    title={`Short ${inShort + 1}: ${project.shorts[inShort].title}`}
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      color: "#fff",
+                      background: "var(--download)",
+                      padding: "1px 5px",
+                      alignSelf: "flex-start",
+                      marginTop: 2,
+                    }}
+                  >
+                    S{inShort + 1}
+                  </span>
+                ) : null}
+              </div>
             );
           })
         ) : (

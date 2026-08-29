@@ -79,7 +79,9 @@ const BalkenScene = z.object({
   /** Namen der Reihen. Eine bei einfachen Balken, mehrere bei Vergleichen. */
   series: z.array(Label).min(1).max(MAX_SERIES),
   categories: z
-    .array(z.object({ label: Label, values: z.array(Money).min(1).max(MAX_SERIES) }))
+    .array(
+      z.object({ label: Label, values: z.array(Money).min(1).max(MAX_SERIES) }),
+    )
     .min(2)
     .max(8),
   /** Gestapelt statt nebeneinander — für Anteile an einer Gesamtsumme. */
@@ -94,7 +96,9 @@ const LinieScene = z.object({
   unit: z.string().max(16).optional(),
   labels: z.array(Label).min(2).max(MAX_POINTS),
   series: z
-    .array(z.object({ name: Label, points: z.array(Money).min(2).max(MAX_POINTS) }))
+    .array(
+      z.object({ name: Label, points: z.array(Money).min(2).max(MAX_POINTS) }),
+    )
     .min(1)
     .max(MAX_SERIES),
   /** Krisen, Wendepunkte, Ereignisse — als Index in labels. */
@@ -131,8 +135,14 @@ const ZinseszinsScene = z.object({
 const VergleichScene = z.object({
   ...Base,
   type: z.literal("vergleich"),
-  left: z.object({ title: Label, rows: z.array(z.string().max(90)).min(1).max(MAX_ROWS) }),
-  right: z.object({ title: Label, rows: z.array(z.string().max(90)).min(1).max(MAX_ROWS) }),
+  left: z.object({
+    title: Label,
+    rows: z.array(z.string().max(90)).min(1).max(MAX_ROWS),
+  }),
+  right: z.object({
+    title: Label,
+    rows: z.array(z.string().max(90)).min(1).max(MAX_ROWS),
+  }),
   /** Der Satz unter beiden Spalten, wenn es einen gibt. */
   verdict: z.string().max(140).optional(),
   source: Source.optional(),
@@ -145,7 +155,10 @@ const WasserfallScene = z.object({
   currency: z.string().max(6).default("€"),
   start: z.object({ label: Label, value: Money }),
   /** Positiv addiert, negativ zieht ab. */
-  steps: z.array(z.object({ label: Label, delta: Money })).min(1).max(MAX_ROWS),
+  steps: z
+    .array(z.object({ label: Label, delta: Money }))
+    .min(1)
+    .max(MAX_ROWS),
   endLabel: Label.default("Bleibt"),
   source: Source,
 });
@@ -155,7 +168,10 @@ const AufteilungScene = z.object({
   ...Base,
   type: z.literal("aufteilung"),
   unit: z.string().max(16).optional(),
-  parts: z.array(z.object({ label: Label, value: Money.min(0) })).min(2).max(MAX_ROWS),
+  parts: z
+    .array(z.object({ label: Label, value: Money.min(0) }))
+    .min(2)
+    .max(MAX_ROWS),
   /**
    * Ring statt gestapeltem Balken.
    *
@@ -171,7 +187,10 @@ const FlussScene = z.object({
   ...Base,
   type: z.literal("fluss"),
   currency: z.string().max(6).default("€"),
-  nodes: z.array(z.object({ label: Label, value: Money.optional() })).min(2).max(5),
+  nodes: z
+    .array(z.object({ label: Label, value: Money.optional() }))
+    .min(2)
+    .max(5),
   source: Source.optional(),
 });
 
@@ -179,7 +198,10 @@ const FlussScene = z.object({
 const ZeitstrahlScene = z.object({
   ...Base,
   type: z.literal("zeitstrahl"),
-  events: z.array(z.object({ year: Label, label: z.string().max(90) })).min(2).max(MAX_ROWS),
+  events: z
+    .array(z.object({ year: Label, label: z.string().max(90) }))
+    .min(2)
+    .max(MAX_ROWS),
   source: Source,
 });
 
@@ -188,7 +210,10 @@ const TabelleScene = z.object({
   ...Base,
   type: z.literal("tabelle"),
   columns: z.array(Label).min(2).max(4),
-  rows: z.array(z.array(z.string().max(40)).min(2).max(4)).min(2).max(MAX_ROWS),
+  rows: z
+    .array(z.array(z.string().max(40)).min(2).max(4))
+    .min(2)
+    .max(MAX_ROWS),
   source: Source,
 });
 
@@ -197,7 +222,12 @@ const FormelScene = z.object({
   ...Base,
   type: z.literal("formel"),
   steps: z
-    .array(z.object({ expression: z.string().max(70), note: z.string().max(80).optional() }))
+    .array(
+      z.object({
+        expression: z.string().max(70),
+        note: z.string().max(80).optional(),
+      }),
+    )
     .min(2)
     .max(5),
   result: z.string().max(70).optional(),
@@ -307,7 +337,10 @@ export function compoundSeries(scene: {
  * Rings so schmal, dass die Beschriftung nicht mehr danebenpasst, und der
  * gestapelte Balken zeigt dasselbe ohne diesen Nachteil.
  */
-export function resolveAufteilung(scene: { parts: unknown[]; ring?: boolean }): boolean {
+export function resolveAufteilung(scene: {
+  parts: unknown[];
+  ring?: boolean;
+}): boolean {
   if (scene.parts.length > 4) return false;
   return scene.ring ?? true;
 }
@@ -397,3 +430,56 @@ export function withDisclaimer<
     inserted: true,
   };
 }
+
+/**
+ * Welche Sorte Finanzvideo geschrieben wird.
+ *
+ * Nicht Zierat, sondern verschiedene Skripte: ein Fehler-Video baut auf einer
+ * Zahl auf, die weh tut, ein Was-wäre-wenn auf einer Entscheidung, die jemand
+ * nicht getroffen hat. Vorher gab es genau eine Sorte — „Erklärvideo" — und
+ * die klang bei jedem Thema gleich, weil sie es war.
+ *
+ * Die fünf sind nicht erfunden: es sind die Formate, mit denen gesichtslose
+ * Finanzkanäle tatsächlich laufen. Der Fehler, die Gegenüberstellung, die
+ * Untersuchung, das Was-wäre-wenn und das System.
+ */
+export const FinanceFormat = z.enum([
+  "fehler",
+  "vergleich",
+  "untersuchung",
+  "wenn",
+  "system",
+]);
+export type FinanceFormat = z.infer<typeof FinanceFormat>;
+
+export const FINANCE_FORMATS: {
+  id: FinanceFormat;
+  label: string;
+  note: string;
+}[] = [
+  {
+    id: "fehler",
+    label: "Der Fehler",
+    note: "Etwas, das die meisten falsch machen, und was es kostet. „Wie 5.000 Euro Gehalt verschwinden.“",
+  },
+  {
+    id: "vergleich",
+    label: "Die Gegenüberstellung",
+    note: "Zwei Wege, dieselbe Frage, echte Zahlen. Miete gegen Kauf, ETF gegen Fondspolice.",
+  },
+  {
+    id: "untersuchung",
+    label: "Die Untersuchung",
+    note: "Was etwas wirklich kostet oder wirklich tut, hinter dem, was draufsteht.",
+  },
+  {
+    id: "wenn",
+    label: "Was wäre wenn",
+    note: "Eine Entscheidung durchgerechnet. „Du hättest 2007 gekauft.“",
+  },
+  {
+    id: "system",
+    label: "Das System",
+    note: "Warum etwas so ist, wie es ist — und wer daran verdient.",
+  },
+];

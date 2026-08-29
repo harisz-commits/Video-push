@@ -5,8 +5,14 @@ import {
   DEFAULT_FINANCE_MODEL,
   generateFinance,
 } from "../../../lib/finance-pipeline";
+import { FinanceFormat } from "../../../lib/finance";
 import { resolveTextModel, type TextModel } from "../../../lib/text-models";
-import { storyJobPath, readJson, writeJson, type StoryJob } from "../../../lib/store";
+import {
+  storyJobPath,
+  readJson,
+  writeJson,
+  type StoryJob,
+} from "../../../lib/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -27,12 +33,14 @@ export async function POST(req: Request) {
   let topic: string;
   let minutes: number;
   let research: boolean;
+  let format: FinanceFormat;
   let model: TextModel;
   try {
     const body = (await req.json()) as {
       topic?: unknown;
       minutes?: unknown;
       research?: unknown;
+      format?: unknown;
       model?: unknown;
     };
     if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
@@ -44,6 +52,10 @@ export async function POST(req: Request) {
     // geschriebenes Skript nicht bloß ungenau — es steht als Zahl im Bild,
     // mit einer Quellenzeile darunter.
     research = body.research !== false;
+    // Unbekanntes fällt auf „Der Fehler" zurück: das Format trägt jedes
+    // Finanzthema, und ein Video, das aus einem Tippfehler entsteht, soll
+    // eines sein und keine Fehlermeldung.
+    format = FinanceFormat.safeParse(body.format).data ?? "fehler";
     model = resolveTextModel(
       typeof body.model === "string" ? body.model : DEFAULT_FINANCE_MODEL,
     );
@@ -77,7 +89,16 @@ export async function POST(req: Request) {
   } satisfies StoryJob);
 
   waitUntil(
-    generateFinance({ jobId, topic, minutes, research, apiKey, model, startedAt }),
+    generateFinance({
+      jobId,
+      topic,
+      minutes,
+      research,
+      format,
+      apiKey,
+      model,
+      startedAt,
+    }),
   );
 
   return Response.json({ jobId });
@@ -90,7 +111,8 @@ export async function GET(req: Request) {
   }
 
   const job = await readJson<StoryJob>(storyJobPath(jobId));
-  if (!job) return errorResponse("Zu dieser jobId gibt es keinen Auftrag.", 404);
+  if (!job)
+    return errorResponse("Zu dieser jobId gibt es keinen Auftrag.", 404);
 
   if (
     job.status === "running" &&

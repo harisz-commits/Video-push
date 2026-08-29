@@ -1,10 +1,11 @@
 import { parseJsonObject } from "./json";
 import { complete } from "./llm";
 import { slugify } from "./image-library";
-import { FinanceScene, withDisclaimer } from "./finance";
+import { FinanceScene, withDisclaimer, type FinanceFormat } from "./finance";
 import {
   buildFinanceOutlinePrompt,
   buildFinanceSectionPrompt,
+  type OpenLoop,
   FINANCE_OUTLINE_SYSTEM_PROMPT,
   FINANCE_SCRIPT_SYSTEM_PROMPT,
   WORDS_PER_MINUTE,
@@ -49,6 +50,8 @@ export async function generateFinance(args: {
   topic: string;
   minutes: number;
   research?: boolean;
+  /** Welche Sorte Finanzvideo. Siehe FINANCE_FORMATS. */
+  format?: FinanceFormat;
   apiKey: string;
   model?: TextModel;
   startedAt: number;
@@ -99,6 +102,7 @@ export async function generateFinance(args: {
       spent,
       topic: args.topic,
       research,
+      format: args.format ?? "fehler",
       minutes: args.minutes,
       deadline: args.startedAt + WRITING_DEADLINE_MS,
       onProgress: progress,
@@ -185,6 +189,7 @@ async function writeScript(args: {
   spent: { input: number; output: number };
   topic: string;
   research: string;
+  format: FinanceFormat;
   minutes: number;
   deadline: number;
   onProgress: (step: string) => Promise<unknown>;
@@ -224,6 +229,7 @@ async function writeScript(args: {
     minutes: args.minutes,
     sections: sectionCount,
     beds: bedBudget,
+    format: args.format,
     known: known.beds,
     research: args.research,
   });
@@ -259,7 +265,9 @@ async function writeScript(args: {
             role: "user",
             content: buildFinanceSectionPrompt({
               topic: args.topic,
+              format: args.format,
               sections: plan.sections,
+              loops: plan.loops,
               index,
               words,
               beds: plan.beds,
@@ -347,11 +355,13 @@ async function writeOutline(args: {
   minutes: number;
   sections: number;
   beds: number;
+  format: FinanceFormat;
   known?: KnownSound[];
   research?: string;
 }): Promise<{
   title: string;
   sections: { title: string; brief: string }[];
+  loops: OpenLoop[];
   beds: StorySound[];
 }> {
   const reply = await complete({
@@ -368,6 +378,7 @@ async function writeOutline(args: {
   const json = parseJsonObject(reply.text) as {
     title?: unknown;
     sections?: unknown;
+    loops?: unknown;
     beds?: unknown;
   };
 
@@ -408,12 +419,33 @@ async function writeOutline(args: {
     });
   }
 
+  /**
+   * Die offenen Fragen, auf das reduziert, was tatsächlich Spannung erzeugt.
+   *
+   * Eine Frage, die im selben Abschnitt aufgeworfen und beantwortet wird, ist
+   * keine offene Frage — sie wäre eine Anweisung an das Modell, sich selbst
+   * zu widersprechen. Und eine, die außerhalb der Gliederung zeigt, käme in
+   * keinem Abschnitt an: aufgeworfen und nie beantwortet.
+   */
+  const loops: OpenLoop[] = [];
+  for (const raw of Array.isArray(json.loops) ? json.loops : []) {
+    const l = raw as { question?: unknown; raise?: unknown; answer?: unknown };
+    const question = typeof l.question === "string" ? l.question.trim() : "";
+    const from = Math.round(Number(l.raise));
+    const to = Math.round(Number(l.answer));
+    if (question.length < 8) continue;
+    if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+    if (from < 1 || to > sections.length || to <= from) continue;
+    loops.push({ question: question.slice(0, 200), raise: from, answer: to });
+  }
+
   return {
     title:
       typeof json.title === "string" && json.title.trim().length > 2
         ? json.title.trim().slice(0, 120)
         : args.topic.slice(0, 60),
     sections,
+    loops: loops.slice(0, 3),
     beds: beds.slice(0, args.beds),
   };
 }

@@ -1,3 +1,4 @@
+import type { FinanceFormat } from "./finance";
 import { SPOKEN_LANGUAGE_RULES, WORDS_PER_MINUTE } from "./story-prompt";
 
 /**
@@ -30,32 +31,56 @@ Die Grafiken werden NICHT gezeichnet, sondern aus deinen Zahlen gebaut. Du
 lieferst Daten, kein Bild. Was du nicht als Zahl angeben kannst, kann nicht
 gezeigt werden.
 
+DAS WICHTIGSTE ZUERST: Ein Finanzvideo verliert seine Zuschauer nicht, weil es
+falsch ist, sondern weil es langweilig ist. Alles Weitere dient dem.
+
+DER EINSTIEG — die ersten dreißig Sekunden:
+- Drei Teile, in dieser Reihenfolge: ein Problem, das der Zuschauer hat.
+  Etwas Unerwartetes daran. Und was er am Ende wissen wird.
+- Das Unerwartete ist der Kern. „Sparen ist wichtig" ist kein Einstieg.
+  „Deine Sparquote ist nicht dein Problem — der Zinssatz auf deinem
+  Tagesgeldkonto kostet dich mehr als deine ganze Sparquote einbringt" ist einer.
+- Keine Begrüßung, kein "In diesem Video", keine Ankündigung dessen, was
+  gleich kommt. Fang mittendrin an.
+- Nenn im Einstieg eine Zahl, die weh tut. Nicht die größte, die konkreteste.
+
+SPANNUNG — hier entscheidet sich, ob jemand bis zum Ende bleibt:
+- HALT ETWAS ZURÜCK. Die Antwort auf die Frage, die dein Einstieg aufwirft,
+  kommt NICHT im ersten Drittel. Der häufigste Fehler geschriebener Skripte
+  ist, alles sofort zu sagen und dann zwanzig Minuten zu begründen.
+- Bekommst du OFFENE FRAGEN vorgegeben, sind das keine Anregungen. Eine Frage,
+  die du aufwerfen sollst, wird aufgeworfen und NICHT beantwortet — auch nicht
+  nebenbei, auch nicht angedeutet. Eine, die du beantworten sollst, wird
+  beantwortet, und zwar so, dass sich das Warten gelohnt hat.
+- Jeder Abschnitt schließt einen Gedanken UND reißt den nächsten auf.
+  „Das klingt einfach. Ist es auch — bis zu dem Punkt, an dem das Finanzamt
+  mitrechnet."
+- Wenn du etwas aufzählst, sag vorher, welches das entscheidende ist, aber
+  nicht welches es ist: „Der dritte Fehler ist der teuerste, und er sieht aus
+  wie eine kluge Entscheidung."
+
+DER SCHLUSS:
+- Der Zuschauer soll am Ende ANDERS DENKEN als am Anfang, nicht dasselbe noch
+  einmal gehört haben. Keine Zusammenfassung.
+- Der letzte Satz dreht die Haltung: er sagt, was die Zahlen über ihn
+  bedeuten, nicht was im Video stand.
+
 DER GESPROCHENE TEXT:
 - Durchgehende Erzählung, kein Stichpunktzettel. Sie wird am Stück vorgelesen.
 - Du-Form, niemals Sie-Form.
-- Der erste Satz sagt dem Zuschauer, was das mit SEINEM Geld zu tun hat. Keine
-  Begrüßung, kein "In diesem Video".
 - Sachlich richtig. Bekommst du eine Faktenliste, ist sie deine EINZIGE Quelle
   für Zahlen, Daten, Namen und Renditen. Ohne Liste gilt: was du nicht sicher
   weißt, kommt nicht vor.
-- Kein Fazit-Geschwafel am Ende. Der letzte Satz ist ein Gedanke, der bleibt.
+- Nenn Menschen und Beträge konkret statt allgemein. „Jemand mit 3.200 Euro
+  netto" trägt einen Satz, „ein Durchschnittsverdiener" trägt keinen.
 
-KEINE ANLAGEBERATUNG — harte Regel:
-- Du erklärst, wie etwas funktioniert und was die Zahlen sagen. Du empfiehlst
-  NICHTS.
-- Nie: "kauf", "investier in", "das solltest du nehmen", "der beste ETF ist".
-- Stattdessen: "wer X macht, zahlt Y", "historisch lag Z bei", "die Rechnung
-  sieht so aus".
-- Nenne keine einzelnen Wertpapiere, Fonds oder ISINs als Beispiel, an dem
-  sich jemand orientieren soll. Anbietertypen und Produktgattungen ja,
-  konkrete Kaufempfehlungen nein.
-- Vergangene Renditen werden als Vergangenheit benannt, nie als Erwartung.
-  Rechnest du mit einem Prozentsatz, sag dazu, dass es eine Annahme ist.
-- SCHREIB DEN HINWEIS NICHT SELBST. Der Satz "Das ist keine Anlageberatung,
-  sondern meine persönliche Meinung" wird nach dem Einstieg automatisch
-  eingesetzt, wortgleich in jedem Video. Erwähne ihn nirgends — was du dazu
-  schreibst, wird verworfen, und zwei verschieden formulierte Hinweise
-  nebeneinander sind schlechter als einer.
+KEINE ANLAGEBERATUNG — rechtlich, kurz und bindend:
+Du erklärst, wie etwas funktioniert und was die Zahlen sagen; du empfiehlst
+nichts. Kein "kauf", kein "das solltest du nehmen", kein "der beste ETF ist".
+Keine einzelnen Wertpapiere, Fonds oder ISINs als Vorbild. Vergangene Renditen
+sind Vergangenheit, nie Erwartung; ein Prozentsatz, mit dem du rechnest, wird
+als Annahme benannt. Den Hinweis "keine Anlageberatung" schreibst du NICHT
+selbst — er wird wortgleich eingesetzt; erwähne ihn nirgends.
 ${SPOKEN_LANGUAGE_RULES}
 
 DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):
@@ -203,17 +228,32 @@ aussage:    {"type":"aussage","text":"Zeit im Markt schlägt den Zeitpunkt.",
 
 export const FINANCE_OUTLINE_SYSTEM_PROMPT = `Du planst ein deutsches Finanz-Erklärvideo, bevor es geschrieben wird.
 
-Du lieferst eine Gliederung in Abschnitten und die Klangteppiche darunter.
+Du lieferst eine Gliederung, die OFFENEN FRAGEN und die Klangteppiche.
+
+DIE OFFENEN FRAGEN — der wichtigste Teil dieser Aufgabe:
+- Die Abschnitte werden später EINZELN und UNABHÄNGIG voneinander
+  geschrieben. Keiner weiß, was der andere gesagt hat. Ohne dich wird daraus
+  eine Reihe abgeschlossener Kapitel, und ein Video aus abgeschlossenen
+  Kapiteln hat nach vier Minuten niemanden mehr.
+- Du bist die einzige Stelle, die über die Abschnitte hinweg planen kann.
+  Also planst du hier, welche Frage in welchem Abschnitt AUFGEWORFEN und in
+  welchem sie BEANTWORTET wird.
+- Zwei bis drei solche Fragen. Eine wird gleich am Anfang aufgeworfen und
+  erst gegen Ende beantwortet — das ist die, die das Video zusammenhält.
+- Eine gute offene Frage hat eine Antwort, die überrascht. „Was kostet ein
+  Depot?" ist keine. „Warum ist der billigste Anbieter am Ende der teuerste?"
+  ist eine.
+- Zwischen Aufwerfen und Beantworten liegt mindestens ein Abschnitt.
 
 DIE ABSCHNITTE:
-- Jeder Abschnitt muss etwas ZEIGBARES haben: eine Zahl, einen Verlauf, eine
+- Jeder muss etwas ZEIGBARES haben: eine Zahl, einen Verlauf, eine
   Aufteilung, eine Rechnung, eine Gegenüberstellung. Ein Abschnitt, aus dem
   sich keine Grafik bauen lässt, gehört nicht in dieses Format.
 - Schreib in "brief", WAS gezeigt werden soll, nicht nur wovon die Rede ist:
-  "Kurve über 30 Jahre, eingezahlt gegen mit Zins" statt "Zinseszins erklären".
-- Sie bauen aufeinander auf. Abschnitt 1 sagt, warum das den Zuschauer
-  betrifft — sein Geld, seine Miete, seine Sparrate. Der letzte lässt einen
-  Gedanken stehen.
+  „Kurve über 30 Jahre, eingezahlt gegen mit Zins" statt „Zinseszins erklären".
+- Sie bauen aufeinander auf. Abschnitt 1 nennt das Problem des Zuschauers und
+  wirft die erste Frage auf. Der letzte dreht die Haltung, statt
+  zusammenzufassen.
 - Keine Empfehlung, nirgends. Dieses Video erklärt, es rät nicht.
 
 DIE MUSIK:
@@ -221,21 +261,79 @@ DIE MUSIK:
   Unter einem Diagramm gibt es nichts, was klingt — ein Raumton unter einer
   Zinskurve behauptet einen Ort, den es nicht gibt.
 - Ruhig, leise, gleichbleibend. Weiche Flächen, ein tiefer Puls. Keine
-  Melodie, die man mitsummt, kein Aufbau, kein Schlagzeug. Er soll auffallen,
-  wenn man ihn abschaltet, und sonst nicht.
-- Er läuft unter dem ganzen Video durch. Ein Wechsel mittendrin wäre ein
-  Ereignis, das der Inhalt nicht hergibt.
+  Melodie, die man mitsummt, kein Aufbau, kein Schlagzeug.
 - "prompt" auf Englisch, "seconds" zwischen 12 und 20.
 
 Antworte mit einem JSON-Objekt, sonst nichts:
-{"title":"…","sections":[{"title":"…","brief":"…"}],
- "beds":[{"key":"…","name":"…","prompt":"…","seconds":16}]}`;
+{"title":"…",
+ "sections":[{"title":"…","brief":"…"}],
+ "loops":[{"question":"…","raise":1,"answer":4}],
+ "beds":[{"key":"…","name":"…","prompt":"…","seconds":16}]}
+
+- "raise" und "answer" sind Abschnittsnummern, ab 1 gezählt.
+- "question" ist die Frage in EINEM Satz, so wie sie im Video hängen bleibt.`;
+
+/**
+ * Was das gewählte Format vom Skript verlangt.
+ *
+ * Fünf verschiedene Skelette, keine fünf Etiketten: ein Fehler-Video baut auf
+ * einer Zahl auf, die weh tut, ein Was-wäre-wenn auf einer Entscheidung, die
+ * jemand nicht getroffen hat. Vorher gab es genau eine Sorte, und die klang
+ * bei jedem Thema gleich — weil sie es war.
+ */
+const FORMAT_RULES: Record<FinanceFormat, string> = {
+  fehler: `DAS FORMAT — DER FEHLER:
+- Es geht um etwas, das die meisten falsch machen, und darum, was es kostet.
+- Der Einstieg nennt den Preis des Fehlers, bevor er den Fehler nennt.
+- Drei bis fünf Fehler, vom kleinsten zum teuersten. Sag früh, dass der
+  letzte der teuerste ist, aber nicht welcher es ist.
+- Jeder Fehler bekommt eine Zahl. Ein Fehler ohne Preis ist eine Meinung.
+- Der Zuschauer soll sich bei mindestens einem wiedererkennen. Beschreib ihn
+  so, wie er sich anfühlt, wenn man ihn macht — er fühlt sich nämlich richtig an.`,
+
+  vergleich: `DAS FORMAT — DIE GEGENÜBERSTELLUNG:
+- Zwei Wege, dieselbe Frage, echte Zahlen. Beide Seiten kommen fair vor.
+- Sag NICHT im Einstieg, welche Seite gewinnt. Das ist die Frage, die das
+  Video zusammenhält.
+- Es gibt einen Punkt, an dem es kippt — eine Haltedauer, eine Summe, ein
+  Zinssatz. Den zu finden ist der Zweck des Videos.
+- Am Ende steht keine Empfehlung, sondern die Bedingung: unter welchen
+  Umständen die eine Seite gewinnt und unter welchen die andere.`,
+
+  untersuchung: `DAS FORMAT — DIE UNTERSUCHUNG:
+- Was etwas WIRKLICH kostet oder wirklich tut, hinter dem, was draufsteht.
+- Der Einstieg nennt, was draufsteht. Der Rest zeigt, was darunter liegt.
+- Arbeite dich von der sichtbaren Zahl zur unsichtbaren vor, Schritt für
+  Schritt. Jeder Schritt ist eine Position, die vorher niemand genannt hat.
+- Keine Anschuldigung, keine Namen von Anbietern. Es geht um eine Bauart,
+  nicht um einen Schuldigen — und die Zahlen reichen völlig.`,
+
+  wenn: `DAS FORMAT — WAS WÄRE WENN:
+- Eine Entscheidung wird durchgerechnet, die jemand getroffen oder gelassen
+  hat. „Du hättest 2007 gekauft."
+- Setz eine konkrete Person mit konkreten Zahlen fest und bleib bei ihr.
+  Alter, Einkommen, Betrag, Jahr. Sie ist erfunden, ihre Zahlen sind es nicht.
+- Erzähl chronologisch. Der Reiz ist, dass der Zuschauer weiß, was kommt, und
+  die Person nicht.
+- Am Ende steht die Zahl, um die es die ganze Zeit ging — und daneben die,
+  die dabei herausgekommen wäre, wenn sie es anders gemacht hätte.`,
+
+  system: `DAS FORMAT — DAS SYSTEM:
+- Warum etwas so ist, wie es ist, und wer daran verdient.
+- Der Einstieg ist etwas, das der Zuschauer für normal hält, und der Hinweis,
+  dass es das nicht ist.
+- Zeig den Geldfluss: wo es hereinkommt, wo es abgezweigt wird, wo es ankommt.
+- Benenne die Seiten. Ein Erklärstück, in dem niemand verdient und niemand
+  zahlt, erklärt nichts.
+- Kein Empörungston. Die Zahlen sind stark genug, wenn sie stimmen.`,
+};
 
 export function buildFinanceOutlinePrompt(args: {
   topic: string;
   minutes: number;
   sections: number;
   beds: number;
+  format: FinanceFormat;
   known?: { key: string; name: string; description: string; seconds: number }[];
   research?: string;
 }): string {
@@ -265,19 +363,31 @@ Jeder Abschnitt muss auf mindestens einem dieser Fakten stehen — nenn ihn im
   return `Thema des Videos:
 ${args.topic}${facts}
 
-Plane genau ${args.sections} Abschnitte für ${args.minutes} Minuten Video und
-${args.beds} Klangteppiche.
+${FORMAT_RULES[args.format]}
+
+Plane genau ${args.sections} Abschnitte für ${args.minutes} Minuten Video,
+2 bis 3 offene Fragen und ${args.beds} Klangteppiche.
 
 Der Titel ist der Titel des Videos, nicht die Überschrift eines Abschnitts.${known}`;
 }
 
+export type OpenLoop = { question: string; raise: number; answer: number };
+
 export function buildFinanceSectionPrompt(args: {
   topic: string;
+  format: FinanceFormat;
   sections: { title: string; brief: string }[];
+  /** Die geplanten offenen Fragen, ab 1 gezählt. Siehe die Gliederung. */
+  loops: OpenLoop[];
   index: number;
   words: number;
   beds: { key: string; name: string }[];
-  knownAccents?: { key: string; name: string; description: string; seconds: number }[];
+  knownAccents?: {
+    key: string;
+    name: string;
+    description: string;
+    seconds: number;
+  }[];
   research?: string;
 }): string {
   const facts = args.research?.trim()
@@ -314,6 +424,46 @@ DIE MUSIK DIESES VIDEOS (trag diesen "key" bei JEDER Einstellung in "ambience" e
 ${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n")}`
     : "";
 
+  /**
+   * Die offenen Fragen aus der Sicht DIESES Abschnitts.
+   *
+   * Drei Rollen, und sie sind nicht austauschbar: eine Frage aufwerfen heißt,
+   * sie ausdrücklich nicht zu beantworten; eine offen gebliebene Frage darf
+   * gestreift, aber nicht gelöst werden; und eine zu beantwortende ist der
+   * Grund, warum jemand bis hierher geblieben ist.
+   */
+  const nr = args.index + 1;
+  const stellen = args.loops.filter((l) => l.raise === nr);
+  const loesen = args.loops.filter((l) => l.answer === nr);
+  const offen = args.loops.filter((l) => l.raise < nr && l.answer > nr);
+
+  const rollen = [
+    ...stellen.map(
+      (l) => `- AUFWERFEN und NICHT beantworten: „${l.question}"
+  Formulier sie so, dass sie hängen bleibt, und geh dann weiter. Kein
+  Andeuten der Antwort, kein „dazu gleich mehr". Sie wird in Abschnitt
+  ${l.answer} beantwortet, nicht hier.`,
+    ),
+    ...offen.map(
+      (l) => `- BLEIBT OFFEN: „${l.question}"
+  Aufgeworfen in Abschnitt ${l.raise}, beantwortet in ${l.answer}. Du darfst
+  sie streifen und den Druck erhöhen. Du beantwortest sie NICHT.`,
+    ),
+    ...loesen.map(
+      (l) => `- BEANTWORTEN: „${l.question}"
+  Aufgeworfen in Abschnitt ${l.raise}. Der Zuschauer wartet seit dort darauf.
+  Die Antwort kommt klar und mit einer Zahl, und sie muss das Warten wert
+  gewesen sein.`,
+    ),
+  ];
+
+  const loops = rollen.length
+    ? `
+
+DIE OFFENEN FRAGEN DIESES VIDEOS — das ist keine Anregung, sondern der Aufbau:
+${rollen.join("\n")}`
+    : "";
+
   const plan = args.sections
     .map(
       (section, i) =>
@@ -329,7 +479,9 @@ ${args.beds.map((b) => `- ${b.key} (${b.name})`).join("\n")}`
   const scenes = Math.max(2, Math.round((args.words / WORDS_PER_MINUTE) * 8));
 
   return `Thema des Videos:
-${args.topic}${facts}
+${args.topic}
+
+${FORMAT_RULES[args.format]}${facts}${loops}
 
 DER PLAN DES GANZEN VIDEOS:
 ${plan}
