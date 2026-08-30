@@ -36,6 +36,8 @@ export async function POST(req: Request) {
   let minutes: number;
   let imageBudget: number;
   let imagesPerMinute: number | undefined;
+  /** Nur beim eingefügten Skript: die Bildzahl direkt statt als Rate. */
+  let imageCount: number | undefined;
   let styleWish: string | undefined;
   let lookId: string | undefined;
   let characters: { key: string; name: string; description: string }[];
@@ -49,6 +51,7 @@ export async function POST(req: Request) {
       minutes?: unknown;
       imageBudget?: unknown;
       imagesPerMinute?: unknown;
+      imageCount?: unknown;
       styleWish?: unknown;
       lookId?: unknown;
       characters?: unknown;
@@ -90,6 +93,11 @@ export async function POST(req: Request) {
       Number.isFinite(Number(body.imagesPerMinute)) &&
       Number(body.imagesPerMinute) > 0
         ? Math.min(20, Math.max(0.5, Number(body.imagesPerMinute)))
+        : undefined;
+
+    imageCount =
+      Number.isFinite(Number(body.imageCount)) && Number(body.imageCount) > 0
+        ? Math.min(400, Math.max(3, Math.round(Number(body.imageCount))))
         : undefined;
 
     styleWish =
@@ -190,6 +198,7 @@ export async function POST(req: Request) {
           styleWish: lookId ? undefined : styleWish,
           characters,
           imagesPerMinute,
+          imageCount,
           apiKey,
           model,
           startedAt,

@@ -823,10 +823,13 @@ Bildstil steht fest: „${args.style.name}". Beschreib in "prompt" nur den Inhal
 
 ${cast}
 
-HÖCHSTENS ${args.imageBudget} verschiedene Bilder. Rechne nach: ${
-    args.sentences.length
-  } Sätze auf ${args.imageBudget} Bilder sind im Schnitt ${(
-    args.sentences.length / args.imageBudget
-  ).toFixed(1)} Sätze je Bild. Kommst du damit nicht aus, lass ein Bild lieber
-über drei Sätze STEHEN, statt es später ein zweites Mal zu schneiden.`;
+GENAU ${args.imageBudget} VERSCHIEDENE BILDER. Das ist eine Zielzahl, keine
+Obergrenze: weniger ist genauso falsch wie mehr. Rechne nach, bevor du
+anfängst — ${args.sentences.length} Sätze auf ${args.imageBudget} Bilder sind
+im Schnitt ${(args.sentences.length / args.imageBudget).toFixed(1)} Sätze je
+Bild. Führ beim Zuordnen mit, wieviele Bilder du schon hast.
+
+Kommst du auf weniger, hast du zu große Spannen gebildet: teil die längsten
+auf. Kommst du auf mehr, schneidest du dort, wo der Zuschauer noch nichts
+Neues sieht.`;
 }

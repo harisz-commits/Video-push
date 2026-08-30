@@ -32,10 +32,20 @@ export async function POST(req: Request) {
 
   let project: StoryProject;
   let modelId: string | undefined;
+  /** Nur so viele zeichnen — für die Stilvorschau. */
+  let limit: number | undefined;
   try {
-    const body = (await req.json()) as { project?: unknown; model?: unknown };
+    const body = (await req.json()) as {
+      project?: unknown;
+      model?: unknown;
+      limit?: unknown;
+    };
     project = StoryProject.parse(body.project);
     modelId = typeof body.model === "string" ? body.model : undefined;
+    limit =
+      Number.isFinite(Number(body.limit)) && Number(body.limit) > 0
+        ? Math.min(20, Math.max(1, Math.round(Number(body.limit))))
+        : undefined;
   } catch {
     return errorResponse("Ungültige Anfrage. Erwartet wird das Video.", 400);
   }
@@ -71,6 +81,7 @@ export async function POST(req: Request) {
           project,
           apiKey,
           model,
+          limit,
           // Forty seconds of headroom, so the job always gets to write what it
           // managed. A hundred pictures outlast one function; being killed
           // half way would lose every picture already paid for.

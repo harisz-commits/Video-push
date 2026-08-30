@@ -50,6 +50,14 @@ export async function drawStoryImages(args: {
   model?: ImageModel;
   /** Stop starting new pictures after this epoch time. */
   deadline?: number;
+  /**
+   * Nur so viele zeichnen — für die Vorschau.
+   *
+   * Ein Bildstil entscheidet sich am ersten Bild, nicht am hundertsten. Zwei
+   * Bilder kosten sieben Cent und beantworten die Frage, ob der Stil passt;
+   * hundert kosten vier Euro und beantworten dieselbe Frage.
+   */
+  limit?: number;
   onProgress?: (done: number, total: number) => Promise<void>;
 }): Promise<DrawResult> {
   const model = args.model ?? resolveModel();
@@ -67,7 +75,11 @@ export async function drawStoryImages(args: {
   // Only what is still missing. Re-running after a partial failure therefore
   // costs the remainder rather than the whole film — which matters when the
   // whole film is three dollars.
-  const wanted = args.project.images.filter((i) => !i.url);
+  const wanted = args.project.images
+    .filter((i) => !i.url)
+    // Die ersten, nicht irgendwelche: sie stehen am Anfang des Films, und
+    // wenn der Stil dort nicht passt, passt er nirgends.
+    .slice(0, args.limit ?? undefined);
 
   const drawn = new Map<
     string,

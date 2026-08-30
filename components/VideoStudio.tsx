@@ -77,6 +77,15 @@ const PROJECT_KEY = "infographics-studio.storyProjectId";
 const DRAW_KEY = "infographics-studio.storyDrawJob";
 const SFX_KEY = "infographics-studio.storySfxJob";
 const VOICE_KEY = "infographics-studio.storyVoiceJob";
+
+/**
+ * Wieviele Bilder die Stilvorschau zeichnet.
+ *
+ * Zwei, nicht eins: an einem einzelnen Bild sieht man den Stil, aber nicht,
+ * ob zwei davon zusammenpassen — und genau das ist die Frage, an der ein
+ * Erklärvideo aus generierten Bildern scheitert.
+ */
+const PREVIEW_IMAGES = 2;
 const SHORTS_KEY = "infographics-studio.storyShortsJob";
 
 /**
@@ -331,6 +340,26 @@ export const VideoStudio: React.FC<{
    * eingefügtes Skript später auslöst.
    */
   const usingOwnScript = ownScript.trim().length > 40;
+  /**
+   * Wieviele Bilder ein eingefügtes Skript bekommen soll.
+   *
+   * Direkt als Zahl und nicht als Rate je Minute: bei einem eingefügten Text
+   * kennt niemand die Länge vorher genau, und eine Rate wäre eine Schätzung
+   * auf eine Schätzung. Genau daran ist es einmal schiefgegangen — ein
+   * Sechzehn-Minuten-Skript bekam 38 Bilder, weil die Länge aus der Satzzahl
+   * geraten wurde.
+   */
+  const [ownImageCount, setOwnImageCount] = useState(60);
+  /**
+   * Wieviele Bilder dieses Skript überhaupt tragen kann.
+   *
+   * Zwei Sätze je Bild ist die Untergrenze — siehe MIN_SPAN im Aufteilen.
+   * Alles darüber wäre bezahlt und nie zu sehen.
+   */
+  const maxUsefulImages = Math.max(
+    3,
+    Math.floor((ownSplit?.sentences ?? 0) / 2) || 3,
+  );
 
   // ---- What the look should be, before there is one -----------------------
   const [styleWish, setStyleWish] = useState("");
@@ -765,7 +794,7 @@ export const VideoStudio: React.FC<{
           : {
               script: ownScript,
               model: textModelId,
-              imagesPerMinute,
+              imageCount: ownImageCount,
               styleWish: lookId ? undefined : styleWish.trim() || undefined,
               lookId: lookId || undefined,
               characters: cast.filter((c) => c.description.trim().length >= 3),
@@ -920,13 +949,21 @@ export const VideoStudio: React.FC<{
   }, []);
 
   // ---- Drawing ------------------------------------------------------------
-  async function draw() {
+  /**
+   * Zeichnen — ganz oder als Vorschau.
+   *
+   * Der Stil entscheidet sich am ersten Bild, nicht am hundertsten. Zwei
+   * Bilder kosten sieben Cent und beantworten die Frage; hundert kosten vier
+   * Euro und beantworten dieselbe.
+   */
+  async function draw(limit?: number) {
     setDrawBusy(true);
     setDrawError(null);
     setDrawNote(null);
     const result = await postJson<{ jobId: string }>("/api/story/images", {
       project,
       model: imageModelId,
+      limit,
     });
     if (!result.ok) {
       setDrawError(result.error);
@@ -1899,6 +1936,59 @@ export const VideoStudio: React.FC<{
               {ownSplit.minutes.toFixed(1).replace(".", ",")} Minuten
             </div>
           ) : null}
+          {usingOwnScript && !finance ? (
+            <>
+              <label
+                className="mono"
+                style={{
+                  fontSize: 11,
+                  color: "#5b6672",
+                  display: "block",
+                  margin: "12px 0 6px",
+                }}
+              >
+                {ownImageCount} Bilder ·{" "}
+                {formatCents(ownImageCount * imageModel.cents)}
+                {ownSplit && ownImageCount <= maxUsefulImages
+                  ? ` · ${(ownSplit.sentences / ownImageCount)
+                      .toFixed(1)
+                      .replace(".", ",")} Sätze je Bild`
+                  : ""}
+              </label>
+              <input
+                type="range"
+                min={5}
+                max={200}
+                step={5}
+                value={ownImageCount}
+                onChange={(e) => setOwnImageCount(Number(e.target.value))}
+                style={{ width: "100%" }}
+                aria-label="Bilder für das eigene Skript"
+              />
+              <div
+                className="mono"
+                style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}
+              >
+                Direkt die Zahl, nicht eine Rate je Minute: bei einem
+                eingefügten Text steht die Länge erst nach dem Zerlegen fest.
+                Liefert das Modell weniger, werden lange Einstellungen
+                nachträglich geteilt.
+              </div>
+              {/*
+                Mehr Bilder als das Skript tragen kann, sind bezahlte Bilder,
+                die nie zu sehen sind: unter zwei Sätzen je Bild wechselt das
+                Bild schneller, als man es ansieht.
+              */}
+              {ownSplit && ownImageCount > maxUsefulImages ? (
+                <Note tone="alert">
+                  Dieses Skript hat {ownSplit.sentences} Sätze und trägt
+                  höchstens {maxUsefulImages} Bilder — darunter wechselt das
+                  Bild schneller als jeder Satz. Mehr würden bezahlt und nie
+                  gezeigt.
+                </Note>
+              ) : null}
+            </>
+          ) : null}
           {usingOwnScript ? (
             <Note tone="info">
               Dein Text wird Wort für Wort übernommen. Das Modell schreibt
@@ -2405,9 +2495,41 @@ export const VideoStudio: React.FC<{
                   </span>
                 </div>
 
+                {/*
+                  Die Vorschau steht ZUERST und ist der auffälligere Knopf,
+                  solange noch nichts gezeichnet ist. Der Stil entscheidet
+                  sich am ersten Bild — und wenn er nicht passt, ist der
+                  Unterschied zwischen zwei falschen Bildern und hundert
+                  falschen Bildern der ganze Punkt.
+                */}
+                {undrawn.length > PREVIEW_IMAGES && drawnCount === 0 ? (
+                  <>
+                    <Button
+                      onClick={() => void draw(PREVIEW_IMAGES)}
+                      disabled={drawBusy}
+                    >
+                      {drawBusy
+                        ? (drawStep ?? "wird gezeichnet…")
+                        : `Erst ${PREVIEW_IMAGES} zur Ansicht — ${formatCents(
+                            PREVIEW_IMAGES * imageModel.cents,
+                          )}`}
+                    </Button>
+                    <Note tone="info">
+                      Sieh dir am ersten Bild an, ob der Stil passt. Danach
+                      zeichnest du den Rest, oder du änderst den Stil und
+                      verwirfst diese zwei.
+                    </Note>
+                  </>
+                ) : null}
+
                 <Button
                   onClick={() => void draw()}
                   disabled={drawBusy || undrawn.length === 0}
+                  variant={
+                    undrawn.length > PREVIEW_IMAGES && drawnCount === 0
+                      ? "ghost"
+                      : undefined
+                  }
                 >
                   {drawBusy
                     ? (drawStep ?? "wird gezeichnet…")

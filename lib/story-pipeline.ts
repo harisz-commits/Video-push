@@ -1138,6 +1138,14 @@ export async function importStoryScript(args: {
   characters?: CharacterSeed[];
   /** Wieviele verschiedene Bilder höchstens. Aus der Rate im Studio. */
   imagesPerMinute?: number;
+  /**
+   * Wieviele Bilder es werden sollen, direkt vorgegeben.
+   *
+   * Bei einem eingefügten Skript kennt niemand die Länge vorher genau, und
+   * eine Rate je Minute ist dann eine Schätzung auf eine Schätzung. Wer die
+   * Zahl selbst setzt, bekommt sie auch — siehe splitLongSpans().
+   */
+  imageCount?: number;
   apiKey: string;
   model?: TextModel;
   startedAt: number;
@@ -1209,11 +1217,22 @@ export async function importStoryScript(args: {
     }
 
     await progress("Bilder werden zugeordnet");
-    const minutes = Math.max(1, sentences.length / (WORDS_PER_MINUTE / 10));
-    const imageBudget = Math.max(
-      3,
-      Math.min(400, Math.round(minutes * (args.imagesPerMinute ?? 4))),
+    // Aus den WÖRTERN, nicht aus der Satzzahl. Die Satzzahl war der Fehler:
+    // sie unterstellt zehn Wörter je Satz, und ein Skript mit längeren Sätzen
+    // hat für dieselbe Dauer weniger davon. Ein Sechzehn-Minuten-Text mit 150
+    // Sätzen wurde so als neuneinhalb Minuten gelesen — und bekam 38 Bilder
+    // statt der bestellten Menge.
+    const words = sentences.reduce(
+      (n, line) => n + line.trim().split(/\s+/).filter(Boolean).length,
+      0,
     );
+    const minutes = Math.max(1, words / WORDS_PER_MINUTE);
+    const imageBudget =
+      args.imageCount ??
+      Math.max(
+        3,
+        Math.min(400, Math.round(minutes * (args.imagesPerMinute ?? 4))),
+      );
 
     const reply = await complete({
       model,
@@ -1242,7 +1261,10 @@ export async function importStoryScript(args: {
       spans?: unknown;
     };
 
-    const assembled = assignImages(sentences, json.images, json.spans, cast);
+    const assembled = splitLongSpans(
+      assignImages(sentences, json.images, json.spans, cast),
+      imageBudget,
+    );
 
     const project = StoryProject.parse({
       kind: "video",
@@ -1402,5 +1424,84 @@ export function assignImages(
         : gaps > 0
           ? "Für einen Teil der Sätze hat das Modell kein Bild zugeordnet — dort bleibt das vorige stehen. Der gesprochene Text ist unverändert."
           : undefined,
+  };
+}
+
+/**
+ * Lange Einstellungen aufteilen, bis die bestellte Bildzahl erreicht ist.
+ *
+ * Das Modell bekommt die Zahl als Vorgabe und unterschreitet sie trotzdem —
+ * bei einem Sechzehn-Minuten-Skript kamen 38 Bilder zurück, wo mehr bestellt
+ * waren. Eine Bitte um eine Menge ist keine Menge, also wird nachgelegt: die
+ * längste Spanne wird geteilt, das hintere Stück bekommt eine Variante
+ * desselben Bildes, und das wiederholt sich, bis die Zahl stimmt.
+ *
+ * Geteilt wird die LÄNGSTE, nicht irgendeine: dort steht ein Bild am längsten
+ * still, und genau das soll aufhören. Unter MIN_SPAN Sätzen wird nicht mehr
+ * geteilt — ein Bild, das nach eineinhalb Sätzen wechselt, ist kein Bild
+ * mehr, sondern ein Flackern.
+ */
+const MIN_SPAN = 2;
+
+export function splitLongSpans(
+  assembled: { images: StoryImage[]; shots: StoryShot[]; warning?: string },
+  target: number,
+): { images: StoryImage[]; shots: StoryShot[]; warning?: string } {
+  const images = [...assembled.images];
+  const shots = [...assembled.shots];
+  const byKey = new Map(images.map((i) => [i.key, i]));
+  let added = 0;
+
+  while (images.length < target) {
+    // Alle zusammenhängenden Läufe, längster zuerst.
+    const runs: { from: number; to: number; key: string }[] = [];
+    for (const [i, shot] of shots.entries()) {
+      const open = runs[runs.length - 1];
+      if (open && open.key === shot.image && open.to === i - 1) open.to = i;
+      else runs.push({ from: i, to: i, key: shot.image });
+    }
+    const longest = runs
+      .filter((r) => r.to - r.from + 1 >= MIN_SPAN * 2)
+      .sort((a, b) => b.to - b.from - (a.to - a.from))[0];
+    if (!longest) break;
+
+    const source = byKey.get(longest.key);
+    if (!source) break;
+
+    const middle =
+      longest.from + Math.ceil((longest.to - longest.from + 1) / 2);
+    added += 1;
+    const variant: StoryImage = {
+      key: `${source.key}-${added + 1}`,
+      name: `${source.name} (${added + 1})`,
+      prompt: `${source.prompt} ${VARIATIONS[added % VARIATIONS.length]}`,
+      ...(source.characters ? { characters: source.characters } : {}),
+    };
+    images.push(variant);
+    byKey.set(variant.key, variant);
+    for (let i = middle; i <= longest.to; i += 1) {
+      shots[i] = { ...shots[i], image: variant.key };
+    }
+  }
+
+  // Beides kann zutreffen: ergänzt UND trotzdem nicht genug. Wer nur das
+  // erste liest, denkt, die Zahl stimme.
+  const notes: string[] = [];
+  if (added > 0) {
+    notes.push(
+      `${added} ${added === 1 ? "Bild wurde" : "Bilder wurden"} nachträglich als Variante ergänzt, weil das Modell weniger geliefert hatte.`,
+    );
+  }
+  if (images.length < target) {
+    notes.push(
+      `Es sind ${images.length} statt ${target} Bilder geworden — mehr ließen sich nicht bilden, ohne dass ein Bild nach ein bis zwei Sätzen wechselt. Für mehr Bilder braucht es ein längeres Skript.`,
+    );
+  }
+  const note = notes.join(" ") || undefined;
+
+  return {
+    images,
+    shots,
+    warning: [assembled.warning, note].filter(Boolean).join(" ") || undefined,
   };
 }
