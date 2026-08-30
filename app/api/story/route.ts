@@ -1,13 +1,22 @@
 import { waitUntil } from "@vercel/functions";
 import { errorResponse, guard } from "../../../lib/guardrails";
 import { keyFor, keyNameFor } from "../../../lib/llm";
-import { DEFAULT_STORY_MODEL, generateStory } from "../../../lib/story-pipeline";
+import {
+  DEFAULT_STORY_MODEL,
+  generateStory,
+  importStoryScript,
+} from "../../../lib/story-pipeline";
 import { noteCharacterUse } from "../../../lib/characters";
 import { noteLookUse, readLooks } from "../../../lib/looks";
 import { slugify } from "../../../lib/image-library";
 import { StoryPerspective, StoryStyle } from "../../../lib/story";
 import { resolveTextModel, type TextModel } from "../../../lib/text-models";
-import { readJson, storyJobPath, writeJson, type StoryJob } from "../../../lib/store";
+import {
+  readJson,
+  storyJobPath,
+  writeJson,
+  type StoryJob,
+} from "../../../lib/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -23,6 +32,7 @@ export const maxDuration = 300;
  */
 export async function POST(req: Request) {
   let topic: string;
+  let script: string | undefined;
   let minutes: number;
   let imageBudget: number;
   let imagesPerMinute: number | undefined;
@@ -35,6 +45,7 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
       topic?: unknown;
+      script?: unknown;
       minutes?: unknown;
       imageBudget?: unknown;
       imagesPerMinute?: unknown;
@@ -45,12 +56,22 @@ export async function POST(req: Request) {
       perspective?: unknown;
       model?: unknown;
     };
-    if (typeof body.topic !== "string" || body.topic.trim().length < 3) {
+    // Ein eingefügtes Skript ersetzt das Thema: dann wird nichts geschrieben,
+    // sondern nur bebildert. Siehe importStoryScript().
+    script =
+      typeof body.script === "string" && body.script.trim().length > 40
+        ? body.script.trim().slice(0, 60_000)
+        : undefined;
+    if (
+      !script &&
+      (typeof body.topic !== "string" || body.topic.trim().length < 3)
+    ) {
       throw new Error("topic");
     }
     // Long, because the topic here is a briefing rather than a subject line —
     // "Ägypter und wie sie die Hitze überlebt haben, bitte viel über Baustoffe".
-    topic = body.topic.trim().slice(0, 2000);
+    topic =
+      typeof body.topic === "string" ? body.topic.trim().slice(0, 2000) : "";
 
     // Twenty-five is the stated ceiling. It is not yet the renderable ceiling:
     // a restored sandbox lives five minutes and cannot be extended, so a film
@@ -66,7 +87,8 @@ export async function POST(req: Request) {
     // Only carried through so the studio can say what the film was built to.
     // The budget above is what actually binds the writer.
     imagesPerMinute =
-      Number.isFinite(Number(body.imagesPerMinute)) && Number(body.imagesPerMinute) > 0
+      Number.isFinite(Number(body.imagesPerMinute)) &&
+      Number(body.imagesPerMinute) > 0
         ? Math.min(20, Math.max(0.5, Number(body.imagesPerMinute)))
         : undefined;
 
@@ -76,7 +98,8 @@ export async function POST(req: Request) {
         : undefined;
 
     lookId =
-      typeof body.lookId === "string" && /^[a-zA-Z0-9_-]{4,64}$/.test(body.lookId)
+      typeof body.lookId === "string" &&
+      /^[a-zA-Z0-9_-]{4,64}$/.test(body.lookId)
         ? body.lookId
         : undefined;
 
@@ -86,11 +109,17 @@ export async function POST(req: Request) {
     // second source of truth for the server.
     characters = (Array.isArray(body.characters) ? body.characters : [])
       .slice(0, 6)
-      .map((item) => item as { key?: unknown; name?: unknown; description?: unknown })
+      .map(
+        (item) =>
+          item as { key?: unknown; name?: unknown; description?: unknown },
+      )
       .map((c) => {
-        const name = typeof c.name === "string" ? c.name.trim().slice(0, 80) : "";
+        const name =
+          typeof c.name === "string" ? c.name.trim().slice(0, 80) : "";
         const description =
-          typeof c.description === "string" ? c.description.trim().slice(0, 600) : "";
+          typeof c.description === "string"
+            ? c.description.trim().slice(0, 600)
+            : "";
         return {
           key: slugify(typeof c.key === "string" && c.key ? c.key : name),
           name: name || "Figur",
@@ -107,7 +136,8 @@ export async function POST(req: Request) {
     // Anything unknown falls back to the explainer, which is the safe reading
     // of a missing field: it works for every topic, where "du bist dabei"
     // only works for a topic with people in it.
-    perspective = StoryPerspective.safeParse(body.perspective).data ?? "erklaerung";
+    perspective =
+      StoryPerspective.safeParse(body.perspective).data ?? "erklaerung";
 
     model = resolveTextModel(
       typeof body.model === "string" ? body.model : DEFAULT_STORY_MODEL,
@@ -150,6 +180,29 @@ export async function POST(req: Request) {
     : undefined;
   const style = look ? StoryStyle.safeParse(look.style) : undefined;
 
+  if (script) {
+    waitUntil(
+      (async () => {
+        await importStoryScript({
+          jobId,
+          script,
+          style: style?.success ? style.data : undefined,
+          styleWish: lookId ? undefined : styleWish,
+          characters,
+          imagesPerMinute,
+          apiKey,
+          model,
+          startedAt,
+        });
+        if (look) await noteLookUse(look.id).catch(() => undefined);
+        await noteCharacterUse(characters.map((c) => c.key)).catch(
+          () => undefined,
+        );
+      })(),
+    );
+    return Response.json({ jobId });
+  }
+
   waitUntil(
     (async () => {
       await generateStory({
@@ -170,7 +223,9 @@ export async function POST(req: Request) {
       // Counted after the fact and never awaited by the caller: these are for
       // showing what earns its keep, and a failure here must not cost a film.
       if (look) await noteLookUse(look.id).catch(() => undefined);
-      await noteCharacterUse(characters.map((c) => c.key)).catch(() => undefined);
+      await noteCharacterUse(characters.map((c) => c.key)).catch(
+        () => undefined,
+      );
     })(),
   );
 
@@ -193,7 +248,8 @@ export async function GET(req: Request) {
     return Response.json({
       ...job,
       status: "error",
-      error: "Die Erzeugung hat das Zeitlimit überschritten. Versuch es erneut.",
+      error:
+        "Die Erzeugung hat das Zeitlimit überschritten. Versuch es erneut.",
     } satisfies StoryJob);
   }
 

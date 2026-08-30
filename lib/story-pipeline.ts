@@ -1,6 +1,7 @@
 import { parseJsonObject } from "./json";
 import { complete } from "./llm";
 import { researchTopic } from "./story-research";
+import { splitScript, textIsUnchanged } from "./script-import";
 import {
   soundLibrary,
   SOUND_PROMPT_LIMIT,
@@ -9,6 +10,7 @@ import {
 } from "./sfx";
 import { slugify } from "./image-library";
 import {
+  ShotMotion,
   StoryProject,
   StoryStyle,
   type StoryCharacter,
@@ -23,6 +25,8 @@ import {
   buildSectionPrompt,
   buildStylePrompt,
   STORY_CHARACTER_SYSTEM_PROMPT,
+  buildStoryImportPrompt,
+  STORY_IMPORT_SYSTEM_PROMPT,
   STORY_OUTLINE_SYSTEM_PROMPT,
   STORY_SCRIPT_SYSTEM_PROMPT,
   STORY_STYLE_SYSTEM_PROMPT,
@@ -1110,3 +1114,293 @@ const MOTIONS: StoryShot["motion"][] = [
   "in",
   "up",
 ];
+
+/**
+ * Ein fertiges Skript übernehmen und nur bebildern.
+ *
+ * Dieselbe Zusage wie beim Finanz-Format und aus demselben Grund: zerlegt wird
+ * im Code, zugeordnet vom Modell, und der gesprochene Text stammt Zeichen für
+ * Zeichen aus dem, was eingefügt wurde. Siehe lib/script-import.ts.
+ *
+ * Ein Unterschied zum Finanz-Format, und er ist beruhigend: hier kostet das
+ * Übernehmen nichts außer diesem einen Modellaufruf. Die Bilder werden danach
+ * in einem eigenen Schritt gezeichnet, mit dem Preis daneben und auf
+ * Knopfdruck — ein eingefügtes Skript kann also keine Zeichenrechnung
+ * auslösen, die niemand bestellt hat.
+ */
+export async function importStoryScript(args: {
+  jobId: string;
+  script: string;
+  /** Ein gespeicherter Look. Ohne ihn wird einer aus dem Skript geschrieben. */
+  style?: StoryStyle;
+  styleWish?: string;
+  /** Figuren, die vorkommen dürfen. Werden in den Look übersetzt. */
+  characters?: CharacterSeed[];
+  /** Wieviele verschiedene Bilder höchstens. Aus der Rate im Studio. */
+  imagesPerMinute?: number;
+  apiKey: string;
+  model?: TextModel;
+  startedAt: number;
+}): Promise<void> {
+  const model = args.model ?? resolveTextModel(DEFAULT_STORY_MODEL);
+  const spent = { input: 0, output: 0 };
+  const topic = args.script.trim().slice(0, 120);
+
+  const progress = (step: string) =>
+    writeJson(storyJobPath(args.jobId), {
+      jobId: args.jobId,
+      topic,
+      status: "running",
+      step,
+      startedAt: args.startedAt,
+      updatedAt: Date.now(),
+    } satisfies StoryJob);
+
+  try {
+    await progress("Skript wird zerlegt");
+    const sentences = splitScript(args.script);
+    if (sentences.length < 2) {
+      throw new Error(
+        "Aus diesem Text ließen sich keine Sätze lesen. Er braucht mindestens zwei.",
+      );
+    }
+    if (!textIsUnchanged(args.script, sentences)) {
+      throw new Error(
+        "Beim Zerlegen ging Text verloren. Das Video wurde nicht erzeugt.",
+      );
+    }
+
+    // Der Stil kommt aus dem Anfang des Skripts, wenn keiner mitgegeben wurde:
+    // das ist das Thema, nur nicht als Stichwort formuliert.
+    let style = args.style;
+    let title = sentences[0].slice(0, 80);
+    let cast: StoryCharacter[] = [];
+    const seeds = (args.characters ?? []).filter(
+      (c) => c.description.trim().length >= 3,
+    );
+
+    if (style) {
+      // Ein gemerkter Look weiß nichts von Figuren, die nie in ihm vorkamen —
+      // die müssen einzeln übersetzt werden. Wie in generateStory().
+      if (seeds.length) {
+        await progress("Figuren werden übersetzt");
+        cast = await describeCharacters({
+          model,
+          apiKey: args.apiKey,
+          spent,
+          topic: sentences.slice(0, 6).join(" ").slice(0, 900),
+          style,
+          characters: seeds,
+        });
+      }
+    } else {
+      await progress("Bildstil wird festgelegt");
+      const written = await writeStyle({
+        model,
+        apiKey: args.apiKey,
+        spent,
+        topic: sentences.slice(0, 6).join(" ").slice(0, 900),
+        wish: args.styleWish,
+        characters: seeds,
+      });
+      style = written.style;
+      title = written.title;
+      cast = written.characters;
+    }
+
+    await progress("Bilder werden zugeordnet");
+    const minutes = Math.max(1, sentences.length / (WORDS_PER_MINUTE / 10));
+    const imageBudget = Math.max(
+      3,
+      Math.min(400, Math.round(minutes * (args.imagesPerMinute ?? 4))),
+    );
+
+    const reply = await complete({
+      model,
+      apiKey: args.apiKey,
+      system: STORY_IMPORT_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: buildStoryImportPrompt({
+            sentences,
+            style,
+            imageBudget,
+            characters: cast,
+          }),
+        },
+      ],
+      maxTokens: 16000,
+      effort: "medium",
+    });
+    spent.input += reply.usage.input;
+    spent.output += reply.usage.output;
+
+    const json = parseJsonObject(reply.text) as {
+      title?: unknown;
+      images?: unknown;
+      spans?: unknown;
+    };
+
+    const assembled = assignImages(sentences, json.images, json.spans, cast);
+
+    const project = StoryProject.parse({
+      kind: "video",
+      id: `story-${args.jobId}`,
+      topic,
+      title:
+        typeof json.title === "string" && json.title.trim().length > 2
+          ? json.title.trim().slice(0, 120)
+          : title,
+      style,
+      characters: cast,
+      imagesPerMinute: args.imagesPerMinute,
+      images: assembled.images,
+      shots: assembled.shots,
+      fps: 30,
+      width: 1920,
+      height: 1080,
+    });
+
+    await writeJson(storyJobPath(args.jobId), {
+      jobId: args.jobId,
+      topic,
+      status: "done",
+      project,
+      warning: assembled.warning,
+      cost: {
+        model: model.id,
+        label: model.label,
+        inputTokens: spent.input,
+        outputTokens: spent.output,
+        cents: Number(costCents(model, spent).toFixed(3)),
+      },
+      startedAt: args.startedAt,
+      updatedAt: Date.now(),
+    } satisfies StoryJob);
+  } catch (err) {
+    await writeJson(storyJobPath(args.jobId), {
+      jobId: args.jobId,
+      topic,
+      status: "error",
+      error: (err as Error).message.slice(0, 400),
+      startedAt: args.startedAt,
+      updatedAt: Date.now(),
+    } satisfies StoryJob).catch(() => undefined);
+  }
+}
+
+/**
+ * Die Zuordnung des Modells auf die Sätze legen.
+ *
+ * Wie assignScenes() im Finanz-Format: die Sätze stehen fest, was das Modell
+ * liefert, wird zurechtgerückt statt abgelehnt. Ein Satz ohne Bild bekommt
+ * das Bild davor — eine Lücke darf kein Video kosten, dessen Text schon
+ * feststeht.
+ */
+export function assignImages(
+  sentences: string[],
+  rawImages: unknown,
+  rawSpans: unknown,
+  cast: StoryCharacter[] = [],
+): { images: StoryImage[]; shots: StoryShot[]; warning?: string } {
+  const castKeys = new Set(cast.map((c) => c.key));
+  const images: StoryImage[] = [];
+  let dropped = 0;
+
+  for (const raw of Array.isArray(rawImages) ? rawImages : []) {
+    const candidate = raw as {
+      key?: unknown;
+      name?: unknown;
+      prompt?: unknown;
+      characters?: unknown;
+    };
+    const name =
+      typeof candidate.name === "string" ? candidate.name.trim() : "";
+    const prompt =
+      typeof candidate.prompt === "string" ? candidate.prompt.trim() : "";
+    const key = slugify(
+      typeof candidate.key === "string" && candidate.key ? candidate.key : name,
+    );
+    if (!key || name.length < 3 || prompt.length < 10) {
+      dropped += 1;
+      continue;
+    }
+    if (images.some((i) => i.key === key)) continue;
+    // Nur Figuren, die es wirklich gibt: ein erfundener Schlüssel würde beim
+    // Zeichnen still nichts anhängen und die Figur wäre nicht im Bild.
+    const figures = (
+      Array.isArray(candidate.characters) ? candidate.characters : []
+    )
+      .map((c) => slugify(typeof c === "string" ? c : ""))
+      .filter((c) => castKeys.has(c));
+
+    images.push({
+      key,
+      name: name.slice(0, 120),
+      prompt: prompt.slice(0, 700),
+      ...(figures.length ? { characters: figures } : {}),
+    });
+  }
+
+  if (!images.length) {
+    throw new Error("Das Modell hat kein brauchbares Bild geliefert.");
+  }
+
+  const keys = new Set(images.map((i) => i.key));
+  const perSentence = new Array<string | undefined>(sentences.length);
+  const motion = new Array<ShotMotion | undefined>(sentences.length);
+
+  for (const raw of Array.isArray(rawSpans) ? rawSpans : []) {
+    const span = raw as {
+      from?: unknown;
+      to?: unknown;
+      image?: unknown;
+      motion?: unknown;
+    };
+    const key = slugify(typeof span.image === "string" ? span.image : "");
+    if (!keys.has(key)) continue;
+    const from = Math.max(0, Math.round(Number(span.from)));
+    const to = Math.min(sentences.length - 1, Math.round(Number(span.to)));
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) continue;
+    const move = ShotMotion.safeParse(span.motion).data ?? "in";
+    for (let i = from; i <= to; i += 1) {
+      perSentence[i] ??= key;
+      motion[i] ??= move;
+    }
+  }
+
+  let last: string | undefined;
+  let lastMove: ShotMotion | undefined;
+  for (let i = 0; i < perSentence.length; i += 1) {
+    if (perSentence[i]) {
+      last = perSentence[i];
+      lastMove = motion[i];
+    } else {
+      perSentence[i] = last;
+      motion[i] = lastMove;
+    }
+  }
+  const first = perSentence.find(Boolean) ?? images[0].key;
+  const gaps = perSentence.filter((k) => k === undefined).length;
+  for (let i = 0; i < perSentence.length; i += 1) perSentence[i] ??= first;
+
+  const shots: StoryShot[] = sentences.map((text, i) => ({
+    id: `s${i + 1}`,
+    text,
+    image: perSentence[i]!,
+    motion: motion[i] ?? "in",
+  }));
+
+  const used = new Set(shots.map((s) => s.image));
+  return {
+    images: images.filter((i) => used.has(i.key)),
+    shots,
+    warning:
+      dropped > 0
+        ? `${dropped} ${dropped === 1 ? "Bild wurde" : "Bilder wurden"} verworfen, weil die Beschreibung fehlte. Die betroffenen Sätze zeigen das Bild davor. Der gesprochene Text ist unverändert.`
+        : gaps > 0
+          ? "Für einen Teil der Sätze hat das Modell kein Bild zugeordnet — dort bleibt das vorige stehen. Der gesprochene Text ist unverändert."
+          : undefined,
+  };
+}

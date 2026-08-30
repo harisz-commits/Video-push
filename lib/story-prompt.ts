@@ -1,8 +1,4 @@
-import type {
-  StoryCharacter,
-  StoryPerspective,
-  StoryStyle,
-} from "./story";
+import type { StoryCharacter, StoryPerspective, StoryStyle } from "./story";
 
 /**
  * What the model is told when it writes a video.
@@ -557,14 +553,22 @@ export function buildSectionPrompt(args: {
   /** Recurring figures, so a section can put one in a picture. */
   characters?: { key: string; name: string }[];
   /** Accents already in the library, offered for reuse. See soundLibrary(). */
-  knownAccents?: { key: string; name: string; description: string; seconds: number }[];
+  knownAccents?: {
+    key: string;
+    name: string;
+    description: string;
+    seconds: number;
+  }[];
   /** Checked facts, one per line. See lib/story-research.ts. */
   research?: string;
   /** How the viewer is placed in the film. See perspectiveBlock(). */
   perspective?: StoryPerspective;
 }): string {
   const plan = args.sections
-    .map((s, i) => `${i + 1}. ${s.title} — ${s.brief}${i === args.index ? "   <<< DIESEN schreibst du" : ""}`)
+    .map(
+      (s, i) =>
+        `${i + 1}. ${s.title} — ${s.brief}${i === args.index ? "   <<< DIESEN schreibst du" : ""}`,
+    )
     .join("\n");
 
   const shots = Math.max(2, Math.round(args.words / 8));
@@ -740,4 +744,89 @@ HARD CONSTRAINTS:
   no lens blur, no realistic skin, no photographic lighting.
 - No text, no letters, no numbers, no captions, no watermarks, no signatures.
 - Single coherent illustration, full bleed, 16:9.`;
+}
+
+export const STORY_IMPORT_SYSTEM_PROMPT = `Du bebilderst ein fertiges deutsches Skript.
+
+DAS SKRIPT IST FERTIG. Du schreibst keinen Text. Du änderst keinen Text. Du
+kürzt nichts, glättest nichts, fasst nichts zusammen und schlägst nichts vor.
+Der gesprochene Text steht Wort für Wort fest — deine einzige Aufgabe ist zu
+entscheiden, WELCHES BILD ZU WELCHEN SÄTZEN GEHÖRT.
+
+Du bekommst die Sätze durchnummeriert. Du lieferst Bilder und sagst, welche
+Sätze zu welchem Bild gehören. Die Sätze selbst gibst du NICHT zurück.
+
+WELCHE SÄTZE ZUSAMMENGEHÖREN:
+- Ein Bild deckt eine Spanne aufeinanderfolgender Sätze ab. Die Spannen
+  decken das Skript lückenlos ab: die erste fängt bei Satz 0 an, die letzte
+  hört beim letzten Satz auf, keine Lücke, keine Überschneidung.
+- Getrennt wird dort, wo der Satz von etwas spricht, das im laufenden Bild
+  nicht zu sehen ist. NICHT nach Länge und nicht der Abwechslung wegen: ein
+  Schnitt auf etwas, das der Zuschauer schon sieht, ist ein Fehler.
+- Zwei bis drei Sätze auf einem Bild sind der Normalfall — daraus wird eine
+  ruhige Einstellung von sieben bis zehn Sekunden, ohne Schnitt.
+
+DIE BILDER:
+- "prompt" beschreibt NUR den Inhalt: was zu sehen ist, aus welchem
+  Blickwinkel. Auf Englisch. Kein Wort über Stil, Farben oder Technik — das
+  kommt aus dem Stil-Text und würde sich sonst widersprechen.
+- Zeig, wovon der Text handelt, nicht was er sagt. Keine Schrift im Bild,
+  keine Zahlen, keine Beschriftungen — sie werden ja gesprochen.
+- Menschen sparsam und nur als reduzierte Strichfiguren. Zeig lieber die
+  Sache selbst: Gebäude, Werkzeuge, Landschaften, Gegenstände.
+- HARTE GRENZE: kein Bild öfter als DREI Spannen. Ein Bild, das öfter käme,
+  wirkt, als wären dir die Bilder ausgegangen.
+- "name" ist ein kurzer deutscher Name, an dem man es in einer Liste
+  wiedererkennt. "key" ist derselbe Name als Kleinbuchstaben-Slug.
+- WIEDERKEHRENDE FIGUREN: Bekommst du eine Figurenliste, dann trag in
+  "characters" die "key"-Werte der Figuren ein, die in DIESEM Bild zu sehen
+  sind. Beschreib ihr Aussehen NICHT in "prompt" — das steht schon fest und
+  wird angehängt. Schreib nur, was die Figur tut und wo sie steht. Kommt
+  keine vor, lass "characters" weg.
+
+BEWEGUNG:
+- "motion" bewegt das Standbild langsam: "in" (heran), "out" (weg), "left",
+  "right", "up", "down". Nach dem Inhalt wählen, nicht der Abwechslung wegen.
+
+Antworte mit einem JSON-Objekt, sonst nichts:
+{"title":"…",
+ "images":[{"key":"…","name":"…","prompt":"…","characters":["…"]}],
+ "spans":[{"from":0,"to":2,"image":"…","motion":"in"}]}
+
+- "from" und "to" sind Satznummern, beide einschließlich.
+- Jedes "image" in spans MUSS als "key" in images vorkommen.`;
+
+export function buildStoryImportPrompt(args: {
+  sentences: string[];
+  style: StoryStyle;
+  /** Wieviele verschiedene Bilder höchstens entstehen sollen. */
+  imageBudget: number;
+  /** Figuren, die vorkommen dürfen. Schon in diesen Look übersetzt. */
+  characters?: StoryCharacter[];
+}): string {
+  const cast = args.characters?.length
+    ? `
+
+WIEDERKEHRENDE FIGUREN dieses Videos. Trag ihre "key"-Werte in "characters"
+ein, wo sie zu sehen sind:
+${args.characters.map((c) => `- ${c.key}: ${c.description}`).join("\n")}`
+    : "";
+  const lines = args.sentences.map((s, i) => `${i}\t${s}`).join("\n");
+  return `DAS FERTIGE SKRIPT, durchnummeriert:
+${lines}
+
+Es sind ${args.sentences.length} Sätze, also Nummern 0 bis ${
+    args.sentences.length - 1
+  }. Deck sie lückenlos mit Spannen ab.
+
+Bildstil steht fest: „${args.style.name}". Beschreib in "prompt" nur den Inhalt.
+
+${cast}
+
+HÖCHSTENS ${args.imageBudget} verschiedene Bilder. Rechne nach: ${
+    args.sentences.length
+  } Sätze auf ${args.imageBudget} Bilder sind im Schnitt ${(
+    args.sentences.length / args.imageBudget
+  ).toFixed(1)} Sätze je Bild. Kommst du damit nicht aus, lass ein Bild lieber
+über drei Sätze STEHEN, statt es später ein zweites Mal zu schneiden.`;
 }

@@ -322,8 +322,15 @@ export const VideoStudio: React.FC<{
     () => (ownScript.trim() ? describeSplit(splitScript(ownScript)) : null),
     [ownScript],
   );
-  /** Ab hier übernimmt der eingefügte Text. Ein kurzer Rest zählt nicht. */
-  const usingOwnScript = finance && ownScript.trim().length > 40;
+  /**
+   * Ab hier übernimmt der eingefügte Text. Ein kurzer Rest zählt nicht.
+   *
+   * In beiden Reitern. Was sich unterscheidet, ist, was daneben stehen
+   * bleibt: beim Finanz-Format fällt alles weg, beim Video-Format bleiben
+   * Bildstil und Bildrate — die entscheiden über eine Rechnung, die auch ein
+   * eingefügtes Skript später auslöst.
+   */
+  const usingOwnScript = ownScript.trim().length > 40;
 
   // ---- What the look should be, before there is one -----------------------
   const [styleWish, setStyleWish] = useState("");
@@ -748,32 +755,43 @@ export const VideoStudio: React.FC<{
     setWarning(null);
     const result = await postJson<{ jobId: string }>(
       finance ? "/api/finance" : "/api/story",
-      finance
-        ? usingOwnScript
-          ? // Eingefügtes Skript: kein Thema, keine Länge, kein Format —
-            // es gibt nichts zu schreiben, nur zu bebildern.
-            { script: ownScript, model: textModelId }
+      usingOwnScript
+        ? // Eingefügtes Skript: kein Thema, keine Länge, kein Format — es gibt
+          // nichts zu schreiben, nur zu bebildern. Der Bildstil und die
+          // Bildrate reisen beim Video-Format mit, weil dort noch gezeichnet
+          // wird und beides den Preis bestimmt.
+          finance
+          ? { script: ownScript, model: textModelId }
           : {
+              script: ownScript,
+              model: textModelId,
+              imagesPerMinute,
+              styleWish: lookId ? undefined : styleWish.trim() || undefined,
+              lookId: lookId || undefined,
+              characters: cast.filter((c) => c.description.trim().length >= 3),
+            }
+        : finance
+          ? {
               topic,
               minutes,
               model: textModelId,
               research,
               format: financeFormat,
             }
-        : {
-            topic,
-            minutes,
-            imageBudget,
-            imagesPerMinute,
-            // Ignored by the route when a look is chosen — a kept look is already a
-            // decision, and asking for both would be asking for two.
-            styleWish: lookId ? undefined : styleWish.trim() || undefined,
-            lookId: lookId || undefined,
-            characters: cast.filter((c) => c.description.trim().length >= 3),
-            model: textModelId,
-            research,
-            perspective,
-          },
+          : {
+              topic,
+              minutes,
+              imageBudget,
+              imagesPerMinute,
+              // Ignored by the route when a look is chosen — a kept look is already a
+              // decision, and asking for both would be asking for two.
+              styleWish: lookId ? undefined : styleWish.trim() || undefined,
+              lookId: lookId || undefined,
+              characters: cast.filter((c) => c.description.trim().length >= 3),
+              model: textModelId,
+              research,
+              perspective,
+            },
     );
     if (!result.ok) {
       setError(result.error);
@@ -1843,55 +1861,57 @@ export const VideoStudio: React.FC<{
             </>
           )}
 
+          {/*
+            Das eigene Skript steht VOR allem anderen, weil es alles
+            andere abschaltet: ist es gefüllt, gibt es kein Thema, kein
+            Format und keine Recherche mehr — es gibt ja nichts mehr zu
+            schreiben.
+          */}
+          <div
+            className="mono"
+            style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}
+          >
+            EIGENES SKRIPT — OPTIONAL
+          </div>
+          <textarea
+            value={ownScript}
+            placeholder="Hier ein fertiges Skript einfügen. Dann wird kein Wort daran geändert — die Sätze werden nur zerlegt und mit Grafiken belegt."
+            onChange={(e) => setOwnScript(e.target.value)}
+            aria-label="Eigenes Skript"
+            rows={6}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              border: "1px solid var(--grid)",
+              background: "#fff",
+              fontSize: 13,
+              lineHeight: 1.45,
+              resize: "vertical",
+            }}
+          />
+          {ownSplit ? (
+            <div
+              className="mono"
+              style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}
+            >
+              {ownSplit.sentences} Sätze ·{" "}
+              {ownSplit.words.toLocaleString("de-DE")} Wörter · etwa{" "}
+              {ownSplit.minutes.toFixed(1).replace(".", ",")} Minuten
+            </div>
+          ) : null}
+          {usingOwnScript ? (
+            <Note tone="info">
+              Dein Text wird Wort für Wort übernommen. Das Modell schreibt
+              nichts und ändert nichts — es entscheidet nur, was dazu auf dem
+              Schirm steht.
+              {finance
+                ? " Der Pflichthinweis „keine Anlageberatung“ kommt als einziges dazu."
+                : " Die Bilder werden danach wie sonst auch gezeichnet, auf Knopfdruck und mit dem Preis daneben."}
+            </Note>
+          ) : null}
+
           {finance ? (
             <>
-              {/*
-                Das eigene Skript steht VOR allem anderen, weil es alles
-                andere abschaltet: ist es gefüllt, gibt es kein Thema, kein
-                Format und keine Recherche mehr — es gibt ja nichts mehr zu
-                schreiben.
-              */}
-              <div
-                className="mono"
-                style={{ fontSize: 11, color: "#5b6672", margin: "16px 0 6px" }}
-              >
-                EIGENES SKRIPT — OPTIONAL
-              </div>
-              <textarea
-                value={ownScript}
-                placeholder="Hier ein fertiges Skript einfügen. Dann wird kein Wort daran geändert — die Sätze werden nur zerlegt und mit Grafiken belegt."
-                onChange={(e) => setOwnScript(e.target.value)}
-                aria-label="Eigenes Skript"
-                rows={6}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  border: "1px solid var(--grid)",
-                  background: "#fff",
-                  fontSize: 13,
-                  lineHeight: 1.45,
-                  resize: "vertical",
-                }}
-              />
-              {ownSplit ? (
-                <div
-                  className="mono"
-                  style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}
-                >
-                  {ownSplit.sentences} Sätze ·{" "}
-                  {ownSplit.words.toLocaleString("de-DE")} Wörter · etwa{" "}
-                  {ownSplit.minutes.toFixed(1).replace(".", ",")} Minuten
-                </div>
-              ) : null}
-              {usingOwnScript ? (
-                <Note tone="info">
-                  Dein Text wird Wort für Wort übernommen. Das Modell schreibt
-                  nichts und ändert nichts — es entscheidet nur, welche Grafik
-                  zu welchen Sätzen gehört. Der Pflichthinweis „keine
-                  Anlageberatung" kommt als einziges dazu.
-                </Note>
-              ) : null}
-
               {usingOwnScript ? null : (
                 <>
                   <div
@@ -1949,7 +1969,13 @@ export const VideoStudio: React.FC<{
             </>
           ) : null}
 
-          {finance ? null : (
+          {/*
+            Die Perspektive steuert das SCHREIBEN. Bei einem eingefügten
+            Skript wird nicht geschrieben, also stünde hier eine Auswahl, die
+            nichts tut — und die schlimmste Art von Bedienelement ist eine,
+            die aussieht, als hätte sie eine Wirkung.
+          */}
+          {finance || usingOwnScript ? null : (
             <>
               <div
                 className="mono"
