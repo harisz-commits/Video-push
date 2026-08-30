@@ -632,6 +632,49 @@ function buildWarning(args: {
  * gegen das Original gehalten, und ein Unterschied bricht ab, statt ein Video
  * zu erzeugen, das etwas anderes sagt als bestellt.
  */
+/**
+ * Ein Klangteppich, wie ihn das Modell schreibt, als Klang des Projekts.
+ *
+ * Dieselbe Prüfung wie in writeOutline(), nur für genau einen: ohne
+ * Beschreibung gibt es nichts zu erzeugen, und die Sekunden werden auf das
+ * gestutzt, was geschleift noch nach Musik klingt. Null heißt: keine Musik,
+ * nicht "kaputt" — ein Video ohne Ton ist schlechter als eines mit, aber
+ * immer noch besser als gar keines.
+ */
+function readMusicBed(raw: unknown): StorySound | null {
+  const b = (raw ?? {}) as {
+    key?: unknown;
+    name?: unknown;
+    prompt?: unknown;
+    seconds?: unknown;
+  };
+  const name = typeof b.name === "string" ? b.name.trim() : "";
+  const prompt = typeof b.prompt === "string" ? b.prompt.trim() : "";
+  if (prompt.length < 6) return null;
+  const key = slugify(typeof b.key === "string" && b.key ? b.key : name);
+  if (!key) return null;
+  return {
+    key,
+    name: name.slice(0, 120) || key,
+    prompt: trimSoundPrompt(prompt, SOUND_PROMPT_LIMIT),
+    kind: "ambience",
+    seconds: Math.min(20, Math.max(8, Math.round(Number(b.seconds) || 12))),
+  };
+}
+
+/** Ein bekannter Teppich als Klang des Projekts. Die Rückfallebene. */
+function fromLibrary(known: KnownSound | undefined): StorySound | null {
+  return known
+    ? {
+        key: known.key,
+        name: known.name,
+        prompt: known.description,
+        kind: "ambience",
+        seconds: known.seconds,
+      }
+    : null;
+}
+
 export async function importFinanceScript(args: {
   jobId: string;
   script: string;
@@ -674,7 +717,7 @@ export async function importFinanceScript(args: {
       beds: [] as KnownSound[],
       accents: [] as KnownSound[],
     }));
-    const bed = known.beds[0];
+    const heard = known.beds[0];
 
     const reply = await complete({
       model,
@@ -685,7 +728,15 @@ export async function importFinanceScript(args: {
           role: "user",
           content: buildFinanceImportPrompt({
             sentences,
-            beds: bed ? [{ key: bed.key, name: bed.name }] : [],
+            beds: heard
+              ? [
+                  {
+                    key: heard.key,
+                    name: heard.name,
+                    description: heard.description,
+                  },
+                ]
+              : [],
           }),
         },
       ],
@@ -697,9 +748,24 @@ export async function importFinanceScript(args: {
 
     const json = parseJsonObject(reply.text) as {
       title?: unknown;
+      bed?: unknown;
       scenes?: unknown;
       spans?: unknown;
     };
+
+    /**
+     * Die Musik unter dem eingefügten Skript.
+     *
+     * Vorher wurde nur genommen, was die Bibliothek schon hatte — und ein
+     * frischer Kanal hat nichts, also war ein eingefügtes Skript das einzige
+     * Video ohne Ton. Jetzt schreibt das Modell eine, wenn keine da ist, und
+     * übernimmt die vorhandene wörtlich, wenn es eine gibt: dann erkennt sie
+     * das Erzeugen wieder und sie kostet nichts.
+     *
+     * Akzente gibt es hier weiterhin keine. Unter einem Diagramm knackt
+     * nichts, und der Wunsch war ausdrücklich leise Hintergrundmusik.
+     */
+    const bed = readMusicBed(json.bed) ?? fromLibrary(heard);
 
     const assembled = assignScenes(
       sentences,
@@ -728,9 +794,7 @@ export async function importFinanceScript(args: {
       },
       soundLevel: 0.1,
       scenes: withNote.scenes,
-      sounds: bed
-        ? [{ ...bed, prompt: bed.description, kind: "ambience" }]
-        : [],
+      sounds: bed ? [bed] : [],
       shots: withNote.shots,
       fps: 30,
       width: 1920,

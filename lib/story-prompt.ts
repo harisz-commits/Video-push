@@ -788,13 +788,31 @@ BEWEGUNG:
 - "motion" bewegt das Standbild langsam: "in" (heran), "out" (weg), "left",
   "right", "up", "down". Nach dem Inhalt wählen, nicht der Abwechslung wegen.
 
+DER KLANG:
+- "beds" sind Klangteppiche, die unter dem Film laufen: zwei bis vier für ein
+  ganzes Video. Setz denselben über viele Spannen am Stück; ein Wechsel
+  markiert einen Ortswechsel oder einen Gedankensprung, nicht jede Spanne.
+- "accents" sind einzelne Geräusche auf genau einer Spanne: ein brechender
+  Ast, ein Schlag Stein auf Stein, eine Böe, die ankommt. SPARSAM — höchstens
+  jede fünfte bis achte Spanne. Ein Akzent auf jeder wäre kein Sounddesign,
+  sondern ein Schlagzeug.
+- Setz einen Akzent dorthin, wo der TEXT das Geräusch selbst nennt. Spricht
+  ein Satz von splitterndem Eis, gehört es genau dort hin — nicht zwei
+  Spannen später.
+- "prompt" auf Englisch, und er beschreibt nur das Geräusch. "seconds" für
+  einen Teppich zwischen 8 und 20, für einen Akzent zwischen 1 und 4.
+
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"title":"…",
  "images":[{"key":"…","name":"…","prompt":"…","characters":["…"]}],
- "spans":[{"from":0,"to":2,"image":"…","motion":"in"}]}
+ "beds":[{"key":"…","name":"…","prompt":"…","seconds":12}],
+ "accents":[{"key":"…","name":"…","prompt":"…","seconds":2}],
+ "spans":[{"from":0,"to":2,"image":"…","motion":"in","ambience":"…","accent":"…"}]}
 
 - "from" und "to" sind Satznummern, beide einschließlich.
-- Jedes "image" in spans MUSS als "key" in images vorkommen.`;
+- Jedes "image" in spans MUSS als "key" in images vorkommen.
+- "ambience" nimmt einen "key" aus beds, "accent" einen aus accents. Beide
+  sind freiwillig; ohne Akzent ist eine Spanne völlig in Ordnung.`;
 
 export function buildStoryImportPrompt(args: {
   sentences: string[];
@@ -803,7 +821,32 @@ export function buildStoryImportPrompt(args: {
   imageBudget: number;
   /** Figuren, die vorkommen dürfen. Schon in diesen Look übersetzt. */
   characters?: StoryCharacter[];
+  /** Klänge, die es schon gibt. Wiederverwenden kostet nichts. */
+  known?: {
+    beds: { key: string; name: string; description: string }[];
+    accents: { key: string; name: string; description: string }[];
+  };
 }): string {
+  const offer = (
+    title: string,
+    rows: { key: string; name: string; description: string }[],
+  ) =>
+    rows.length
+      ? `
+
+${title}
+${rows
+  .map((k) => `- key: ${k.key}\n  name: ${k.name}\n  prompt: ${k.description}`)
+  .join("\n")}
+
+Übernimm einen davon WÖRTLICH mit allen drei Feldern, wenn er passt. Schreib
+seinen Prompt nicht um, auch nicht ein bisschen — eine geänderte Beschreibung
+gilt als neuer Klang und wird neu erzeugt und bezahlt.`
+      : "";
+
+  const sounds =
+    offer("DIESE KLANGTEPPICHE GIBT ES SCHON:", args.known?.beds ?? []) +
+    offer("DIESE GERÄUSCHE GIBT ES SCHON:", args.known?.accents ?? []);
   const cast = args.characters?.length
     ? `
 
@@ -831,5 +874,5 @@ Bild. Führ beim Zuordnen mit, wieviele Bilder du schon hast.
 
 Kommst du auf weniger, hast du zu große Spannen gebildet: teil die längsten
 auf. Kommst du auf mehr, schneidest du dort, wo der Zuschauer noch nichts
-Neues sieht.`;
+Neues sieht.${sounds}`;
 }

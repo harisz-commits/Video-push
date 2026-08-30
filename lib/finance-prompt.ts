@@ -568,8 +568,18 @@ DIE ÜBERSCHRIFT einer Szene ist die Aussage der Sätze, die sie trägt, in
 eigenen Worten und höchstens 90 Zeichen. Das ist kein Zitat und kein
 Untertitel — der Text wird ja gesprochen.
 
+DIE MUSIK:
+- Genau EIN Teppich für das ganze Video, und er ist Musik, keine Umgebung.
+  Unter einem Diagramm gibt es nichts, was klingt — ein Raumton unter einer
+  Zinskurve behauptet einen Ort, den es nicht gibt.
+- Ruhig, leise, gleichbleibend. Weiche Flächen, ein tiefer Puls. Keine
+  Melodie, die man mitsummt, kein Aufbau, kein Schlagzeug.
+- "prompt" auf Englisch, "seconds" zwischen 12 und 20.
+- Wo er läuft, entscheidet nicht du: er liegt unter dem ganzen Video.
+
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"title":"…",
+ "bed":{"key":"…","name":"…","prompt":"…","seconds":16},
  "scenes":[{"key":"…","name":"…","type":"…","headline":"…", …}],
  "spans":[{"from":0,"to":2,"scene":"…"}]}
 
@@ -579,15 +589,24 @@ Antworte mit einem JSON-Objekt, sonst nichts:
 
 export function buildFinanceImportPrompt(args: {
   sentences: string[];
-  /** Klangteppiche, aus denen gewählt werden kann. */
-  beds: { key: string; name: string }[];
+  /**
+   * Musik, die es schon gibt. Höchstens eine wird angeboten.
+   *
+   * Gibt es sie, wird sie wörtlich übernommen und kostet nichts. Gibt es
+   * keine, schreibt das Modell eine — sonst wäre ein eingefügtes Skript das
+   * einzige Video ohne Ton, und genau das war der Fehler.
+   */
+  beds: { key: string; name: string; description: string }[];
 }): string {
   const lines = args.sentences.map((s, i) => `${i}\t${s}`).join("\n");
-  const beds = args.beds.length
-    ? `\n\nDIE MUSIK DIESES VIDEOS (trag diesen "key" bei jeder Spanne in "ambience" ein):\n${args.beds
-        .map((b) => `- ${b.key} (${b.name})`)
-        .join("\n")}`
-    : "";
+  const bed = args.beds[0];
+  const beds = bed
+    ? `\n\nDIESE MUSIK GIBT ES SCHON — nimm sie als "bed" WÖRTLICH mit allen
+Feldern und schreib den Prompt nicht um, auch nicht ein bisschen. Eine
+geänderte Beschreibung gilt als neue Musik und wird neu erzeugt und bezahlt:
+{"key":"${bed.key}","name":"${bed.name}","prompt":"${bed.description}"}`
+    : `\n\nEs gibt noch keine Musik für diesen Kanal. Schreib eine: ein "bed"
+nach den Regeln oben.`;
 
   return `DAS FERTIGE SKRIPT, durchnummeriert:
 ${lines}

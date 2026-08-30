@@ -1216,7 +1216,15 @@ export async function importStoryScript(args: {
       cast = written.characters;
     }
 
-    await progress("Bilder werden zugeordnet");
+    // Was es schon gibt, wird angeboten statt neu erfunden: ein wörtlich
+    // übernommener Klang wird beim Erzeugen wiedererkannt und kostet nichts.
+    // Nie fatal — ohne die Liste erfindet das Modell wie bisher.
+    const known = await soundLibrary().catch(() => ({
+      beds: [] as KnownSound[],
+      accents: [] as KnownSound[],
+    }));
+
+    await progress("Bilder und Klang werden zugeordnet");
     // Aus den WÖRTERN, nicht aus der Satzzahl. Die Satzzahl war der Fehler:
     // sie unterstellt zehn Wörter je Satz, und ein Skript mit längeren Sätzen
     // hat für dieselbe Dauer weniger davon. Ein Sechzehn-Minuten-Text mit 150
@@ -1246,6 +1254,7 @@ export async function importStoryScript(args: {
             style,
             imageBudget,
             characters: cast,
+            known,
           }),
         },
       ],
@@ -1258,11 +1267,20 @@ export async function importStoryScript(args: {
     const json = parseJsonObject(reply.text) as {
       title?: unknown;
       images?: unknown;
+      beds?: unknown;
+      accents?: unknown;
       spans?: unknown;
     };
 
     const assembled = splitLongSpans(
-      assignImages(sentences, json.images, json.spans, cast),
+      assignImages(
+        sentences,
+        json.images,
+        json.spans,
+        cast,
+        json.beds,
+        json.accents,
+      ),
       imageBudget,
     );
 
@@ -1278,6 +1296,7 @@ export async function importStoryScript(args: {
       characters: cast,
       imagesPerMinute: args.imagesPerMinute,
       images: assembled.images,
+      sounds: assembled.sounds,
       shots: assembled.shots,
       fps: 30,
       width: 1920,
@@ -1325,7 +1344,16 @@ export function assignImages(
   rawImages: unknown,
   rawSpans: unknown,
   cast: StoryCharacter[] = [],
-): { images: StoryImage[]; shots: StoryShot[]; warning?: string } {
+  /** Klangteppiche fürs ganze Video. Eine Spanne nennt einen davon. */
+  rawBeds: unknown = [],
+  /** Einzelne Geräusche. Ein Akzent gehört auf genau einen Satz. */
+  rawAccents: unknown = [],
+): {
+  images: StoryImage[];
+  sounds: StorySound[];
+  shots: StoryShot[];
+  warning?: string;
+} {
   const castKeys = new Set(cast.map((c) => c.key));
   const images: StoryImage[] = [];
   let dropped = 0;
@@ -1370,8 +1398,65 @@ export function assignImages(
   }
 
   const keys = new Set(images.map((i) => i.key));
+
+  // Klänge werden genauso zurechtgerückt wie die Bilder: was ohne
+  // Beschreibung kommt, fällt weg, und eine Spanne, die einen unbekannten
+  // Schlüssel nennt, bleibt einfach still. Ein eingefügtes Skript darf an
+  // einem fehlenden Geräusch nicht scheitern — der Text steht schon fest.
+  const sounds = new Map<string, StorySound>();
+  const readSounds = (
+    raw: unknown,
+    kind: StorySound["kind"],
+    fallback: number,
+    min: number,
+    max: number,
+  ) => {
+    for (const item of Array.isArray(raw) ? raw : []) {
+      const entry = item as {
+        key?: unknown;
+        name?: unknown;
+        prompt?: unknown;
+        seconds?: unknown;
+      };
+      const name = typeof entry.name === "string" ? entry.name.trim() : "";
+      const prompt =
+        typeof entry.prompt === "string" ? entry.prompt.trim() : "";
+      if (prompt.length < 6) continue;
+      const key = slugify(
+        typeof entry.key === "string" && entry.key ? entry.key : name,
+      );
+      if (!key || sounds.has(key)) continue;
+      const seconds = Number(entry.seconds);
+      sounds.set(key, {
+        key,
+        name: name.slice(0, 120) || key,
+        prompt: trimSoundPrompt(prompt, SOUND_PROMPT_LIMIT),
+        kind,
+        seconds: Math.min(
+          max,
+          Math.max(
+            min,
+            Number.isFinite(seconds) && seconds > 0 ? seconds : fallback,
+          ),
+        ),
+      });
+    }
+  };
+  // Teppiche werden geschleift, nicht in voller Länge erzeugt — zehn Sekunden
+  // Regen klingen wie zwei Minuten davon und kosten ein Zwanzigstel.
+  readSounds(rawBeds, "ambience", 12, 8, 20);
+  readSounds(rawAccents, "accent", 2, 1, 4);
+  const bedKeys = new Set(
+    [...sounds.values()].filter((s) => s.kind === "ambience").map((s) => s.key),
+  );
+  const accentKeys = new Set(
+    [...sounds.values()].filter((s) => s.kind === "accent").map((s) => s.key),
+  );
+
   const perSentence = new Array<string | undefined>(sentences.length);
   const motion = new Array<ShotMotion | undefined>(sentences.length);
+  const bed = new Array<string | undefined>(sentences.length);
+  const hit = new Array<string | undefined>(sentences.length);
 
   for (const raw of Array.isArray(rawSpans) ? rawSpans : []) {
     const span = raw as {
@@ -1379,6 +1464,8 @@ export function assignImages(
       to?: unknown;
       image?: unknown;
       motion?: unknown;
+      ambience?: unknown;
+      accent?: unknown;
     };
     const key = slugify(typeof span.image === "string" ? span.image : "");
     if (!keys.has(key)) continue;
@@ -1386,10 +1473,19 @@ export function assignImages(
     const to = Math.min(sentences.length - 1, Math.round(Number(span.to)));
     if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) continue;
     const move = ShotMotion.safeParse(span.motion).data ?? "in";
+    const under = slugify(
+      typeof span.ambience === "string" ? span.ambience : "",
+    );
+    const strike = slugify(typeof span.accent === "string" ? span.accent : "");
     for (let i = from; i <= to; i += 1) {
       perSentence[i] ??= key;
       motion[i] ??= move;
+      if (bedKeys.has(under)) bed[i] ??= under;
     }
+    // Ein Akzent liegt auf dem ANFANG der Spanne, nicht auf jedem ihrer
+    // Sätze. Über acht Sätze wiederholt wäre aus einem berstenden Ast ein
+    // Specht geworden.
+    if (accentKeys.has(strike)) hit[from] ??= strike;
   }
 
   let last: string | undefined;
@@ -1403,6 +1499,15 @@ export function assignImages(
       motion[i] = lastMove;
     }
   }
+  // Der Teppich läuft weiter, bis ein anderer genannt wird. Anders als beim
+  // Bild ist das keine Notlösung, sondern der Sinn der Sache: ein Teppich,
+  // der zwischendurch aussetzt, ist genau das Geräusch, das verrät, dass hier
+  // Ton über eine Diashow gelegt wurde.
+  let held: string | undefined;
+  for (let i = 0; i < bed.length; i += 1) {
+    if (bed[i]) held = bed[i];
+    else bed[i] = held;
+  }
   const first = perSentence.find(Boolean) ?? images[0].key;
   const gaps = perSentence.filter((k) => k === undefined).length;
   for (let i = 0; i < perSentence.length; i += 1) perSentence[i] ??= first;
@@ -1412,11 +1517,21 @@ export function assignImages(
     text,
     image: perSentence[i]!,
     motion: motion[i] ?? "in",
+    ...(bed[i] ? { ambience: bed[i] } : {}),
+    ...(hit[i] ? { accent: hit[i] } : {}),
   }));
 
   const used = new Set(shots.map((s) => s.image));
+  // Nur was wirklich zu hören ist. Ein Klang, den keine Einstellung nennt,
+  // würde im Studio als Knopf stehen, Geld kosten und nie vorkommen.
+  const heard = new Set(
+    [...shots.map((s) => s.ambience), ...shots.map((s) => s.accent)].filter(
+      Boolean,
+    ),
+  );
   return {
     images: images.filter((i) => used.has(i.key)),
+    sounds: [...sounds.values()].filter((s) => heard.has(s.key)),
     shots,
     warning:
       dropped > 0
@@ -1443,10 +1558,9 @@ export function assignImages(
  */
 const MIN_SPAN = 2;
 
-export function splitLongSpans(
-  assembled: { images: StoryImage[]; shots: StoryShot[]; warning?: string },
-  target: number,
-): { images: StoryImage[]; shots: StoryShot[]; warning?: string } {
+export function splitLongSpans<
+  T extends { images: StoryImage[]; shots: StoryShot[]; warning?: string },
+>(assembled: T, target: number): T {
   const images = [...assembled.images];
   const shots = [...assembled.shots];
   const byKey = new Map(images.map((i) => [i.key, i]));
@@ -1500,6 +1614,7 @@ export function splitLongSpans(
   const note = notes.join(" ") || undefined;
 
   return {
+    ...assembled,
     images,
     shots,
     warning: [assembled.warning, note].filter(Boolean).join(" ") || undefined,
