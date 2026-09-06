@@ -164,6 +164,9 @@ DER BOGEN:
   auseinanderhältst, steht später doppelt im Video.
 - "brief" sagt in ein bis zwei Sätzen, was in diesem Abschnitt gesagt wird.
   Sei konkret: nenn die Sache beim Namen, nicht das Thema noch einmal.
+- Und zwar mit dem HEUTIGEN Namen. Was hier an Fachbegriffen steht, schreibt
+  der Abschnitt später ab: aus "Cotte und Beinlinge" wird ein Satz, den
+  niemand versteht. Schreib "Hemd und Hosenbeine".
 
 DIE WIEDERKEHRENDEN MOTIVE:
 - Fünf bis acht Bilder, die im ganzen Video immer wieder auftauchen dürfen.
@@ -318,14 +321,35 @@ SPRACHE — hier entscheidet sich, ob es nach Mensch oder nach Maschine klingt:
 - Wechsel die Satzlänge hart. Drei Wörter. Dann vierzehn. Gleichmäßige Sätze
   sind das zweite Kennzeichen von Maschinentext.
 
-FREMDWÖRTER UND FACHBEGRIFFE — harte Regel:
-- Jeder Begriff, den ein normaler Zuschauer nicht sicher kennt, wird beim
-  ERSTEN Vorkommen im selben Atemzug erklärt. Nicht später, nicht nebenbei.
-  So: "die Stückliste — die Liste aller Teile, die in ein Gerät wandern, mit
-  ihren Rohkosten." Danach darfst du den Begriff frei benutzen.
+DIE WÖRTER — die härteste Regel hier, und sie steht über allen anderen:
+- DER TEST für jedes einzelne Wort: Käme es heute so in der Tagesschau vor?
+  Wenn nein, nimm ein anderes. Nicht "erklär es" — NIMM EIN ANDERES.
+- Das gilt ausdrücklich für DEUTSCHE Wörter. Alt ist nicht dasselbe wie
+  verständlich, und ein Wort ist nicht gut, weil es im Duden steht. "Cotte",
+  "Beinlinge", "Bruche", "Loden", "Tuche", "Tross", "Herberge", "Seelenheil",
+  "wendegenäht", "Etappenende" — alle deutsch, keines versteht jemand. Sag
+  "Hemd", "Hosenbeine", "Unterhose", "grober Wollstoff", "Stoffe", "der
+  Haufen Leute, der mitzieht", "Gasthaus", "ob er in den Himmel kommt", "auf
+  links genäht und umgestülpt", "das Ziel für heute".
+- Ein historisches Thema wird in HEUTIGEN Wörtern erzählt. Der Fachbegriff
+  von damals ist keine Genauigkeit, sondern eine Hürde. Was jemand anhatte,
+  war ein Hemd — auch wenn es 1350 anders hieß. Wer schreibt, dass er eine
+  Cotte trug, hat nichts gesagt, sondern nur bewiesen, dass er es weiß.
+- ERKLÄREN IST KEIN FREIBRIEF. Ein Fachbegriff darf im ganzen Abschnitt
+  höchstens EINMAL vorkommen, und nur, wenn das Ding selbst das Thema ist —
+  dann beim ersten Mal im selben Satz erklärt: "die Stückliste — die Liste
+  aller Teile, die in ein Gerät wandern". Danach nimmst du wieder das normale
+  Wort. Fünf erklärte Begriffe sind schlimmer als einer: nach dem dritten
+  hört der Zuschauer auf zuzuhören.
+- Ortsnamen, die nicht jeder einordnen kann, bekommen die heutige Lage in
+  denselben Satz: "Flandern — das heutige Belgien". Sonst lass sie weg.
 - Abkürzungen einmal ausschreiben, bevor du sie abkürzt.
-- Kannst du einen Begriff nicht in einem Nebensatz erklären, nimm ihn nicht.
-  Es gibt für fast alles ein deutsches Wort.
+- Im Zweifel gilt: lieber ein Wort zu einfach als eines zu klug. Dieses Video
+  wird nebenbei gehört, nicht gelesen — wer ein Wort nicht kennt, kann nicht
+  nachschlagen, er steigt aus.
+- Eine Faktenliste oder eine Gliederung ist deine Quelle für ZAHLEN, DATEN und
+  NAMEN — nicht für die Wortwahl. Steht dort ein Fachbegriff, übernimm die
+  Tatsache und übersetz das Wort.
 
 ZAHLEN — harte Regel:
 - Jede große Zahl braucht etwas, woran man sie messen kann. "725 Milliarden
@@ -337,6 +361,11 @@ ZAHLEN — harte Regel:
   Zuschauer kann sie nicht einordnen.
 - Steht die Umrechnung nicht in deinen Fakten, kennzeichne sie als Schätzung
   ("ungefähr", "grob"). Erfinde nie eine genaue Zahl.
+- VERGLICHEN WIRD IN DERSELBEN GRÖSSE: Zeit mit Zeit, Geld mit Geld, Strecke
+  mit Strecke, Gewicht mit Gewicht. "Das kostet dich dein halbes Monatsgehalt
+  an Lebenszeit" ist kein Vergleich, sondern zwei Dinge, die nicht
+  zusammengehören — und der Zuschauer merkt genau das, auch wenn er es nicht
+  benennen kann. Zeit misst man in Zeit: "das sind zwei Wochen deines Lebens".
 
 DER SOG:
 - Der letzte Satz jedes Abschnitts zieht nach vorne, statt abzuschließen.
