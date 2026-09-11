@@ -50,11 +50,19 @@ const Take: React.FC<{ take: StoryTake; first: boolean; fps: number }> = ({
 }) => {
   const frame = useCurrentFrame();
 
+  // Ein harter Schnitt: die Einstellung fängt genau auf ihrem Cue an, ohne
+  // Vorlauf und ohne Aufblenden. Die erste Einstellung des Films ist immer
+  // hart, sie hat nichts, woraus sie aufblenden könnte.
+  //
+  // Fehlt das Feld, wird geblendet — alte Projekte tragen es nicht und sollen
+  // rendern wie zuvor.
+  const cut = first || take.transition === "cut";
+
   // Every take but the first begins FADE frames before its nominal start, so
   // that its opening overlaps the outgoing picture. The move has to be
   // measured from the nominal start, not from the sequence's — otherwise the
   // camera sits still through the whole cross-fade and then sets off.
-  const offset = first ? 0 : FADE;
+  const offset = cut ? 0 : FADE;
   const progress = Math.min(
     1,
     Math.max(0, (frame - offset) / Math.max(1, take.durationInFrames)),
@@ -67,8 +75,7 @@ const Take: React.FC<{ take: StoryTake; first: boolean; fps: number }> = ({
   const move = shotMove(take, fps);
   const at = (from: number, to: number) => from + (to - from) * eased;
 
-  // The first picture has nothing to fade up from, so it simply starts.
-  const opacity = first
+  const opacity = cut
     ? 1
     : interpolate(frame, [0, FADE], [0, 1], {
         extrapolateLeft: "clamp",
@@ -93,7 +100,9 @@ const Take: React.FC<{ take: StoryTake; first: boolean; fps: number }> = ({
           transform: `translate(${at(move.fromX, move.toX).toFixed(3)}%, ${at(
             move.fromY,
             move.toY,
-          ).toFixed(3)}%) scale(${at(move.fromScale, move.toScale).toFixed(4)})`,
+          ).toFixed(
+            3,
+          )}%) scale(${at(move.fromScale, move.toScale).toFixed(4)})`,
           // The transform is applied every frame, so the browser is told once
           // that this layer moves rather than working it out repeatedly.
           willChange: "transform",
@@ -103,7 +112,9 @@ const Take: React.FC<{ take: StoryTake; first: boolean; fps: number }> = ({
   );
 };
 
-export const StoryVideo: React.FC<{ project: StoryProject }> = ({ project }) => {
+export const StoryVideo: React.FC<{ project: StoryProject }> = ({
+  project,
+}) => {
   const timing = resolveStoryTiming(project);
   const takes = storyTakes(timing);
   return (
@@ -124,10 +135,19 @@ export const StoryVideo: React.FC<{ project: StoryProject }> = ({ project }) => 
       {takes.map((take, i) => (
         <Sequence
           key={`${take.id}-${i}`}
-          // Started early by the length of the fade so the incoming picture
-          // overlaps the outgoing one. Sequences that merely abut cannot
-          // cross-fade; they can only cut.
-          from={Math.max(0, take.from - (i === 0 ? 0 : FADE))}
+          // Bei einer Blende beginnt die Sequenz um die Blendenlänge früher,
+          // damit das ankommende Bild das abgehende überlappt — Sequenzen, die
+          // bloss aneinanderstossen, können nur schneiden. Bei einem Schnitt
+          // ist genau das gewollt: Beginn exakt auf dem Cue.
+          from={Math.max(
+            0,
+            take.from - (i === 0 || take.transition === "cut" ? 0 : FADE),
+          )}
+          // Der Nachlauf bleibt in beiden Fällen stehen. Er liegt UNTER der
+          // nächsten Einstellung, die deckend ist, also ist er bei einem
+          // Schnitt unsichtbar — und er ist die Fläche, aus der die nächste
+          // Einstellung aufblendet, falls sie es tut. Ihn beim Schnitt zu
+          // kürzen hiesse, für den Fall danach zu entscheiden.
           durationInFrames={take.durationInFrames + FADE}
           name={`${i + 1}. ${take.image}${take.shots > 1 ? ` (${take.shots} Sätze)` : ""}`}
           layout="none"

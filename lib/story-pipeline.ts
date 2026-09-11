@@ -12,6 +12,7 @@ import { slugify } from "./image-library";
 import {
   ShotMotion,
   ShotSize,
+  ShotTransition,
   StoryCharacter,
   StoryProject,
   StoryStyle,
@@ -1097,6 +1098,7 @@ function reconcile(
       text?: unknown;
       image?: unknown;
       motion?: unknown;
+      transition?: unknown;
       ambience?: unknown;
       accent?: unknown;
     };
@@ -1133,6 +1135,10 @@ function reconcile(
       text: text.slice(0, 400),
       image,
       motion,
+      // IMMER gesetzt, auch wenn "cut" daraufsteht. Das Feld weglassen hiesse
+      // blenden — so unterscheiden alte Projekte (kein Feld) sich von neuen,
+      // die den Schnitt ausdrücklich wollen.
+      transition: ShotTransition.safeParse(s.transition).data ?? "cut",
       ambience,
       accent,
     });
@@ -1506,6 +1512,7 @@ export function assignImages(
 
   const perSentence = new Array<string | undefined>(sentences.length);
   const motion = new Array<ShotMotion | undefined>(sentences.length);
+  const enter = new Array<ShotTransition | undefined>(sentences.length);
   const bed = new Array<string | undefined>(sentences.length);
   const hit = new Array<string | undefined>(sentences.length);
 
@@ -1515,6 +1522,7 @@ export function assignImages(
       to?: unknown;
       image?: unknown;
       motion?: unknown;
+      transition?: unknown;
       ambience?: unknown;
       accent?: unknown;
     };
@@ -1524,6 +1532,7 @@ export function assignImages(
     const to = Math.min(sentences.length - 1, Math.round(Number(span.to)));
     if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) continue;
     const move = ShotMotion.safeParse(span.motion).data ?? "in";
+    const how = ShotTransition.safeParse(span.transition).data ?? "cut";
     const under = slugify(
       typeof span.ambience === "string" ? span.ambience : "",
     );
@@ -1531,6 +1540,7 @@ export function assignImages(
     for (let i = from; i <= to; i += 1) {
       perSentence[i] ??= key;
       motion[i] ??= move;
+      enter[i] ??= how;
       if (bedKeys.has(under)) bed[i] ??= under;
     }
     // Ein Akzent liegt auf dem ANFANG der Spanne, nicht auf jedem ihrer
@@ -1568,6 +1578,7 @@ export function assignImages(
     text,
     image: perSentence[i]!,
     motion: motion[i] ?? "in",
+    transition: enter[i] ?? "cut",
     ...(bed[i] ? { ambience: bed[i] } : {}),
     ...(hit[i] ? { accent: hit[i] } : {}),
   }));
@@ -1647,6 +1658,13 @@ export function splitLongSpans<
     byKey.set(variant.key, variant);
     for (let i = middle; i <= longest.to; i += 1) {
       shots[i] = { ...shots[i], image: variant.key };
+    }
+    // Der Anfang der Variante ist ein Schnitt, nie eine Blende. Zwei
+    // Varianten desselben Bildes ineinander zu blenden ergibt keinen
+    // Übergang, sondern drei Sekunden Weichzeichner — und die Spanne, aus der
+    // hier geteilt wird, hat ihren Übergang schon ganz am Anfang gehabt.
+    if (shots[middle]?.transition) {
+      shots[middle] = { ...shots[middle], transition: "cut" };
     }
   }
 

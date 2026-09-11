@@ -157,6 +157,24 @@ export type StoryImage = z.infer<typeof StoryImage>;
 export const ShotMotion = z.enum(["in", "out", "left", "right", "up", "down"]);
 export type ShotMotion = z.infer<typeof ShotMotion>;
 
+/**
+ * Wie eine Einstellung beginnt.
+ *
+ * Der Schnitt ist bei neuen Projekten der Normalfall, die Blende die Ausnahme.
+ * Lange war es umgekehrt — jede Einstellung blendete über —, und das war eine
+ * bewusste Entscheidung: zwei Standbilder hart aneinandergeschnitten lesen
+ * sich als Diashow. Nur gilt dasselbe für eine Blende bei JEDEM Bild, und
+ * zwar stärker: im Dokumentarschnitt ist der harte Schnitt der Normalfall,
+ * und eine Überblendung bedeutet dort etwas — es ist Zeit vergangen, oder der
+ * Ort hat gewechselt. Wer sie überall einsetzt, kann sie nirgends benutzen.
+ *
+ * FEHLT das Feld, wird geblendet. Alte Projekte kennen es nicht und sollen
+ * genauso rendern wie an dem Tag, an dem sie geschrieben wurden; neue Projekte
+ * tragen es ausdrücklich, auch wenn "cut" daraufsteht.
+ */
+export const ShotTransition = z.enum(["cut", "fade"]);
+export type ShotTransition = z.infer<typeof ShotTransition>;
+
 export const StoryShot = z.object({
   id: z.string(),
   /** What is spoken while this picture is up. Two to four seconds' worth. */
@@ -173,6 +191,8 @@ export const StoryShot = z.object({
    */
   image: z.string(),
   motion: ShotMotion.default("in"),
+  /** Wie diese Einstellung anfängt. Siehe ShotTransition. */
+  transition: ShotTransition.optional(),
   /**
    * The bed running underneath, by key.
    *
@@ -728,6 +748,14 @@ export type StoryTake = {
   url?: string;
   /** Wie nah das Bild steht. Entscheidet, wie weit die Kamera wandern darf. */
   size?: ShotSize;
+  /**
+   * Wie diese Einstellung anfängt.
+   *
+   * Vom ERSTEN Satz der Einstellung, nicht vom letzten: ein Übergang gehört
+   * dem, der ankommt. Die weiteren Sätze einer Einstellung haben gar keinen
+   * Übergang — das Bild steht ja schon.
+   */
+  transition?: ShotTransition;
   motion: ShotMotion;
   from: number;
   durationInFrames: number;
@@ -790,6 +818,7 @@ export function storyTakes(timing: StoryTiming): StoryTake[] {
       image: shot.image,
       url: shot.url,
       size: shot.size,
+      transition: shot.transition,
       // The first shot's move governs the whole take. The writer chose it for
       // the sentence that introduces the picture, which is the moment the move
       // has to answer to.

@@ -539,6 +539,15 @@ TEMPO — das ist die wichtigste Regel dieses Abschnitts:
   und wechselt jede Einstellung das Bild, hast du kein Tempo gebaut, sondern es
   vermieden. Schreib ihn um.
 
+DER ÜBERGANG ("transition") — steht an JEDER Einstellung:
+- "cut" ist der Normalfall. Das Bild wechselt hart, ohne Blende. So wird im
+  Dokumentarfilm geschnitten.
+- "fade" NUR bei einem Sprung in Zeit oder Ort: ein neuer Abschnitt, „drei
+  Jahre später", ein anderer Schauplatz. Zwei bis vier im ganzen Video.
+- Eine Blende bedeutet etwas, solange sie selten ist. Wer sie überall setzt,
+  kann sie nirgends benutzen — und der Film sieht aus wie eine Diashow mit
+  Weichzeichner.
+
 BEWEGUNG:
 - "motion" bewegt das Standbild langsam: "in" (heran), "out" (weg),
   "left", "right", "up", "down".
@@ -573,7 +582,7 @@ KLANG:
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"images":[{"key":"…","name":"…","prompt":"…","shot":"wide","characters":["…"]}],
  "accents":[{"key":"…","name":"…","prompt":"…","seconds":2}],
- "shots":[{"text":"…","image":"…","motion":"in","ambience":"…","accent":"…"}]}
+ "shots":[{"text":"…","image":"…","motion":"in","transition":"cut","ambience":"…","accent":"…"}]}
 
 - Jeder "image"-Wert in shots MUSS als "key" in images vorkommen.
 - Jedes Bild in images MUSS von mindestens einer Einstellung benutzt werden.
@@ -909,6 +918,15 @@ DIE BILDER:
   wird angehängt. Schreib nur, was die Figur tut und wo sie steht. Kommt
   keine vor, lass "characters" weg.
 
+DER ÜBERGANG ("transition") — steht an JEDER Einstellung:
+- "cut" ist der Normalfall. Das Bild wechselt hart, ohne Blende. So wird im
+  Dokumentarfilm geschnitten.
+- "fade" NUR bei einem Sprung in Zeit oder Ort: ein neuer Abschnitt, „drei
+  Jahre später", ein anderer Schauplatz. Zwei bis vier im ganzen Video.
+- Eine Blende bedeutet etwas, solange sie selten ist. Wer sie überall setzt,
+  kann sie nirgends benutzen — und der Film sieht aus wie eine Diashow mit
+  Weichzeichner.
+
 BEWEGUNG:
 - "motion" bewegt das Standbild langsam: "in" (heran), "out" (weg), "left",
   "right", "up", "down". Nach dem Inhalt wählen, nicht der Abwechslung wegen.
@@ -940,7 +958,7 @@ Antworte mit einem JSON-Objekt, sonst nichts:
  "images":[{"key":"…","name":"…","prompt":"…","shot":"wide","characters":["…"]}],
  "beds":[{"key":"…","name":"…","prompt":"…","seconds":12}],
  "accents":[{"key":"…","name":"…","prompt":"…","seconds":2}],
- "spans":[{"from":0,"to":2,"image":"…","motion":"in","ambience":"…","accent":"…"}]}
+ "spans":[{"from":0,"to":2,"image":"…","motion":"in","transition":"cut","ambience":"…","accent":"…"}]}
 
 - "from" und "to" sind Satznummern, beide einschließlich.
 - Jedes "image" in spans MUSS als "key" in images vorkommen.
