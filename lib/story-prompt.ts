@@ -375,9 +375,55 @@ DER SOG:
 - Das ist kein Cliffhanger-Geschrei. Es ist ein Satz, der eine Folge
   ankündigt, die wirklich kommt.`;
 
+/**
+ * Der Spannungsbogen dieses Formats.
+ *
+ * Video-eigen und bewusst NICHT in SPOKEN_LANGUAGE_RULES: den Block teilt sich
+ * das Video mit dem Finanz-Format, und dort gelten andere Regeln für Anfang
+ * und Schluss — ein Finanzvideo darf den Zuschauer nicht nach seiner Meinung
+ * fragen, es soll ja gerade nichts empfehlen.
+ *
+ * An zwei Stellen widerspricht dieser Block den geteilten Regeln, und beide
+ * Male ausdrücklich: der erste Satz wird konkreter verlangt, und der letzte
+ * ist hier eine Frage an den Zuschauer statt eines Gedankens, der bleibt. Wo
+ * zwei Regeln in einem Prompt nebeneinanderstehen und sich widersprechen,
+ * wählt das Modell eine davon still — also wird gesagt, welche gewinnt.
+ */
+export const VIDEO_ARC_RULES = `DER BOGEN DIESES FORMATS — er geht den Regeln oben vor, wo beide sich widersprechen:
+
+DER ERSTE SATZ löst das Versprechen des Themas sofort ein. Er nennt eine
+konkrete Zahl, ein Datum oder einen Ort aus den belegten Fakten:
+„Am 26. Juni 1284 verschwinden aus Hameln 130 Kinder."
+- Keine Anlauframpe, keine Einordnung, kein „Stell dir vor".
+- Bekommst du KEINE Faktenliste, nimm eine konkrete Tatsache statt einer Zahl.
+  Eine schwächere Eröffnung ist besser als eine erfundene Zahl. Eine Zahl, die
+  du nicht belegen kannst, kommt nicht vor — auch nicht im ersten Satz, auch
+  nicht ungefähr.
+
+DIE OFFENE FRAGE steht in den ersten rund 50 Wörtern, also in den ersten
+zwanzig Sekunden. Beantwortet wird sie ERST AM ENDE.
+- Als Frage im Erzählfluss, nicht als Ankündigung: „Niemand hat sie je
+  wiedergesehen. Und bis heute weiß niemand, wohin sie gingen." Nicht: „In
+  diesem Video erfährst du, wohin sie gingen." Das bleibt verboten.
+
+JEDER WEITERE ABSCHNITT beginnt mit einer offenen Frage oder einem Widerspruch,
+der die nächsten zwei Minuten trägt. Ein Abschnitt, der mit einer Feststellung
+anfängt, gibt niemandem einen Grund weiterzuhören.
+
+DER LETZTE SATZ ist die offene Frage an den Zuschauer — und er holt die
+Kommentare: „Was hättest du getan? Schreib es in die Kommentare."
+- EIN Satz, höchstens zwei. Keine Verabschiedung, kein „Danke fürs Zuschauen",
+  keine Zusammenfassung, kein „bis zum nächsten Mal".
+- Die Frage kommt aus dem Video und lässt sich nicht beantworten, ohne es
+  gesehen zu haben. „Was denkt ihr?" ist keine Frage, sondern eine Floskel.
+- Das ersetzt die Regel „der letzte Satz ist ein Gedanke, der bleibt": der
+  Gedanke bleibt, er wird nur an den Zuschauer gerichtet.`;
+
 export const STORY_SCRIPT_SYSTEM_PROMPT = `Du schreibst ein deutsches Erklärvideo: gesprochenen Text und dazu die Bilder.
 
 ${SPOKEN_LANGUAGE_RULES}
+
+${VIDEO_ARC_RULES}
 
 DIE AUFTEILUNG IN EINSTELLUNGEN ("shots"):
 - Jede Einstellung ist EIN Bild und der Text, der dazu gesprochen wird.
@@ -675,10 +721,10 @@ ${plan}
 Schreib NUR Abschnitt ${args.index + 1}. Nicht die anderen, nicht ihre Inhalte,
 und keine Zusammenfassung des Ganzen. ${
     args.index === 0
-      ? "Es ist der Anfang: der erste Satz muss neugierig machen, ohne Begrüßung."
+      ? "Es ist der ANFANG. Der erste Satz nennt die konkrete Zahl, das Datum oder den Ort, ohne Begrüßung — und die offene Frage des ganzen Videos steht in deinen ersten rund 50 Wörtern. Siehe DER BOGEN."
       : args.index === args.sections.length - 1
-        ? "Es ist der Schluss: der letzte Satz ist ein Gedanke, der bleibt."
-        : "Es ist ein Abschnitt aus der Mitte: steig ohne Einleitung ein und hör ohne Fazit auf, der nächste Abschnitt macht weiter."
+        ? "Es ist der SCHLUSS. Beantworte die Frage, die der Anfang aufgeworfen hat, und schließ mit der offenen Frage an den Zuschauer samt Kommentar-Aufforderung. Siehe DER BOGEN."
+        : "Es ist ein Abschnitt aus der MITTE: steig mit einer offenen Frage oder einem Widerspruch ein und hör ohne Fazit auf, der nächste Abschnitt macht weiter."
   }
 
 LÄNGE: ungefähr ${args.words} Wörter, das sind etwa ${shots} Einstellungen.

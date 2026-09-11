@@ -35,6 +35,15 @@ DIE TITEL:
 - Schreib ${TITLE_OPTIONS} verschiedene zur Auswahl. Verschieden heißt: nicht
   dieselbe Aussage anders formuliert.
 - Höchstens ${TITLE_LIMIT} Zeichen, besser unter 70 — länger schneidet YouTube ab.
+- DAS WICHTIGSTE STEHT IN DEN ERSTEN 40 ZEICHEN. So viel sieht jemand auf dem
+  Handy, in der Seitenleiste und in der Benachrichtigung; alles danach ist
+  Zugabe und oft gar nicht zu sehen.
+- DER TITEL MACHT DASSELBE VERSPRECHEN WIE DER ERSTE GESPROCHENE SATZ. Du
+  bekommst die ersten Einstellungen unten eigens aufgeführt. Verspricht der
+  Anfang „130 Kinder verschwinden an einem Tag", dann steht genau das im
+  Titel — nicht ein anderer, hübscherer Aufhänger, den das Video erst in
+  Minute neun einlöst. Wer wegen des Titels klickt, muss in den ersten zehn
+  Sekunden das finden, wofür er geklickt hat.
 - Das Konkreteste aus dem Video gehört nach vorn: die Zahl, der Ort, das
   Ereignis. Die ersten drei Wörter entscheiden.
 - KEIN Clickbait, den das Video nicht einlöst. Kein "Das wirst du nicht
@@ -89,19 +98,39 @@ export function buildPrompt(project: StoryProject): string {
     ? `\n\nDIE EINSTELLUNGEN MIT STARTZEIT (Sekunde, Text):\n${project.shots
         .map((s, i) => `${Math.round(project.cues![i])}\t${s.text.trim()}`)
         .join("\n")}`
-    : "\n\nEs gibt keine gemessenen Zeiten. Lass \"chapters\" leer.";
+    : '\n\nEs gibt keine gemessenen Zeiten. Lass "chapters" leer.';
 
   const seconds = timed
     ? Math.round(
         project.cues![project.shots.length - 1] +
-          shortSeconds(project, project.shots.length - 1, project.shots.length - 1),
+          shortSeconds(
+            project,
+            project.shots.length - 1,
+            project.shots.length - 1,
+          ),
       )
     : undefined;
 
+  // Der Anfang eigens, obwohl er im Fließtext gleich noch einmal kommt.
+  // Der Titel muss dasselbe versprechen wie diese Sätze, und in zweitausend
+  // Wörtern Fließtext sind die ersten drei kein hervorgehobener Ort mehr —
+  // das Modell nimmt sich dann den stärksten Aufhänger aus der Mitte, und der
+  // Zuschauer klickt auf ein Versprechen, das erst in Minute neun eingelöst
+  // wird.
+  const opening = project.shots
+    .slice(0, 3)
+    .map((s) => s.text.trim())
+    .join(" ");
+
   return `Thema: ${project.topic}
 Arbeitstitel: „${project.title}"${
-    seconds ? `\nLänge: ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : ""
+    seconds
+      ? `\nLänge: ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+      : ""
   }${facts}
+
+SO FÄNGT DAS VIDEO AN — daran muss sich der Titel messen lassen:
+${opening}
 
 DER GESPROCHENE TEXT DES VIDEOS:
 ${text}${timeline}
@@ -174,7 +203,10 @@ export async function writeListing(args: {
     schema: LISTING_SCHEMA,
   });
 
-  return { listing: parseListing(reply.text, args.project), usage: reply.usage };
+  return {
+    listing: parseListing(reply.text, args.project),
+    usage: reply.usage,
+  };
 }
 
 /**
@@ -199,7 +231,9 @@ export function parseListing(raw: string, project: StoryProject): ListingDraft {
   if (!titles.length) throw new Error("Die Antwort enthielt keinen Titel.");
 
   const description =
-    typeof json.description === "string" ? json.description.trim().slice(0, 4500) : "";
+    typeof json.description === "string"
+      ? json.description.trim().slice(0, 4500)
+      : "";
   if (description.length < 20) {
     throw new Error("Die Antwort enthielt keine Beschreibung.");
   }
@@ -257,7 +291,8 @@ function cleanChapters(
     .map((c) => {
       const item = c as { seconds?: unknown; label?: unknown };
       const seconds = Math.max(0, Math.round(Number(item.seconds)));
-      const label = typeof item.label === "string" ? item.label.trim().slice(0, 40) : "";
+      const label =
+        typeof item.label === "string" ? item.label.trim().slice(0, 40) : "";
       return { seconds, label };
     })
     .filter((c) => Number.isFinite(c.seconds) && c.label.length > 1)
