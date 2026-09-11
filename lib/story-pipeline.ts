@@ -11,9 +11,9 @@ import {
 import { slugify } from "./image-library";
 import {
   ShotMotion,
+  StoryCharacter,
   StoryProject,
   StoryStyle,
-  type StoryCharacter,
   type StoryImage,
   type StoryPerspective,
   type StoryShot,
@@ -414,7 +414,7 @@ async function describeCharacters(args: {
  * model answered for it: a figure that silently vanished here would leave the
  * script naming a character key that no longer exists.
  */
-function mergeAppearances(
+export function mergeAppearances(
   seeds: CharacterSeed[],
   raw: unknown,
 ): StoryCharacter[] {
@@ -427,12 +427,51 @@ function mergeAppearances(
     byKey.set(slugify(c.key), appearance.slice(0, 700));
   }
 
-  return seeds.map((seed) => ({
-    key: seed.key,
-    name: seed.name,
-    description: seed.description,
-    appearance: byKey.get(seed.key),
-  }));
+  // Hat jemand Figuren vorgegeben, gilt AUSSCHLIESSLICH diese Liste. Ein
+  // Vorschlag daneben wäre eine Figur, die niemand bestellt hat, und sie
+  // stünde gleichberechtigt neben der, die bestellt wurde.
+  if (seeds.length) {
+    return seeds.map((seed) => ({
+      key: seed.key,
+      name: seed.name,
+      description: seed.description,
+      appearance: byKey.get(seed.key),
+    }));
+  }
+
+  // Ohne Vorgabe darf der Stil-Schritt eine Hauptfigur vorschlagen. Sie
+  // braucht alle vier Felder: "description" ist sonst das, was der Nutzer
+  // geschrieben hat, und ohne sie liesse sich die Figur später nicht in einen
+  // anderen Look übersetzen — genau das ist der Zweck des Feldes.
+  //
+  // Genau EINE, und zwar still gekappt statt abgelehnt: eine zweite
+  // vorgeschlagene Figur ist kein Fehler, sie ist nur nicht bestellt.
+  const proposed: StoryCharacter[] = [];
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const c = item as {
+      key?: unknown;
+      name?: unknown;
+      description?: unknown;
+      appearance?: unknown;
+    };
+    const key = slugify(typeof c.key === "string" ? c.key : "");
+    const name = typeof c.name === "string" ? c.name.trim() : "";
+    const description =
+      typeof c.description === "string" ? c.description.trim() : "";
+    const appearance = byKey.get(key);
+    if (!key || name.length < 2 || description.length < 3 || !appearance) {
+      continue;
+    }
+    const parsed = StoryCharacter.safeParse({
+      key,
+      name: name.slice(0, 80),
+      description: description.slice(0, 600),
+      appearance,
+    });
+    if (parsed.success) proposed.push(parsed.data);
+    if (proposed.length) break;
+  }
+  return proposed;
 }
 
 /**

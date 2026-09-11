@@ -32,16 +32,32 @@ DER STIL-TEXT ("directive") MUSS FESTLEGEN:
 - Eine durchgehende Textur, z. B. feines Korn wie bei altem Siebdruck.
 - Perspektive und Bildaufbau: meist seitlich oder leicht erhöht, ruhige
   Horizonte, viel Luft um das Motiv.
-- Menschen: fast nie realistisch. Wenn Figuren vorkommen, dann als moderne,
-  reduzierte Strichfiguren mit klarer Silhouette und ohne Gesichtszüge.
-  Der Schwerpunkt liegt auf Gebäuden, Gegenständen, Werkzeugen, Landschaften,
-  Schnittbildern und Diagrammen.
+- Menschen: gezeichnete Figuren MIT GESICHT. Der Strich bleibt der des Films,
+  aber Augen, Mund und Brauen sind da und lesbar, sodass man einer Figur
+  ansieht, was sie fühlt — auch aus zwei Metern Abstand auf einem Handy. Leg
+  fest, wie Gesichter in diesem Stil gebaut sind: wie viele Striche, wie die
+  Augen gesetzt sind, wie Hauttöne aus der Palette kommen.
+  Keine Fotorealistik, keine Manga-Augen, keine leeren Silhouetten.
+  In Totalen dürfen Figuren klein und ohne Gesichtszüge bleiben.
 - Kein Text im Bild. Keine Schrift, keine Zahlen, keine Beschriftungen,
   keine Wasserzeichen.
 
 Der Stil-Text ist eine Anweisung an einen Zeichner, kein Werbetext. Schreib ihn
 auf Englisch — die Bildmodelle folgen englischen Anweisungen zuverlässiger.
 400 bis 900 Zeichen.
+
+WENN KEINE FIGUR VORGEGEBEN IST, SCHLÄGST DU EINE VOR:
+- Genau EINE wiederkehrende Hauptfigur, durch deren Alltag das Thema erzählt
+  wird. Kein Held und keine historische Person, sondern jemand, den es so
+  tausendfach gab: „eine Wäscherin, Mitte dreißig, in einer Hafenstadt".
+- Sie muss zum Thema passen und in vielen Abschnitten vorkommen können. Bei
+  einem Thema ohne Menschen — Geologie, Technik, Astronomie — lässt du
+  "characters" weg. Eine erfundene Figur, die nirgends hingehört, ist
+  schlimmer als keine.
+- "name" deutsch und beschreibend („Die Wäscherin"), "description" ein Satz
+  deutsch, "appearance" die Zeichenanweisung auf Englisch wie unten.
+- Der Vorschlag ist ein Vorschlag: er wird im Studio angezeigt und kann
+  geändert oder gelöscht werden.
 
 WENN FIGUREN VORGEGEBEN SIND:
 - Übersetz jede vorgegebene Figur in DIESEN Stil und beschreib sie auf
@@ -54,14 +70,16 @@ WENN FIGUREN VORGEGEBEN SIND:
 
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"title":"…","styleName":"…","directive":"…","palette":["#rrggbb","#rrggbb","#rrggbb"],
- "characters":[{"key":"…","appearance":"…"}]}
+ "characters":[{"key":"…","name":"…","description":"…","appearance":"…"}]}
 
 - "title": maximal 60 Zeichen, deutsch, macht neugierig.
 - "styleName": kurzer deutscher Name des Looks, z. B. "Sand und Indigo,
   Siebdruck". Er wird zum Schlüssel, unter dem Bilder dieses Looks später
   wiedergefunden werden — also beschreibend, nicht poetisch.
 - "palette": 3 bis 5 Hexwerte, dieselben, die im directive genannt sind.
-- "characters": nur wenn Figuren vorgegeben sind, sonst weglassen.`;
+- "characters": bei vorgegebenen Figuren nur "key" und "appearance". Schlägst
+  du selbst eine vor, dann alle vier Felder — "key" (Slug), "name",
+  "description", "appearance". Passt keine Figur zum Thema, lass das Feld weg.`;
 
 export function buildStylePrompt(args: {
   topic: string;
@@ -89,7 +107,11 @@ ${args.wish.trim()}`
 
 DIESE FIGUREN KOMMEN VOR. Beschreib jede in diesem Stil auf Englisch:
 ${args.characters.map((c) => `- ${c.key} — ${c.name}: ${c.description}`).join("\n")}`
-    : "";
+    : `
+
+ES IST KEINE FIGUR VORGEGEBEN. Schlag eine wiederkehrende Hauptfigur vor,
+wenn das Thema eine trägt — mit "key", "name", "description" und
+"appearance". Trägt es keine, lass "characters" weg.`;
 
   return `Thema des Videos:
 ${args.topic}${wish}${characters}
@@ -456,8 +478,18 @@ DIE BILDER:
   Auf Englisch. Kein Wort über Stil, Farben oder Technik — das kommt aus dem
   Stil-Text und würde sich sonst widersprechen.
 - Keine Schrift im Bild. Beschreibe niemals Text, Zahlen oder Beschriftungen.
-- Menschen sparsam und nur als reduzierte Strichfiguren. Zeig lieber die Sache
-  selbst: Gebäude, Werkzeuge, Landschaften, Gegenstände, Schnittbilder.
+- MENSCHEN GEHÖREN INS BILD, und zwar mit Gesicht. Ungefähr JEDES VIERTE Bild
+  ist eine halbnahe oder nahe Einstellung auf einen Menschen, dessen Gefühl zu
+  genau diesem Satz passt: Angst, Erschöpfung, Misstrauen, Trotz, Erleichterung.
+  Schreib das Gefühl in den "prompt" — „a woman in her thirties, exhausted,
+  staring past the viewer" —, nicht bloß „a woman".
+- Die übrigen Bilder tragen weiter die Sache selbst: Gebäude, Werkzeuge,
+  Landschaften, Gegenstände, Schnittbilder. Gesichter wirken, weil sie nicht
+  überall sind.
+- LEID ZEIGST DU ÜBER GESICHT, HALTUNG UND UMGEBUNG — nicht über Verletzungen.
+  Keine Wunden, kein Blut, keine Leichen in Nahaufnahme, keine Gewalt im
+  Moment des Geschehens. Eine leere Wiege sagt mehr als ein totes Kind, und
+  das Video bleibt werbefähig.
 - WIEDERKEHRENDE FIGUREN: Bekommst du eine Figurenliste, dann trag in
   "characters" die "key"-Werte der Figuren ein, die in DIESEM Bild zu sehen
   sind. Beschreib ihr Aussehen NICHT in "prompt" — das steht schon fest und
