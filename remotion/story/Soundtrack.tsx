@@ -1,5 +1,6 @@
 import React from "react";
 import { Audio, Sequence } from "remotion";
+import { endScreenFrames } from "../../lib/story";
 import type { StoryProject, StorySound, StoryTiming } from "../../lib/story";
 
 /**
@@ -25,7 +26,8 @@ export const Soundtrack: React.FC<{
    * nennen, sind ein Wind, der weiterläuft — nicht neun, die jedesmal von
    * vorn anfangen.
    */
-  const beds: { sound: StorySound; from: number; durationInFrames: number }[] = [];
+  const beds: { sound: StorySound; from: number; durationInFrames: number }[] =
+    [];
   for (const shot of timing.shots) {
     const sound = shot.ambience ? byKey.get(shot.ambience) : undefined;
     if (!sound?.url) continue;
@@ -45,7 +47,30 @@ export const Soundtrack: React.FC<{
     }
   }
 
-  const accents: { sound: StorySound; from: number; durationInFrames: number }[] = [];
+  /**
+   * Der letzte Teppich läuft in den Endscreen hinein und blendet dort aus.
+   *
+   * Sonst risse die Musik mit dem letzten Wort ab und der Endscreen liefe
+   * stumm — was schlimmer wirkt als gar keine Musik, weil es klingt, als wäre
+   * die Datei zu Ende und das Bild hinge noch.
+   *
+   * Nur der LETZTE, und nur wenn er bis ans Ende der Erzählung reicht: ein
+   * Teppich, der schon in der Mitte aufgehört hat, hat mit dem Ende nichts zu
+   * tun.
+   */
+  const outro = endScreenFrames(project);
+  const last = beds[beds.length - 1];
+  const fadesOut =
+    outro > 0 &&
+    last !== undefined &&
+    last.from + last.durationInFrames >= timing.narrationFrames - project.fps;
+  if (fadesOut) last.durationInFrames += outro;
+
+  const accents: {
+    sound: StorySound;
+    from: number;
+    durationInFrames: number;
+  }[] = [];
   for (const shot of timing.shots) {
     const sound = shot.accent ? byKey.get(shot.accent) : undefined;
     if (!sound?.url) continue;
@@ -75,7 +100,24 @@ export const Soundtrack: React.FC<{
           {/* Zehn Sekunden Wind unter zwei Minuten Film: er muss wiederkommen,
               und die Schleife ist unhörbar, weil das Material keinen Takt hat,
               aus dem es fallen könnte. */}
-          <Audio src={bed.sound.url!} volume={project.soundLevel} loop />
+          <Audio
+            src={bed.sound.url!}
+            volume={
+              fadesOut && i === beds.length - 1
+                ? (f) => {
+                    // Gehalten bis zum Endscreen, dann linear auf null. Die
+                    // Blende läuft über den ganzen Endscreen, nicht über die
+                    // letzten zwei Sekunden: ein schneller Abfall klingt wie
+                    // ein Abbruch.
+                    const start = bed.durationInFrames - outro;
+                    if (f <= start) return project.soundLevel;
+                    const t = (f - start) / Math.max(1, outro);
+                    return project.soundLevel * Math.max(0, 1 - t);
+                  }
+                : project.soundLevel
+            }
+            loop
+          />
         </Sequence>
       ))}
 

@@ -97,7 +97,8 @@ const Picture: React.FC<{
   // Zoom stays a transform, which is safe in a way a translate is not: scaling
   // up only ever covers more.
   const travel = PAN * pace;
-  const x = 50 - travel / 2 + (dir < 0 ? travel - travel * eased : travel * eased);
+  const x =
+    50 - travel / 2 + (dir < 0 ? travel - travel * eased : travel * eased);
   const scale = 1 + ZOOM * pace * (motion === "out" ? 1 - eased : eased);
 
   const opacity = first
@@ -148,34 +149,34 @@ export const Caption: React.FC<{
 }> = ({ text, accent, hook, align }) => {
   const centred = (align ?? (hook ? "center" : "bottom")) === "center";
   return (
-  <AbsoluteFill
-    style={{
-      justifyContent: centred ? "center" : "flex-end",
-      alignItems: "center",
-      padding: centred ? "0 90px" : "0 70px 430px",
-    }}
-  >
-    <span
+    <AbsoluteFill
       style={{
-        display: "inline",
-        boxDecorationBreak: "clone",
-        WebkitBoxDecorationBreak: "clone",
-        background: "rgba(9,12,17,0.82)",
-        color: "#fff",
-        padding: hook ? "18px 26px" : "12px 20px",
-        fontFamily: "ArchivoExpanded, ui-sans-serif, system-ui, sans-serif",
-        fontWeight: 700,
-        fontSize: hook ? 78 : 60,
-        lineHeight: 1.28,
-        letterSpacing: "-0.01em",
-        textAlign: "center",
-        textWrap: "balance",
-        borderBottom: hook ? `8px solid ${accent}` : undefined,
+        justifyContent: centred ? "center" : "flex-end",
+        alignItems: "center",
+        padding: centred ? "0 90px" : "0 70px 430px",
       }}
     >
-      {text}
-    </span>
-  </AbsoluteFill>
+      <span
+        style={{
+          display: "inline",
+          boxDecorationBreak: "clone",
+          WebkitBoxDecorationBreak: "clone",
+          background: "rgba(9,12,17,0.82)",
+          color: "#fff",
+          padding: hook ? "18px 26px" : "12px 20px",
+          fontFamily: "ArchivoExpanded, ui-sans-serif, system-ui, sans-serif",
+          fontWeight: 700,
+          fontSize: hook ? 78 : 60,
+          lineHeight: 1.28,
+          letterSpacing: "-0.01em",
+          textAlign: "center",
+          textWrap: "balance",
+          borderBottom: hook ? `8px solid ${accent}` : undefined,
+        }}
+      >
+        {text}
+      </span>
+    </AbsoluteFill>
   );
 };
 
@@ -229,12 +230,9 @@ export const ShortVideo: React.FC<{
   hookAlign?: "center" | "bottom";
 }> = ({ project, short, Visual, hookAlign }) => {
   const timing = resolveShortTiming(project, short);
-  const takes = storyTakes({
-    shots: timing.shots,
-    totalFrames: timing.totalFrames,
-    audioSeconds: timing.narrationSeconds,
-    estimated: false,
-  });
+  // Nur die Einstellungen: storyTakes() liest nichts anderes, und ein Short
+  // hat weder Endscreen noch eine Erzähllänge im Sinne des ganzen Films.
+  const takes = storyTakes({ shots: timing.shots });
   const byKey = new Map((project.sounds ?? []).map((s) => [s.key, s]));
   const accent = project.style.palette[1] ?? "#c89b3c";
 
@@ -243,7 +241,8 @@ export const ShortVideo: React.FC<{
   // something nobody came for.
   const opening = timing.shots[0];
 
-  const beds: { sound: StorySound; from: number; durationInFrames: number }[] = [];
+  const beds: { sound: StorySound; from: number; durationInFrames: number }[] =
+    [];
   for (const shot of timing.shots) {
     const sound = shot.ambience ? byKey.get(shot.ambience) : undefined;
     if (!sound?.url) continue;
@@ -255,7 +254,11 @@ export const ShortVideo: React.FC<{
     ) {
       open.durationInFrames += shot.durationInFrames;
     } else {
-      beds.push({ sound, from: shot.from, durationInFrames: shot.durationInFrames });
+      beds.push({
+        sound,
+        from: shot.from,
+        durationInFrames: shot.durationInFrames,
+      });
     }
   }
 
@@ -294,7 +297,10 @@ export const ShortVideo: React.FC<{
       {takes.map((take, i) => (
         <Sequence
           key={`${take.id}-${i}`}
-          from={Math.max(0, take.from - (i === 0 && timing.hookFrames === 0 ? 0 : FADE))}
+          from={Math.max(
+            0,
+            take.from - (i === 0 && timing.hookFrames === 0 ? 0 : FADE),
+          )}
           durationInFrames={take.durationInFrames + FADE}
           name={`${i + 1}. ${take.image}`}
           layout="none"
@@ -353,7 +359,10 @@ export const ShortVideo: React.FC<{
             name={`! ${sound.key}`}
             layout="none"
           >
-            <Audio src={sound.url} volume={Math.min(1, project.soundLevel * 2.4)} />
+            <Audio
+              src={sound.url}
+              volume={Math.min(1, project.soundLevel * 2.4)}
+            />
           </Sequence>
         );
       })}

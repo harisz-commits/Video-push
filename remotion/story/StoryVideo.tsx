@@ -7,6 +7,7 @@ import {
   useCurrentFrame,
 } from "remotion";
 import {
+  endScreenFrames,
   resolveStoryTiming,
   shotMove,
   storyTakes,
@@ -112,11 +113,55 @@ const Take: React.FC<{ take: StoryTake; first: boolean; fps: number }> = ({
   );
 };
 
+/**
+ * Die Sekunden nach dem letzten Wort.
+ *
+ * Kein Text und kein Logo: darüber legt YouTube seine eigenen Elemente, und
+ * was darunter steht, wird verdeckt. Was hier passiert, ist nur, dass das Bild
+ * nicht stehenbleibt und nicht abrupt aufhört — es wandert langsam weiter
+ * heran und wird dabei dunkler, damit die Endscreen-Kacheln lesbar davor
+ * liegen.
+ *
+ * Das letzte Bild, nicht das erste: es ist das, worauf der letzte Satz
+ * stehengeblieben ist.
+ */
+const EndScreen: React.FC<{ take: StoryTake; durationInFrames: number }> = ({
+  take,
+  durationInFrames,
+}) => {
+  const frame = useCurrentFrame();
+  const t = Math.min(1, Math.max(0, frame / Math.max(1, durationInFrames)));
+  const eased = t * t * (3 - 2 * t);
+
+  if (!take.url) return null;
+
+  return (
+    <AbsoluteFill>
+      <Img
+        src={take.url}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          // Weiter heran, aber langsamer als im Film: hier wird nichts mehr
+          // gezeigt, es läuft nur aus.
+          transform: `scale(${(1.04 + 0.05 * eased).toFixed(4)})`,
+          willChange: "transform",
+        }}
+      />
+      <AbsoluteFill
+        style={{ backgroundColor: `rgba(0,0,0,${(0.55 * eased).toFixed(3)})` }}
+      />
+    </AbsoluteFill>
+  );
+};
+
 export const StoryVideo: React.FC<{ project: StoryProject }> = ({
   project,
 }) => {
   const timing = resolveStoryTiming(project);
   const takes = storyTakes(timing);
+  const outro = endScreenFrames(project);
   return (
     <AbsoluteFill
       style={{
@@ -155,6 +200,19 @@ export const StoryVideo: React.FC<{ project: StoryProject }> = ({
           <Take take={take} first={i === 0} fps={project.fps} />
         </Sequence>
       ))}
+
+      {/* Null bei alten Projekten — dann gibt es die Sequenz gar nicht und der
+          Film endet Frame für Frame wie zuvor. */}
+      {outro > 0 && takes.length > 0 ? (
+        <Sequence
+          from={timing.narrationFrames}
+          durationInFrames={outro}
+          name="Endscreen"
+          layout="none"
+        >
+          <EndScreen take={takes[takes.length - 1]} durationInFrames={outro} />
+        </Sequence>
+      ) : null}
 
       <Soundtrack project={project} timing={timing} />
     </AbsoluteFill>

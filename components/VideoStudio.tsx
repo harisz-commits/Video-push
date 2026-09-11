@@ -2965,6 +2965,55 @@ export const VideoStudio: React.FC<{
 
             <Panel step={panelStep(6)} title="Rendern">
               {/*
+                Der Endscreen gehört hierher und nicht ins Thema-Panel: er
+                ändert nichts am Skript und nichts an den Kosten, nur an der
+                Länge der fertigen Datei. Beim Finanz-Format gibt es ihn nicht
+                — dort steht der Pflichthinweis am Ende, und fünfzehn stumme
+                Sekunden dahinter wären die schlechteste Stelle dafür.
+              */}
+              {!finance ? (
+                <>
+                  <label
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      color: "#5b6672",
+                      display: "block",
+                      margin: "0 0 4px",
+                    }}
+                  >
+                    Platz für den Endscreen: {project.endScreenSeconds ?? 0} s
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={20}
+                    step={1}
+                    value={project.endScreenSeconds ?? 0}
+                    onChange={(e) => {
+                      const seconds = Number(e.target.value);
+                      setProject((p) => ({
+                        ...p,
+                        // Unter fünf gibt es das Feld gar nicht: das Schema
+                        // lässt nur 5 bis 20 zu, und "aus" heisst hier, es
+                        // wegzulassen — dann bleibt es bei den anderthalb
+                        // Sekunden Atem wie vor dieser Erweiterung.
+                        endScreenSeconds: seconds >= 5 ? seconds : undefined,
+                      }));
+                    }}
+                    style={{ width: "100%" }}
+                    aria-label="Endscreen-Länge"
+                  />
+                  <Note tone="info">
+                    Nach dem letzten Wort läuft das Bild noch weiter, wird
+                    dunkler, und die Musik blendet aus. YouTube legt seine
+                    Endscreen-Kacheln über die letzten zwanzig Sekunden — ohne
+                    diesen Platz liegen sie über dem letzten gesprochenen Satz.
+                    Auf 0 gestellt bleibt es wie bisher.
+                  </Note>
+                </>
+              ) : null}
+              {/*
                 Der Hinweis ist beim Finanz-Format Bedingung, nicht Empfehlung
                 — der Render verweigert ohne ihn. Neue Videos bekommen ihn beim
                 Schreiben; das hier ist für die, die vorher entstanden sind.

@@ -472,11 +472,31 @@ export const StoryProject = z.object({
    */
   youtube: YoutubeListing.optional(),
   thumbnail: ThumbnailConfig.optional(),
+  /**
+   * Wie lange nach dem letzten Wort noch Bild läuft, in Sekunden.
+   *
+   * Der Platz für YouTubes Endscreen: die Elemente, mit denen ein Zuschauer
+   * ins nächste Video geht, legt YouTube über die letzten zwanzig Sekunden —
+   * und ohne Platz dafür liegen sie über dem letzten gesprochenen Satz.
+   *
+   * FEHLT das Feld, bleibt es bei STORY_TAIL_FRAMES, also gut anderthalb
+   * Sekunden Atem. Alte Projekte werden dadurch keine Sekunde länger.
+   */
+  endScreenSeconds: z.number().min(5).max(20).optional(),
   fps: z.literal(30).default(30),
   width: z.literal(1920).default(1920),
   height: z.literal(1080).default(1080),
 });
 export type StoryProject = z.infer<typeof StoryProject>;
+
+/** Wie viele Frames nach dem Bildende noch Endscreen laufen. Ohne Feld: keine. */
+export function endScreenFrames(
+  project: Pick<StoryProject, "endScreenSeconds" | "fps">,
+): number {
+  return project.endScreenSeconds
+    ? Math.round(project.endScreenSeconds * project.fps)
+    : 0;
+}
 
 /** Frames of silence after the last word, so the end does not snap shut. */
 export const STORY_TAIL_FRAMES = 40;
@@ -500,6 +520,15 @@ export type ResolvedShot = StoryShot & {
 export type StoryTiming = {
   shots: ResolvedShot[];
   totalFrames: number;
+  /**
+   * Wo das Bild der Erzählung endet — ohne Endscreen.
+   *
+   * Getrennt von totalFrames, weil beide verschiedene Fragen beantworten: wie
+   * lang die Datei wird (totalFrames) und wie lang das Video etwas sagt
+   * (narrationFrames). Kapitelmarken, Shorts und jede Aussage über die Länge
+   * meinen das Zweite.
+   */
+  narrationFrames: number;
   audioSeconds: number;
   /** True when there is no voice yet and the timeline is a guess. */
   estimated: boolean;
@@ -630,7 +659,8 @@ export function resolveStoryTiming(project: StoryProject): StoryTiming {
           size: byKey.get(shot.image)?.shot,
         } satisfies ResolvedShot;
       }),
-      totalFrames: Math.max(1, endFrame),
+      totalFrames: Math.max(1, endFrame + endScreenFrames(project)),
+      narrationFrames: Math.max(1, endFrame),
       audioSeconds: project.audioSeconds,
       estimated: false,
     };
@@ -662,7 +692,8 @@ export function resolveStoryTiming(project: StoryProject): StoryTiming {
     });
     return {
       shots,
-      totalFrames: Math.max(1, cursor),
+      totalFrames: Math.max(1, cursor + endScreenFrames(project)),
+      narrationFrames: Math.max(1, cursor),
       audioSeconds: cursor / fps,
       estimated: true,
     };
@@ -706,7 +737,8 @@ export function resolveStoryTiming(project: StoryProject): StoryTiming {
 
   return {
     shots,
-    totalFrames: Math.max(1, endFrame),
+    totalFrames: Math.max(1, endFrame + endScreenFrames(project)),
+    narrationFrames: Math.max(1, endFrame),
     audioSeconds,
     estimated: false,
   };
@@ -787,7 +819,7 @@ export type StoryTake = {
  * Only CONSECUTIVE runs. A motif that comes back later in the film is a real
  * return and gets a real cut — that is the recurrence the format is built on.
  */
-export function storyTakes(timing: StoryTiming): StoryTake[] {
+export function storyTakes(timing: Pick<StoryTiming, "shots">): StoryTake[] {
   const takes: StoryTake[] = [];
 
   for (const shot of timing.shots) {

@@ -54,6 +54,16 @@ import { storyJobPath, writeJson, type StoryJob } from "./store";
 /** Which model writes a video, unless the caller names another. */
 export const DEFAULT_STORY_MODEL = "gemini-3.7-flash";
 
+/**
+ * Wieviel Platz ein neues Video für den Endscreen bekommt, in Sekunden.
+ *
+ * Fünfzehn, weil YouTube seine Endscreen-Elemente über die letzten zwanzig
+ * Sekunden legen kann und alles darunter verdeckt wird. Fünfzehn lassen dem
+ * letzten gesprochenen Satz Luft und sind kurz genug, dass niemand das Gefühl
+ * hat, das Video sei vorbei und laufe trotzdem weiter.
+ */
+export const DEFAULT_END_SCREEN_SECONDS = 15;
+
 export async function generateStory(args: {
   jobId: string;
   topic: string;
@@ -201,6 +211,9 @@ export async function generateStory(args: {
       images: script.images,
       sounds: script.sounds,
       shots: script.shots,
+      // Neue Videos bekommen Platz für YouTubes Endscreen. Alte Projekte
+      // tragen das Feld nicht und bleiben dadurch exakt so lang wie bisher.
+      endScreenSeconds: DEFAULT_END_SCREEN_SECONDS,
       fps: 30,
       width: 1920,
       height: 1080,
@@ -1352,6 +1365,9 @@ export async function importStoryScript(args: {
       images: assembled.images,
       sounds: assembled.sounds,
       shots: assembled.shots,
+      // Neue Videos bekommen Platz für YouTubes Endscreen. Alte Projekte
+      // tragen das Feld nicht und bleiben dadurch exakt so lang wie bisher.
+      endScreenSeconds: DEFAULT_END_SCREEN_SECONDS,
       fps: 30,
       width: 1920,
       height: 1080,
