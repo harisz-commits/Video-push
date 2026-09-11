@@ -10,6 +10,8 @@ import {
 } from "./sfx";
 import { slugify } from "./image-library";
 import {
+  DEFAULT_END_SCREEN_SECONDS,
+  DEFAULT_FIRST_MINUTE_IMAGES,
   ShotMotion,
   ShotSize,
   ShotTransition,
@@ -54,16 +56,6 @@ import { storyJobPath, writeJson, type StoryJob } from "./store";
 /** Which model writes a video, unless the caller names another. */
 export const DEFAULT_STORY_MODEL = "gemini-3.7-flash";
 
-/**
- * Wieviel Platz ein neues Video für den Endscreen bekommt, in Sekunden.
- *
- * Fünfzehn, weil YouTube seine Endscreen-Elemente über die letzten zwanzig
- * Sekunden legen kann und alles darunter verdeckt wird. Fünfzehn lassen dem
- * letzten gesprochenen Satz Luft und sind kurz genug, dass niemand das Gefühl
- * hat, das Video sei vorbei und laufe trotzdem weiter.
- */
-export const DEFAULT_END_SCREEN_SECONDS = 15;
-
 export async function generateStory(args: {
   jobId: string;
   topic: string;
@@ -73,6 +65,13 @@ export async function generateStory(args: {
   imageBudget: number;
   /** Only carried through to the project, for the studio to show later. */
   imagesPerMinute?: number;
+  /**
+   * Wieviele Bilder allein die erste Minute bekommt.
+   *
+   * Teil von imageBudget, nicht zusätzlich: das Budget bleibt die eine Zahl,
+   * die den Preis bestimmt. Hier wird nur entschieden, wo davon mehr hingeht.
+   */
+  firstMinuteImages?: number;
   /**
    * What the person asked the look to be, in their own words.
    *
@@ -194,6 +193,7 @@ export async function generateStory(args: {
       perspective: args.perspective ?? "erklaerung",
       minutes: args.minutes,
       imageBudget: args.imageBudget,
+      firstMinuteImages: args.firstMinuteImages,
       deadline: args.startedAt + WRITING_DEADLINE_MS,
       onProgress: progress,
     });
@@ -565,6 +565,8 @@ async function writeScript(args: {
   perspective: StoryPerspective;
   minutes: number;
   imageBudget: number;
+  /** Siehe generateStory(). */
+  firstMinuteImages?: number;
   deadline: number;
   onProgress: (step: string) => Promise<unknown>;
 }): Promise<{
@@ -618,10 +620,35 @@ async function writeScript(args: {
   // Three to five beds for a whole film. More would not be richer, only less
   // recognisable — a bed earns its keep by coming back.
   const bedBudget = args.minutes >= 8 ? 5 : 3;
+  /**
+   * Die erste Minute bekommt ihren Anteil vorweg, der Rest teilt sich, was
+   * übrig bleibt.
+   *
+   * Vorweg und nicht obendrauf: das Bildbudget ist die Zahl, die am Knopf
+   * steht und bezahlt wird. Ein Aufschlag für die erste Minute wäre ein Preis,
+   * den niemand bestellt hat.
+   *
+   * Der erste Abschnitt ist länger als eine Minute (MINUTES_PER_SECTION = 2),
+   * bekommt also seinen eigenen regulären Anteil für die zweite Hälfte dazu.
+   */
+  const rest = Math.max(1, sectionCount - 1);
+  const firstMinute = Math.max(
+    0,
+    Math.min(
+      // Nie mehr als die Hälfte des ganzen Budgets in die erste Minute: bei
+      // einem kurzen Video bliebe sonst für alles Weitere nichts übrig.
+      Math.floor((args.imageBudget - motifBudget) / 2),
+      args.firstMinuteImages ?? DEFAULT_FIRST_MINUTE_IMAGES,
+    ),
+  );
   const perSection = Math.max(
     1,
-    Math.floor((args.imageBudget - motifBudget) / sectionCount),
+    Math.floor((args.imageBudget - motifBudget - firstMinute) / sectionCount),
   );
+  // Was der erste Abschnitt bekommt: sein regulärer Anteil plus die erste
+  // Minute. Bei nur einem Abschnitt ist das alles, was da ist.
+  const firstSection = perSection + firstMinute;
+  void rest;
 
   await args.onProgress(
     sectionCount === 1
@@ -682,7 +709,12 @@ async function writeScript(args: {
                         ],
                     ),
               beds: plan.beds,
-              imageBudget: perSection,
+              imageBudget: index === 0 ? firstSection : perSection,
+              // Nur der erste Abschnitt bekommt die Vorgabe für die erste
+              // Minute. Die anderen wissen nichts davon und sollen auch nichts
+              // davon wissen — sie würden sie sonst auf ihren eigenen Anfang
+              // beziehen.
+              firstMinuteImages: index === 0 ? firstMinute : undefined,
               // What the arithmetic allows, so the writer can spread rather
               // than guess. See buildSectionPrompt().
               maxAppearances: MAX_APPEARANCES,

@@ -692,6 +692,14 @@ export function buildSectionPrompt(args: {
   beds: { key: string; name: string }[];
   /** How many NEW pictures this section may invent on top of the motifs. */
   imageBudget: number;
+  /**
+   * Wieviele davon in die erste Minute gehören. Nur beim ersten Abschnitt.
+   *
+   * Die ersten sechzig Sekunden entscheiden, ob jemand bleibt — und mit vier
+   * Bildern sieht ein Video genau dort am dünnsten aus, wo es am dichtesten
+   * sein müsste.
+   */
+  firstMinuteImages?: number;
   /** Ceiling on how often one picture may come back. See MAX_APPEARANCES. */
   maxAppearances?: number;
   /** Recurring figures, so a section can put one in a picture. */
@@ -732,6 +740,24 @@ Das Budget reicht rechnerisch nicht für die Grenze. Dann gilt: lieber ein Bild
 über zwei oder drei aufeinanderfolgende Sätze STEHEN LASSEN — das ist EIN
 langer Auftritt und kein weiterer — als dasselbe Bild später noch einmal zu
 schneiden. Lange Einstellungen sind die Lösung, Wiederholung nicht.`
+      : "";
+
+  // Rund 160 Wörter sind eine Minute. Die Zahl steht ausgeschrieben im Prompt,
+  // weil "die erste Minute" für ein Modell, das Wörter schreibt und keine Uhr
+  // hat, sonst eine Schätzung ist.
+  const dense =
+    args.firstMinuteImages && args.firstMinuteImages > 0
+      ? `
+
+DIE ERSTE MINUTE — die ersten rund ${WORDS_PER_MINUTE} Wörter deines
+Abschnitts:
+- Dort liegen ${args.firstMinuteImages} VERSCHIEDENE Bilder, also etwa alle
+  fünf Sekunden ein anderes. Danach wird es ruhiger und du verteilst den Rest
+  wie gewohnt.
+- Der Grund ist nicht Hektik: in den ersten sechzig Sekunden entscheidet sich,
+  ob jemand bleibt. Ein Anfang, der mit vier Bildern auskommt, sieht genau
+  dort am dünnsten aus, wo er am dichtesten sein müsste.
+- Kein Bild darf in dieser Minute zweimal vorkommen.`
       : "";
 
   const cast = args.characters?.length
@@ -809,7 +835,7 @@ anderen Abschnitten angeboten, und was du hier doppelt nimmst, steht im
 fertigen Video vier- oder fünfmal. Ein Motiv ist ein Wiedererkennen, kein
 Lückenfüller — brauchst du noch ein Bild, erfinde ein neues.
 
-NEUE BILDER: höchstens ${args.imageBudget}.
+NEUE BILDER: höchstens ${args.imageBudget}.${dense}
 
 RECHNE NACH, BEVOR DU ANFÄNGST: du schreibst ${shots} Einstellungen und hast
 ${available} Bilder zur Verfügung (${args.motifs.length} vorhandene Motive plus

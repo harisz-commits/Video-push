@@ -15,6 +15,7 @@ import {
   SPEECH_MODELS,
 } from "../lib/speech-models";
 import {
+  DEFAULT_FIRST_MINUTE_IMAGES,
   DEFAULT_YOUTUBE_MODEL,
   longTakes,
   monotonousRuns,
@@ -262,6 +263,15 @@ export const VideoStudio: React.FC<{
    * holds that constant, and the budget the writer is given follows from it.
    */
   const [imagesPerMinute, setImagesPerMinute] = useState(4);
+  /**
+   * Wieviele Bilder allein in die erste Minute gehen.
+   *
+   * Teil des Budgets, nicht zusätzlich: die Zahl am Knopf bleibt die Zahl, die
+   * bezahlt wird. Der Regler entscheidet nur, wo davon mehr hingeht.
+   */
+  const [firstMinuteImages, setFirstMinuteImages] = useState(
+    DEFAULT_FIRST_MINUTE_IMAGES,
+  );
   const imageBudget = Math.min(
     400,
     Math.max(4, Math.round(imagesPerMinute * minutes)),
@@ -825,6 +835,7 @@ export const VideoStudio: React.FC<{
               minutes,
               imageBudget,
               imagesPerMinute,
+              firstMinuteImages,
               // Ignored by the route when a look is chosen — a kept look is already a
               // decision, and asking for both would be asking for two.
               styleWish: lookId ? undefined : styleWish.trim() || undefined,
@@ -1663,6 +1674,39 @@ export const VideoStudio: React.FC<{
                 Das ist die Anzahl, nicht der Takt. Wie lange ein Bild am Stück
                 steht, entscheidet der Text — bleibt es stehen, läuft die
                 Kamerafahrt weiter, ohne Schnitt. Das zählt als EIN Auftritt.
+              </div>
+
+              <label
+                className="mono"
+                style={{
+                  fontSize: 11,
+                  color: "#5b6672",
+                  display: "block",
+                  margin: "12px 0 6px",
+                }}
+              >
+                Erste Minute: {firstMinuteImages} Bilder
+                {firstMinuteImages > 0
+                  ? ` · alle ${(60 / firstMinuteImages).toFixed(1).replace(".", ",")} s ein anderes`
+                  : " · wie der Rest"}
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={20}
+                step={1}
+                value={firstMinuteImages}
+                onChange={(e) => setFirstMinuteImages(Number(e.target.value))}
+                style={{ width: "100%" }}
+                aria-label="Bilder in der ersten Minute"
+              />
+              <div
+                className="mono"
+                style={{ fontSize: 10.5, color: "#5b6672", marginTop: 4 }}
+              >
+                In den ersten sechzig Sekunden entscheidet sich, ob jemand
+                bleibt. Diese Bilder gehen VOM Budget ab, nicht obendrauf — der
+                Preis oben ändert sich dadurch nicht.
               </div>
               {appearances > 3 ? (
                 <Note tone="alert">

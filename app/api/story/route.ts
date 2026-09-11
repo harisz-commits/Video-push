@@ -36,6 +36,7 @@ export async function POST(req: Request) {
   let minutes: number;
   let imageBudget: number;
   let imagesPerMinute: number | undefined;
+  let firstMinuteImages: number | undefined;
   /** Nur beim eingefügten Skript: die Bildzahl direkt statt als Rate. */
   let imageCount: number | undefined;
   let styleWish: string | undefined;
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
       minutes?: unknown;
       imageBudget?: unknown;
       imagesPerMinute?: unknown;
+      firstMinuteImages?: unknown;
       imageCount?: unknown;
       styleWish?: unknown;
       lookId?: unknown;
@@ -93,6 +95,15 @@ export async function POST(req: Request) {
       Number.isFinite(Number(body.imagesPerMinute)) &&
       Number(body.imagesPerMinute) > 0
         ? Math.min(20, Math.max(0.5, Number(body.imagesPerMinute)))
+        : undefined;
+
+    // Teil des Budgets, nicht zusätzlich — sonst wäre es ein Preis, den
+    // niemand bestellt hat. Deckel bei 30: mehr wäre in einer Minute alle zwei
+    // Sekunden ein Bild, und das ist kein Anfang mehr, sondern ein Flackern.
+    firstMinuteImages =
+      Number.isFinite(Number(body.firstMinuteImages)) &&
+      Number(body.firstMinuteImages) >= 0
+        ? Math.min(30, Math.round(Number(body.firstMinuteImages)))
         : undefined;
 
     imageCount =
@@ -220,6 +231,7 @@ export async function POST(req: Request) {
         minutes,
         imageBudget,
         imagesPerMinute,
+        firstMinuteImages,
         styleWish,
         style: style?.success ? style.data : undefined,
         characters,

@@ -501,6 +501,35 @@ export function endScreenFrames(
 /** Frames of silence after the last word, so the end does not snap shut. */
 export const STORY_TAIL_FRAMES = 40;
 
+/**
+ * Wieviel Platz ein neues Video für den Endscreen bekommt, in Sekunden.
+ *
+ * Fünfzehn, weil YouTube seine Endscreen-Elemente über die letzten zwanzig
+ * Sekunden legen kann und alles darunter verdeckt wird. Fünfzehn lassen dem
+ * letzten gesprochenen Satz Luft und sind kurz genug, dass niemand das Gefühl
+ * hat, das Video sei vorbei und laufe trotzdem weiter.
+ */
+export const DEFAULT_END_SCREEN_SECONDS = 15;
+
+/**
+ * Wieviele verschiedene Bilder die ERSTE Minute bekommt.
+ *
+ * Mehr als der Rest, und zwar aus einem Grund, der nichts mit Ästhetik zu tun
+ * hat: in den ersten sechzig Sekunden entscheidet sich, ob jemand bleibt. Ein
+ * Video, das dort mit vier Bildern auskommt, sieht in genau dem Moment am
+ * dünnsten aus, in dem es am dichtesten sein müsste.
+ *
+ * Zwölf sind rund alle fünf Sekunden ein anderes Bild — dicht, aber nicht
+ * hektisch, und es passt zur Acht-Sekunden-Grenze, die für den ganzen Film
+ * gilt. Danach übernimmt imagesPerMinute.
+ *
+ * HIER und nicht in lib/story-pipeline.ts, obwohl sie dort gebraucht wird:
+ * das Studio zeigt den Regler im Browser, und ein Import aus der Pipeline
+ * zöge über lib/llm.ts beide Provider-SDKs ins Browser-Bündel. Genau das ist
+ * in diesem Projekt schon einmal passiert.
+ */
+export const DEFAULT_FIRST_MINUTE_IMAGES = 12;
+
 /** A shot may never be shorter than this, whatever the arithmetic says. */
 const MIN_SHOT_FRAMES = 45;
 
