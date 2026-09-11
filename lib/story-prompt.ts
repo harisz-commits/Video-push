@@ -527,11 +527,21 @@ TEMPO — das ist die wichtigste Regel dieses Abschnitts:
 - Ein Satz mit drei bis fünf Wörtern auf einem NEUEN Bild ist ein harter,
   schneller Schnitt. Drei davon hintereinander treiben an. Zwei bis drei Sätze
   auf demselben Bild beruhigen.
-- WANN das Bild wechselt, entscheidet allein der Inhalt: Es wechselt, wenn der
-  Satz von etwas spricht, das im aktuellen Bild nicht zu sehen ist. Es bleibt,
-  solange das Bild noch trägt. Wechsle NIEMALS nach Gefühl für Abwechslung —
-  ein Schnitt auf etwas, das der Zuschauer schon sieht, ist ein Fehler, und ein
-  Bild, das zu einem Satz nicht mehr passt, ist einer.
+- KEINE EINSTELLUNG STEHT LÄNGER ALS ACHT SEKUNDEN. Das sind rund zwanzig
+  gesprochene Wörter, also höchstens zwei bis drei Sätze auf demselben Bild.
+  Ein Standbild, das länger unverändert dasteht, wird weggeklickt — egal wie
+  gut der Satz dazu ist.
+- EIN NEUES BILD gibt es weiterhin nur, wenn der Text von etwas spricht, das
+  gerade nicht zu sehen ist. Ein Schnitt auf etwas, das der Zuschauer schon
+  sieht, ist ein Fehler.
+- Beides zusammen heisst: Trägt ein Motiv länger als acht Sekunden und der
+  Text bleibt dabei, dann nimm für die zweite Hälfte ein DETAIL desselben
+  Motivs — ein eigenes Bild mit "shot":"detail", das dieselbe Sache aus der
+  Nähe zeigt: die Hände an dem Werkzeug, den Riss in der Mauer, das Gesicht
+  des Mannes am Tisch. Das ist kein Themenwechsel, sondern ein näherer Blick
+  auf dasselbe, und es kostet ein Bild.
+- Rechne beim Schreiben mit: acht Wörter sind rund drei Sekunden. Drei Sätze
+  auf einem Bild sind acht bis neun — das ist schon die Grenze.
 - Bau den Wechsel absichtlich: vor einer wichtigen Aussage eine kurze, harte
   Einstellung auf ein neues Bild; nach einer Reihe kurzer zwei bis drei Sätze
   auf einem Bild, die sie auffangen.

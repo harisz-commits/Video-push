@@ -504,8 +504,27 @@ export const STORY_TAIL_FRAMES = 40;
 /** A shot may never be shorter than this, whatever the arithmetic says. */
 const MIN_SHOT_FRAMES = 45;
 
-/** Speaking rate used only to fake a timeline before any audio exists. */
-const ESTIMATED_WPM = 160;
+/**
+ * Wie schnell gesprochen wird, abgeleitet aus der eingestellten Geschwindigkeit.
+ *
+ * Gemessen an einem fertigen Film: bei speed 1.2 — dem Maximum, das
+ * ElevenLabs zulässt und der Standard dieses Formats — landet die Aufnahme bei
+ * rund 152 Wörtern je Minute. Der Rest ist Dreisatz.
+ *
+ * Eine Funktion und keine Konstante, weil die Zahl an zwei Stellen gebraucht
+ * wird — für die geschätzte Zeitleiste, solange es keine Stimme gibt, und für
+ * die Prüfung, ob eine Einstellung zu lange steht — und zwei getrennte
+ * Schätzungen wären zwei Zahlen, die auseinanderlaufen.
+ *
+ * NICHT zu verwechseln mit WORDS_PER_MINUTE in lib/story-prompt.ts: das ist
+ * die Planungsrate, mit der bestellt wird, wie viele Wörter ein Abschnitt
+ * bekommt. Diese hier ist die gemessene Wirklichkeit. Sie zusammenzulegen
+ * hiesse, die Länge aller künftigen Skripte zu ändern, um eine Schätzung zu
+ * verbessern.
+ */
+export function wordsPerMinute(speed: number): number {
+  return (152 / 1.2) * speed;
+}
 
 export type ResolvedShot = StoryShot & {
   from: number;
@@ -678,7 +697,7 @@ export function resolveStoryTiming(project: StoryProject): StoryTiming {
       const words = spoken[i].split(/\s+/).filter(Boolean).length;
       const durationInFrames = Math.max(
         MIN_SHOT_FRAMES,
-        Math.round((words / ESTIMATED_WPM) * 60 * fps),
+        Math.round((words / wordsPerMinute(project.speed)) * 60 * fps),
       );
       const resolved: ResolvedShot = {
         ...shot,
@@ -1213,3 +1232,48 @@ export const SHOT_SIZE_LABEL: Record<ShotSize, string> = {
   close: "Nah",
   detail: "Detail",
 };
+
+/**
+ * Wie lange die längste Einstellung steht, und welche zu lange stehen.
+ *
+ * Acht Sekunden ist die Grenze, und sie ist nicht ästhetisch begründet,
+ * sondern durch Zusehen: ein Standbild, das länger als acht Sekunden
+ * unverändert dasteht, wird weggeklickt, egal wie gut der Satz dazu ist.
+ *
+ * Rechnet vor der Stimme aus den Wörtern und danach aus den gemessenen Cues —
+ * beides über resolveStoryTiming(), also ohne eigene zweite Schätzung. Vorher
+ * ist die Zahl ungenau und trotzdem die richtige: sie kommt zu einem
+ * Zeitpunkt, an dem ein anderes Skript noch nichts gekostet hat.
+ */
+export function longTakes(
+  project: StoryProject,
+  limitSeconds = 8,
+): {
+  longest: number;
+  over: { id: string; image: string; seconds: number }[];
+  estimated: boolean;
+} {
+  const timing = resolveStoryTiming(project);
+  const takes = storyTakes(timing);
+
+  let longest = 0;
+  const over: { id: string; image: string; seconds: number }[] = [];
+
+  for (const take of takes) {
+    const seconds = take.durationInFrames / project.fps;
+    if (seconds > longest) longest = seconds;
+    if (seconds > limitSeconds) {
+      over.push({
+        id: take.id,
+        image: take.image,
+        seconds: Number(seconds.toFixed(1)),
+      });
+    }
+  }
+
+  return {
+    longest: Number(longest.toFixed(1)),
+    over: over.sort((a, b) => b.seconds - a.seconds),
+    estimated: timing.estimated,
+  };
+}

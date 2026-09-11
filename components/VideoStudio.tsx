@@ -16,6 +16,7 @@ import {
 } from "../lib/speech-models";
 import {
   DEFAULT_YOUTUBE_MODEL,
+  longTakes,
   monotonousRuns,
   renderDescription,
   resolveStoryTiming,
@@ -527,6 +528,11 @@ export const VideoStudio: React.FC<{
   // einmal beim Erzeugen: wer ein Bild von Hand umschreibt, soll die Warnung
   // verschwinden sehen.
   const monotony = useMemo(() => monotonousRuns(project), [project]);
+
+  // Vor der Stimme geschätzt, danach gemessen — beides über dieselbe
+  // Zeitleiste, die auch der Player benutzt. Kostet nichts, läuft also bei
+  // jeder Änderung neu.
+  const pacing = useMemo(() => longTakes(project), [project]);
 
   // ---- The kept things ----------------------------------------------------
   /**
@@ -2512,6 +2518,34 @@ export const VideoStudio: React.FC<{
                   drei Totalen richtig sind, und das kann nur beurteilen, wer
                   das Skript gelesen hat.
                 */}
+                <div
+                  className="mono"
+                  style={{ fontSize: 11, color: "#5b6672", marginBottom: 8 }}
+                >
+                  Längste Einstellung: {pacing.longest} s
+                  {pacing.estimated ? " (geschätzt)" : ""}
+                  {pacing.over.length > 0
+                    ? ` · ${pacing.over.length} über 8 s`
+                    : " · keine über 8 s"}
+                </div>
+
+                {pacing.over.length > 0 ? (
+                  <Note tone="alert">
+                    {pacing.over.length}{" "}
+                    {pacing.over.length === 1
+                      ? "Einstellung steht"
+                      : "Einstellungen stehen"}{" "}
+                    länger als acht Sekunden — am längsten „
+                    {pacing.over[0].image}“ mit {pacing.over[0].seconds} s. So
+                    lange bleibt niemand bei einem Standbild. Nimm für die
+                    zweite Hälfte ein Detail desselben Motivs, oder schreib das
+                    Skript neu.
+                    {pacing.estimated
+                      ? " Die Zeiten sind noch geschätzt; nach der Stimme stehen sie fest."
+                      : ""}
+                  </Note>
+                ) : null}
+
                 {monotony.length > 0 ? (
                   <Note tone="alert">
                     {monotony
