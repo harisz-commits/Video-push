@@ -1063,3 +1063,38 @@ Kommst du auf weniger, hast du zu große Spannen gebildet: teil die längsten
 auf. Kommst du auf mehr, schneidest du dort, wo der Zuschauer noch nichts
 Neues sieht.${sounds}`;
 }
+
+/**
+ * Der Auftrag für das Porträt einer Figur — das Blatt, an dem sich alle
+ * weiteren Bilder ausrichten.
+ *
+ * Eigener Auftrag und nicht bloss imagePrompt() mit einer Beschreibung, weil
+ * dieses eine Bild eine andere Aufgabe hat als alle anderen: es erzählt
+ * nichts, es LEGT FEST. Deshalb kein Ort, keine Handlung, keine Stimmung —
+ * alles davon würde später als Teil der Figur mitwandern, und die Wäscherin
+ * stünde in jedem Bild wieder am selben Waschtrog.
+ */
+export function portraitPrompt(
+  character: StoryCharacter,
+  style: StoryStyle,
+): string {
+  const who = character.appearance?.trim() || character.description.trim();
+
+  return `A character reference sheet: one single person, head and shoulders, facing the viewer, neutral expression, centred.
+
+WHO:
+${who}
+
+${style.directive}
+
+Plain flat background in the darkest colour of the palette. No scenery, no props beyond what the person wears or carries, no text, no labels, no border, no multiple views, no grid. One figure only.
+
+The face must be clearly readable — eyes, mouth and brows drawn in the line style of this look. This drawing decides what this person looks like; every later picture of them will be matched against it.${
+    style.palette.length
+      ? `
+
+PALETTE (authoritative — use these exact colours):
+${style.palette.join(", ")}`
+      : ""
+  }`;
+}

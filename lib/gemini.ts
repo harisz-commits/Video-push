@@ -180,6 +180,7 @@ export async function generateImage({
   apiKey,
   layout,
   size,
+  references,
   model,
   signal,
 }: {
@@ -188,6 +189,19 @@ export async function generateImage({
   layout?: string;
   /** Einstellungsgröße, nur beim Video-Format. Siehe SIZE und ShotSize. */
   size?: string;
+  /**
+   * Schon gezeichnete Bilder, an denen sich dieses hier ausrichten soll.
+   *
+   * Der einzige Weg, dieselbe Figur über viele Bilder hinweg gleich aussehen
+   * zu lassen. Eine Beschreibung in Worten reicht dafür nicht: „eine Frau
+   * Mitte dreißig mit Leinenhaube" ergibt fünfzigmal eine andere Frau, und
+   * das fällt genau bei den Nahaufnahmen auf, für die wir sie überhaupt
+   * zeichnen.
+   *
+   * Höchstens drei — mehr nimmt das Modell nicht, und mehr wären auch keine
+   * Vorlage mehr, sondern eine Collage.
+   */
+  references?: { data: Buffer; mimeType: string }[];
   model?: ImageModel;
   signal?: AbortSignal;
 }): Promise<{ data: Buffer; mimeType: string; model: string }> {
@@ -240,6 +254,16 @@ export async function generateImage({
           contents: [
             {
               parts: [
+                // Die Vorlagen ZUERST, der Auftrag danach. Umgekehrt liest das
+                // Modell erst, was es zeichnen soll, und trifft die Vorlage
+                // dann als Nachgedanken an — die Reihenfolge ist bei
+                // Bildmodellen kein Formalismus.
+                ...(references ?? []).slice(0, 3).map((ref) => ({
+                  inlineData: {
+                    mimeType: ref.mimeType,
+                    data: ref.data.toString("base64"),
+                  },
+                })),
                 {
                   text: `${prompt}\n\n${[house, framing].filter(Boolean).join(" ")}`,
                 },

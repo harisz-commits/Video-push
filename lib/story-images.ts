@@ -2,7 +2,7 @@ import { deframe } from "./deframe";
 import { generateImage } from "./gemini";
 import { resolveModel, type ImageModel } from "./image-models";
 import { findStored, lookup, noteUse, remember } from "./image-library";
-import { imagePrompt } from "./story-prompt";
+import { imagePrompt, portraitPrompt } from "./story-prompt";
 import {
   styleFingerprint,
   type StoryCharacter,
@@ -46,6 +46,8 @@ export type DrawResult = {
   skipped: number;
   /** Bilder, denen ein mitgemalter Rand abgeschnitten wurde. */
   trimmed: number;
+  /** Figurenporträts, die neu gezeichnet werden mussten. In `drawn` enthalten. */
+  portraits: number;
 };
 
 export async function drawStoryImages(args: {
@@ -95,6 +97,113 @@ export async function drawStoryImages(args: {
   let skipped = 0;
   let next = 0;
   const failed: { key: string; reason: string }[] = [];
+
+  /**
+   * Das Figurenblatt: ein Porträt je Figur, bevor irgendetwas anderes
+   * gezeichnet wird.
+   *
+   * Vorher und nicht nebenbei, weil die Bilder in drei Bahnen gleichzeitig
+   * entstehen. Liesse man die Vorlage beim ersten Bild mit der Figur
+   * entstehen, entschiede der Zufall, welches Bild zuerst fertig ist — und
+   * damit, wie die Figur für den Rest des Films aussieht.
+   *
+   * Das Porträt liegt in der Bibliothek wie jedes andere Bild und wird beim
+   * nächsten Video mit demselben Look wiedergefunden. Eine Figur kostet also
+   * einmal 3,4 Cent und danach nichts mehr.
+   */
+  const portraits = new Map<string, { data: Buffer; mimeType: string }>();
+  const drawnPortraits = new Map<string, string>();
+  let paidPortraits = 0;
+
+  /** Die Vorlage einer Figur als Bytes, einmal geholt und dann gemerkt. */
+  const referenceFor = async (
+    figures: StoryCharacter[],
+  ): Promise<{ data: Buffer; mimeType: string }[]> => {
+    const out: { data: Buffer; mimeType: string }[] = [];
+    for (const figure of figures) {
+      const cached = portraits.get(figure.key);
+      if (cached) {
+        out.push(cached);
+        continue;
+      }
+      const url = drawnPortraits.get(figure.key) ?? figure.refUrl;
+      if (!url) continue;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const loaded = {
+          data: Buffer.from(await res.arrayBuffer()),
+          mimeType: res.headers.get("content-type") ?? "image/png",
+        };
+        portraits.set(figure.key, loaded);
+        out.push(loaded);
+      } catch {
+        // Eine Vorlage, die sich nicht laden lässt, ist kein Grund, das Bild
+        // nicht zu zeichnen. Ohne sie wird wie vor dieser Erweiterung nur aus
+        // der Beschreibung gezeichnet.
+      }
+    }
+    return out;
+  };
+
+  // Nur Figuren, die in den zu zeichnenden Bildern wirklich vorkommen: eine
+  // Figur, die im Skript steht und in keinem Bild, braucht kein Porträt.
+  const needed = new Set(wanted.flatMap((i) => i.characters ?? []));
+  for (const figure of args.project.characters ?? []) {
+    if (!needed.has(figure.key) || figure.refUrl) continue;
+    if (args.deadline && Date.now() > args.deadline) break;
+
+    const key = `figur-${figure.key}`;
+    const fingerprint = styleFingerprint(style, [figure]);
+    try {
+      const known =
+        (await lookup(key, style.name, fingerprint).catch(() => null)) ??
+        (await findStored({
+          key,
+          name: figure.name,
+          prompt: figure.appearance ?? figure.description,
+          style: style.name,
+          fingerprint,
+        }).catch(() => null));
+
+      if (known) {
+        drawnPortraits.set(figure.key, known.url);
+        await noteUse(key, style.name).catch(() => undefined);
+        continue;
+      }
+
+      const result = await generateImage({
+        prompt: portraitPrompt(figure, style),
+        apiKey: args.apiKey,
+        layout: "story",
+        // Das Blatt ist eine Nahaufnahme, und die Kamera fährt darüber nie —
+        // es wird nie gezeigt, sondern nur mitgeschickt.
+        size: "close",
+        model,
+      });
+      const clean = await deframe(result.data);
+      const entry = await remember({
+        key,
+        name: `Figur: ${figure.name}`,
+        prompt: figure.appearance ?? figure.description,
+        style: style.name,
+        fingerprint,
+        model: result.model,
+        bytes: clean.bytes,
+        contentType: result.mimeType,
+      });
+      drawnPortraits.set(figure.key, entry.url);
+      portraits.set(figure.key, {
+        data: clean.bytes,
+        mimeType: result.mimeType,
+      });
+      paid += 1;
+      paidPortraits += 1;
+    } catch {
+      // Ohne Porträt wird die Figur wie bisher aus der Beschreibung gezeichnet.
+      // Schlechter, aber kein Grund, das ganze Video anzuhalten.
+    }
+  }
 
   const lane = async () => {
     for (;;) {
@@ -164,6 +273,7 @@ export async function drawStoryImages(args: {
           // discarded. See FRAMING and ASPECT in lib/gemini.ts.
           layout: "story",
           size: image.shot,
+          references: await referenceFor(figures),
           model,
         });
 
@@ -213,6 +323,10 @@ export async function drawStoryImages(args: {
   return {
     project: {
       ...args.project,
+      characters: (args.project.characters ?? []).map((figure) => {
+        const url = drawnPortraits.get(figure.key);
+        return url ? { ...figure, refUrl: url } : figure;
+      }),
       images: args.project.images.map((image) => {
         const hit = drawn.get(image.key);
         return hit
@@ -232,15 +346,40 @@ export async function drawStoryImages(args: {
     failed,
     skipped,
     trimmed: trimmedBorders,
+    portraits: paidPortraits,
   };
 }
 
-/** What drawing this project would cost right now, before anything is spent. */
+/**
+ * What drawing this project would cost right now, before anything is spent.
+ *
+ * Die Figurenporträts zählen mit. Sie sind Bilder wie alle anderen, werden
+ * bezahlt wie alle anderen, und ein Preis am Knopf, der sie unterschlägt,
+ * wäre genau die Art Überraschung, die dieses Studio nicht machen soll.
+ *
+ * Gezählt werden nur Figuren, die in einem noch ungezeichneten Bild wirklich
+ * vorkommen und noch kein Porträt haben — eine Figur aus einem früheren Video
+ * mit demselben Look kostet nichts mehr.
+ */
 export function drawCostCents(
   project: StoryProject,
   model?: ImageModel,
-): { images: number; cents: number } {
+  /** Nur so viele Bilder, wie die Vorschau zeichnet. */
+  limit?: number,
+): { images: number; portraits: number; cents: number } {
   const chosen = model ?? resolveModel();
-  const images = project.images.filter((i) => !i.url).length;
-  return { images, cents: Number((images * chosen.cents).toFixed(2)) };
+  const undrawn = project.images
+    .filter((i) => !i.url)
+    .slice(0, limit ?? undefined);
+
+  const needed = new Set(undrawn.flatMap((i) => i.characters ?? []));
+  const portraits = (project.characters ?? []).filter(
+    (c) => needed.has(c.key) && !c.refUrl,
+  ).length;
+
+  return {
+    images: undrawn.length,
+    portraits,
+    cents: Number(((undrawn.length + portraits) * chosen.cents).toFixed(2)),
+  };
 }

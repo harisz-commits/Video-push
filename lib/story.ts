@@ -81,6 +81,19 @@ export const StoryCharacter = z.object({
   description: z.string().min(3).max(600),
   /** The same figure in this film's style, English, for the image prompts. */
   appearance: z.string().max(700).optional(),
+  /**
+   * Ein gezeichnetes Porträt dieser Figur, das jedem weiteren Bild als Vorlage
+   * mitgeschickt wird.
+   *
+   * Der Grund ist, dass "appearance" nicht reicht. Eine Beschreibung in Worten
+   * ergibt bei fünfzig einzeln erzeugten Bildern fünfzig verschiedene
+   * Gesichter — und das fällt genau bei den Nahaufnahmen auf, für die wir
+   * Figuren überhaupt zeichnen. Ein Bild als Vorlage hält sie zusammen, so
+   * wie der Stil-Text den Look zusammenhält.
+   *
+   * Optional: ohne Porträt wird wie bisher nur aus der Beschreibung gezeichnet.
+   */
+  refUrl: z.string().url().optional(),
 });
 export type StoryCharacter = z.infer<typeof StoryCharacter>;
 

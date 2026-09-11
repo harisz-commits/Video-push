@@ -1485,7 +1485,22 @@ export const VideoStudio: React.FC<{
 
   const estimatedWords = Math.round(minutes * WORDS_PER_MINUTE);
   const estimatedChars = Math.round(estimatedWords * 7);
-  const drawCost = undrawn.length * imageModel.cents;
+  /**
+   * Figuren, die noch kein Porträt haben und in einem ungezeichneten Bild
+   * vorkommen.
+   *
+   * Sie kosten wie ein Bild und stehen deshalb im Preis am Knopf. Ein Preis,
+   * der sie unterschlägt, wäre genau die Überraschung, die dieses Studio nicht
+   * machen soll.
+   */
+  const missingPortraits = useMemo(() => {
+    const needed = new Set(undrawn.flatMap((i) => i.characters ?? []));
+    return (project.characters ?? []).filter(
+      (c) => needed.has(c.key) && !c.refUrl,
+    ).length;
+  }, [undrawn, project.characters]);
+
+  const drawCost = (undrawn.length + missingPortraits) * imageModel.cents;
 
   return (
     // The same three-column shell the other two studios use, rather than a
@@ -2620,7 +2635,13 @@ export const VideoStudio: React.FC<{
                       {drawBusy
                         ? (drawStep ?? "wird gezeichnet…")
                         : `Erst ${PREVIEW_IMAGES} zur Ansicht — ${formatCents(
-                            PREVIEW_IMAGES * imageModel.cents,
+                            (PREVIEW_IMAGES +
+                              (undrawn
+                                .slice(0, PREVIEW_IMAGES)
+                                .flatMap((i) => i.characters ?? []).length > 0
+                                ? missingPortraits
+                                : 0)) *
+                              imageModel.cents,
                           )}`}
                     </Button>
                     <Note tone="info">
@@ -2644,8 +2665,23 @@ export const VideoStudio: React.FC<{
                     ? (drawStep ?? "wird gezeichnet…")
                     : undrawn.length === 0
                       ? "Alle Bilder gezeichnet"
-                      : `${undrawn.length} Bilder zeichnen — ${formatCents(drawCost)}`}
+                      : `${undrawn.length} Bilder${
+                          missingPortraits > 0
+                            ? ` + ${missingPortraits} ${missingPortraits === 1 ? "Figur" : "Figuren"}`
+                            : ""
+                        } zeichnen — ${formatCents(drawCost)}`}
                 </Button>
+                {missingPortraits > 0 ? (
+                  <Note tone="info">
+                    {missingPortraits === 1
+                      ? "Eine Figur bekommt zuerst ein Porträt"
+                      : `${missingPortraits} Figuren bekommen zuerst je ein Porträt`}
+                    . Es wird nie gezeigt, sondern jedem Bild mit dieser Figur
+                    als Vorlage mitgeschickt — sonst sieht sie in jedem Bild
+                    anders aus. Einmal gezeichnet, gilt es auch für die nächsten
+                    Videos in diesem Look.
+                  </Note>
+                ) : null}
                 {drawError ? <Note tone="alert">{drawError}</Note> : null}
                 {drawNote ? <Note tone="info">{drawNote}</Note> : null}
 
