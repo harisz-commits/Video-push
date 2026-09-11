@@ -11,6 +11,7 @@ import {
 import { slugify } from "./image-library";
 import {
   ShotMotion,
+  ShotSize,
   StoryCharacter,
   StoryProject,
   StoryStyle,
@@ -1020,6 +1021,7 @@ function reconcile(
       key?: unknown;
       name?: unknown;
       prompt?: unknown;
+      shot?: unknown;
       characters?: unknown;
     };
     const name = typeof i.name === "string" ? i.name.trim() : "";
@@ -1027,6 +1029,12 @@ function reconcile(
     if (prompt.length < 10) continue;
     const key = slugify(typeof i.key === "string" && i.key ? i.key : name);
     if (images.has(key)) continue;
+
+    // Eine unbekannte Größe wird weggelassen, nicht geraten. Ohne sie
+    // verhält sich das Bild wie vor dieser Erweiterung — mit einer falsch
+    // geratenen bewegt sich die Kamera zu wenig oder zu viel, und niemand
+    // sähe, woher das kommt.
+    const size = ShotSize.safeParse(i.shot).data;
 
     // A figure the film does not have is dropped rather than carried: it would
     // append nothing to the image prompt and make the picture's fingerprint
@@ -1040,6 +1048,7 @@ function reconcile(
       key,
       name: name.slice(0, 120) || key,
       prompt: prompt.slice(0, 700),
+      ...(size ? { shot: size } : {}),
       ...(inShot.length ? { characters: [...new Set(inShot)] } : {}),
     });
   }
@@ -1402,6 +1411,7 @@ export function assignImages(
       key?: unknown;
       name?: unknown;
       prompt?: unknown;
+      shot?: unknown;
       characters?: unknown;
     };
     const name =
@@ -1424,10 +1434,12 @@ export function assignImages(
       .map((c) => slugify(typeof c === "string" ? c : ""))
       .filter((c) => castKeys.has(c));
 
+    const size = ShotSize.safeParse(candidate.shot).data;
     images.push({
       key,
       name: name.slice(0, 120),
       prompt: prompt.slice(0, 700),
+      ...(size ? { shot: size } : {}),
       ...(figures.length ? { characters: figures } : {}),
     });
   }
@@ -1628,6 +1640,7 @@ export function splitLongSpans<
       key: `${source.key}-${added + 1}`,
       name: `${source.name} (${added + 1})`,
       prompt: `${source.prompt} ${VARIATIONS[added % VARIATIONS.length]}`,
+      ...(source.shot ? { shot: source.shot } : {}),
       ...(source.characters ? { characters: source.characters } : {}),
     };
     images.push(variant);

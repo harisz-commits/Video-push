@@ -50,7 +50,10 @@ export const StoryStyle = z.object({
   /** Appended to every image prompt, verbatim. The reason they match. */
   directive: z.string().min(40).max(1200),
   /** Hex colours, for the studio to show and for the letterbox behind images. */
-  palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).min(2).max(6),
+  palette: z
+    .array(z.string().regex(/^#[0-9a-fA-F]{6}$/))
+    .min(2)
+    .max(6),
 });
 export type StoryStyle = z.infer<typeof StoryStyle>;
 
@@ -90,6 +93,24 @@ export type StoryCharacter = z.infer<typeof StoryCharacter>;
  * therefore not a nicety here but the mechanism the whole library rests on —
  * see lib/image-library.ts.
  */
+/**
+ * Wie nah das Bild an seinem Motiv steht.
+ *
+ * Am BILD und nicht an der Einstellung: die Größe ist eine Eigenschaft der
+ * Zeichnung, nicht des Satzes, der dazu gesprochen wird. Dasselbe Bild, in
+ * zwei Abschnitten gezeigt, ist beide Male eine Nahaufnahme.
+ *
+ * Der Grund, warum es das Feld gibt, ist Monotonie. Ein Video, in dem jedes
+ * Bild aus derselben Entfernung aufgenommen ist, sieht aus wie ein Katalog —
+ * und weil jedes Bild einzeln erzeugt wird und keines die anderen kennt, ist
+ * genau das der Normalfall, wenn niemand es verlangt.
+ *
+ * Optional: alte Projekte haben das Feld nicht, und ohne Größe verhält sich
+ * alles wie bisher.
+ */
+export const ShotSize = z.enum(["wide", "medium", "close", "detail"]);
+export type ShotSize = z.infer<typeof ShotSize>;
+
 export const StoryImage = z.object({
   /** Slug, unique within the project and the key into the library. */
   key: z.string().regex(/^[a-z0-9][a-z0-9-]{2,79}$/),
@@ -107,6 +128,8 @@ export const StoryImage = z.object({
    * lib/image-library.ts.
    */
   thumbUrl: z.string().url().optional(),
+  /** Wie nah das Bild steht. Siehe ShotSize. */
+  shot: ShotSize.optional(),
   /** Which model drew it, so a mixed-model project is not a mystery later. */
   model: z.string().optional(),
   /** True when this came out of the library instead of being paid for again. */
@@ -239,7 +262,12 @@ export const YoutubeListing = z.object({
   titles: z.array(z.string().max(100)).default([]),
   description: z.string().max(5000),
   chapters: z
-    .array(z.object({ seconds: z.number().int().nonnegative(), label: z.string().max(60) }))
+    .array(
+      z.object({
+        seconds: z.number().int().nonnegative(),
+        label: z.string().max(60),
+      }),
+    )
     .default([]),
   tags: z.array(z.string().max(40)).default([]),
   /** Welches Modell es geschrieben hat, damit ein schwacher Text zuordenbar ist. */
@@ -445,6 +473,8 @@ export type ResolvedShot = StoryShot & {
   image: string;
   /** The picture itself, already looked up. Null when it was never drawn. */
   url?: string;
+  /** Wie nah das Bild steht, schon nachgeschlagen. Siehe ShotSize. */
+  size?: ShotSize;
 };
 
 export type StoryTiming = {
@@ -502,7 +532,9 @@ export function cuesForSegments(
   let cursor = 0;
   for (const text of spoken) {
     const i = Math.round(cursor * scale);
-    cues.push(alignment.startTimesSeconds[Math.max(0, Math.min(n - 1, i))] ?? 0);
+    cues.push(
+      alignment.startTimesSeconds[Math.max(0, Math.min(n - 1, i))] ?? 0,
+    );
     cursor += text.length + 1;
   }
   return cues;
@@ -575,6 +607,7 @@ export function resolveStoryTiming(project: StoryProject): StoryTiming {
           from,
           durationInFrames: Math.max(MIN_SHOT_FRAMES, next - from),
           url: byKey.get(shot.image)?.url,
+          size: byKey.get(shot.image)?.shot,
         } satisfies ResolvedShot;
       }),
       totalFrames: Math.max(1, endFrame),
@@ -602,6 +635,7 @@ export function resolveStoryTiming(project: StoryProject): StoryTiming {
         from: cursor,
         durationInFrames,
         url: byKey.get(shot.image)?.url,
+        size: byKey.get(shot.image)?.shot,
       };
       cursor += durationInFrames;
       return resolved;
@@ -646,6 +680,7 @@ export function resolveStoryTiming(project: StoryProject): StoryTiming {
       from,
       durationInFrames: Math.max(MIN_SHOT_FRAMES, next - from),
       url: byKey.get(shot.image)?.url,
+      size: byKey.get(shot.image)?.shot,
     } satisfies ResolvedShot;
   });
 
@@ -691,6 +726,8 @@ export type StoryTake = {
   id: string;
   image: string;
   url?: string;
+  /** Wie nah das Bild steht. Entscheidet, wie weit die Kamera wandern darf. */
+  size?: ShotSize;
   motion: ShotMotion;
   from: number;
   durationInFrames: number;
@@ -752,6 +789,7 @@ export function storyTakes(timing: StoryTiming): StoryTake[] {
       id: shot.id,
       image: shot.image,
       url: shot.url,
+      size: shot.size,
       // The first shot's move governs the whole take. The writer chose it for
       // the sentence that introduces the picture, which is the moment the move
       // has to answer to.
@@ -817,8 +855,35 @@ const CROSS = 0.34;
 const MAX_ZOOM = 0.26;
 const MAX_PAN = 0.2;
 
+/**
+ * Wie weit die Kamera je nach Einstellungsgröße wandern darf.
+ *
+ * Eine Nahaufnahme verträgt weniger Fahrt als eine Totale, und zwar aus zwei
+ * Gründen gleichzeitig. Handwerklich: je näher das Motiv, desto größer wirkt
+ * dieselbe Verschiebung — ein Schwenk, der über einer Landschaft ruhig
+ * aussieht, reißt über einem Gesicht. Und technisch: der Bildprompt darf bei
+ * close/detail das Motiv groß machen, also liegt weniger Luft am Rand, und
+ * dieselbe Fahrt schöbe das Gesicht aus dem Bild.
+ *
+ * Das ist die Antwort auf die naheliegende, falsche Lösung — bei
+ * Nahaufnahmen den Sicherheitsrand im Prompt zu streichen. Der Rand ist kein
+ * Kompositionsgeschmack, er ist der Platz, den die Fahrt braucht. Weg damit
+ * hieße: Motiv groß, Fahrt unverändert, Gesicht halb draußen.
+ */
+const SIZE_AMP: Record<ShotSize, number> = {
+  wide: 1,
+  medium: 0.85,
+  close: 0.55,
+  detail: 0.45,
+};
+
 export function shotMove(
-  shot: { id: string; motion: ShotMotion; durationInFrames: number },
+  shot: {
+    id: string;
+    motion: ShotMotion;
+    durationInFrames: number;
+    size?: ShotSize;
+  },
   fps: number,
 ): ShotMove {
   const seconds = Math.max(0.4, shot.durationInFrames / fps);
@@ -826,7 +891,9 @@ export function shotMove(
   // shorter ones are held back, longer ones are given more ground to cover.
   const pace = Math.min(1.5, Math.max(0.55, seconds / 3.5));
   const varied = 0.7 + 0.6 * hash01(shot.id);
-  const amp = pace * varied;
+  // Ohne Größe wie bisher: alte Projekte kennen das Feld nicht und müssen
+  // sich weiter genauso bewegen wie an dem Tag, an dem sie gerendert wurden.
+  const amp = pace * varied * (shot.size ? SIZE_AMP[shot.size] : 1);
 
   // Which way the secondary drift goes during a pure zoom. Stable per shot,
   // so the same picture used twice with the same motion still differs.
@@ -981,7 +1048,9 @@ export function resolveShortTiming(
   // care for the same reason.
   const starts: number[] = [];
   for (let i = from; i <= to; i++) {
-    starts.push(hookFrames + Math.round(((cues[i] ?? startSeconds) - startSeconds) * fps));
+    starts.push(
+      hookFrames + Math.round(((cues[i] ?? startSeconds) - startSeconds) * fps),
+    );
   }
   const endFrame = hookFrames + Math.round((endSeconds - startSeconds) * fps);
 
@@ -1004,7 +1073,10 @@ export function resolveShortTiming(
     hookFrames,
     narrationFrom: startSeconds,
     narrationSeconds: Math.max(0.5, endSeconds - startSeconds),
-    totalFrames: Math.max(1, (last?.from ?? 0) + (last?.durationInFrames ?? fps)),
+    totalFrames: Math.max(
+      1,
+      (last?.from ?? 0) + (last?.durationInFrames ?? fps),
+    ),
   };
 }
 
@@ -1019,3 +1091,64 @@ export function shortSeconds(
   const end = cues[to + 1] ?? project.audioSeconds ?? start;
   return Math.max(0, end - start);
 }
+
+/**
+ * Stellen, an denen dreimal hintereinander dieselbe Einstellungsgröße steht.
+ *
+ * Rein und im Browser gerechnet, denn genau darin liegt der Wert: Prüfen
+ * kostet nichts, Zeichnen kostet Geld. Ein Video, in dem fünfmal
+ * hintereinander eine Totale steht, ist kein Fehler, den man nach dem
+ * Zeichnen noch billig los wird — die fünf Bilder sind dann bezahlt.
+ *
+ * Gezählt wird über AUFTRITTE, nicht über Sätze: mehrere Sätze auf demselben
+ * Bild sind eine Einstellung und keine Wiederholung. Zwei verschiedene
+ * Totalen nacheinander sind in Ordnung, drei sind der Punkt, an dem es
+ * auffällt.
+ *
+ * Bilder ohne Größe unterbrechen eine Serie nicht, sie zählen nur nicht mit:
+ * ein altes Projekt ohne das Feld soll keine Warnung über das ganze Video
+ * bekommen, und ein einzelnes Bild ohne Größe soll eine echte Serie nicht
+ * verstecken.
+ */
+export function monotonousRuns(
+  project: Pick<StoryProject, "images" | "shots">,
+  /** Ab wie vielen gleichen Größen gewarnt wird. */
+  limit = 3,
+): { size: ShotSize; from: string; to: string; count: number }[] {
+  const byKey = new Map(project.images.map((i) => [i.key, i]));
+  const runs: { size: ShotSize; from: string; to: string; count: number }[] =
+    [];
+
+  let open: { size: ShotSize; from: string; to: string; count: number } | null =
+    null;
+  let previousImage: string | undefined;
+
+  for (const shot of project.shots) {
+    // Derselbe Auftritt, nicht der nächste: die Kamera läuft weiter, es ist
+    // ein Bild.
+    if (shot.image === previousImage) continue;
+    previousImage = shot.image;
+
+    const size = byKey.get(shot.image)?.shot;
+    if (!size) continue;
+
+    if (open && open.size === size) {
+      open.to = shot.id;
+      open.count += 1;
+      continue;
+    }
+    if (open && open.count >= limit) runs.push(open);
+    open = { size, from: shot.id, to: shot.id, count: 1 };
+  }
+  if (open && open.count >= limit) runs.push(open);
+
+  return runs;
+}
+
+/** Wie die Größen im Studio heißen. */
+export const SHOT_SIZE_LABEL: Record<ShotSize, string> = {
+  wide: "Totale",
+  medium: "Halbnah",
+  close: "Nah",
+  detail: "Detail",
+};

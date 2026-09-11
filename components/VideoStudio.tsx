@@ -16,8 +16,10 @@ import {
 } from "../lib/speech-models";
 import {
   DEFAULT_YOUTUBE_MODEL,
+  monotonousRuns,
   renderDescription,
   resolveStoryTiming,
+  SHOT_SIZE_LABEL,
   shortSeconds,
   storyTakes,
   StoryProject,
@@ -520,6 +522,11 @@ export const VideoStudio: React.FC<{
     [project.images],
   );
   const drawnCount = project.images.length - undrawn.length;
+
+  // Kostet nichts und wird deshalb bei jeder Änderung neu gerechnet, statt
+  // einmal beim Erzeugen: wer ein Bild von Hand umschreibt, soll die Warnung
+  // verschwinden sehen.
+  const monotony = useMemo(() => monotonousRuns(project), [project]);
 
   // ---- The kept things ----------------------------------------------------
   /**
@@ -2494,6 +2501,30 @@ export const VideoStudio: React.FC<{
                     {project.style.name}
                   </span>
                 </div>
+
+                {/*
+                  Vor dem Zeichnen, nicht danach — das ist der ganze Zweck.
+                  Prüfen kostet nichts, Zeichnen kostet Geld: fünf Totalen
+                  hintereinander sind nach dem Zeichnen fünf bezahlte Bilder
+                  und kein Hinweis mehr wert.
+
+                  Keine Sperre, nur ein Hinweis. Es gibt Abschnitte, in denen
+                  drei Totalen richtig sind, und das kann nur beurteilen, wer
+                  das Skript gelesen hat.
+                */}
+                {monotony.length > 0 ? (
+                  <Note tone="alert">
+                    {monotony
+                      .map(
+                        (run) =>
+                          `${run.count}× ${SHOT_SIZE_LABEL[run.size]} hintereinander (${run.from}–${run.to})`,
+                      )
+                      .join(", ")}
+                    . Das sieht aus wie ein Katalog. Schreib die betroffenen
+                    Bilder um oder erzeug das Skript neu — nach dem Zeichnen
+                    kostet es.
+                  </Note>
+                ) : null}
 
                 {/*
                   Die Vorschau steht ZUERST und ist der auffälligere Knopf,

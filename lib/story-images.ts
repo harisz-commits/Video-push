@@ -3,7 +3,11 @@ import { generateImage } from "./gemini";
 import { resolveModel, type ImageModel } from "./image-models";
 import { findStored, lookup, noteUse, remember } from "./image-library";
 import { imagePrompt } from "./story-prompt";
-import { styleFingerprint, type StoryCharacter, type StoryProject } from "./story";
+import {
+  styleFingerprint,
+  type StoryCharacter,
+  type StoryProject,
+} from "./story";
 
 /**
  * Drawing the pictures.
@@ -159,6 +163,7 @@ export async function drawStoryImages(args: {
           // a third of itself to the 16:9 frame — paid for, generated,
           // discarded. See FRAMING and ASPECT in lib/gemini.ts.
           layout: "story",
+          size: image.shot,
           model,
         });
 

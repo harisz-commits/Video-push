@@ -495,6 +495,24 @@ DIE BILDER:
   sind. Beschreib ihr Aussehen NICHT in "prompt" — das steht schon fest und
   wird angehängt. Schreib in "prompt" nur, was die Figur tut und wo sie steht.
   Kommt keine Figur vor, lass "characters" weg.
+DIE EINSTELLUNGSGRÖSSE ("shot") — sie gehört zu JEDEM Bild:
+- "wide" (Totale): Landschaft, Stadt, Raum als Ganzes. Figuren klein.
+- "medium" (Halbnah): ein Mensch etwa ab der Hüfte, eine Arbeit, eine Szene
+  mit zwei oder drei Personen.
+- "close" (Nah): ein Gesicht füllt das Bild. Für Gefühl.
+- "detail": ein Ding, ganz nah. Hände an einem Werkzeug, ein Siegel, ein Riss
+  in einer Mauer, ein Löffel in leerer Schale.
+- Der "prompt" MUSS zur Größe passen. Bei "close" beschreibst du ein Gesicht,
+  das den Rahmen füllt, nicht eine Person, die irgendwo in einer Szene steht.
+  Größe und Prompt, die auseinanderlaufen, ergeben ein Bild, das weder das
+  eine noch das andere ist.
+- NIE DREI GLEICHE GRÖSSEN HINTEREINANDER. Nach zwei Totalen kommt etwas
+  Näheres — und zwar weil es sonst aussieht wie ein Katalog: jedes Bild wird
+  einzeln gezeichnet und kennt die anderen nicht, also entsteht Abwechslung
+  nur, wenn du sie planst.
+- Wechsel nach dem Inhalt, nicht nach Schema. Der Weg in ein Thema hinein ist
+  oft Totale → Halbnah → Nah, der Weg hinaus umgekehrt.
+
 - "name" ist ein kurzer deutscher Name des Bildes, an dem man es in einer Liste
   wiedererkennt: "Lehmziegelhaus von der Seite", "Wasserkrug im Schatten".
 - "key" ist derselbe Name als Kleinbuchstaben-Slug: nur a-z, 0-9 und
@@ -553,7 +571,7 @@ KLANG:
   Einstellungen später.
 
 Antworte mit einem JSON-Objekt, sonst nichts:
-{"images":[{"key":"…","name":"…","prompt":"…","characters":["…"]}],
+{"images":[{"key":"…","name":"…","prompt":"…","shot":"wide","characters":["…"]}],
  "accents":[{"key":"…","name":"…","prompt":"…","seconds":2}],
  "shots":[{"text":"…","image":"…","motion":"in","ambience":"…","accent":"…"}]}
 
@@ -909,9 +927,17 @@ DER KLANG:
 - "prompt" auf Englisch, und er beschreibt nur das Geräusch. "seconds" für
   einen Teppich zwischen 8 und 20, für einen Akzent zwischen 1 und 4.
 
+DIE EINSTELLUNGSGRÖSSE ("shot") — jedes Bild bekommt eine:
+- "wide" (Totale), "medium" (Halbnah), "close" (Nah, ein Gesicht füllt das
+  Bild), "detail" (ein Ding ganz nah).
+- Der "prompt" muss zur Größe passen: bei "close" ein Gesicht im Rahmen, nicht
+  eine Person irgendwo in einer Szene.
+- NIE DREI GLEICHE GRÖSSEN HINTEREINANDER. Jedes Bild wird einzeln gezeichnet
+  und kennt die anderen nicht — Abwechslung entsteht nur, wenn du sie planst.
+
 Antworte mit einem JSON-Objekt, sonst nichts:
 {"title":"…",
- "images":[{"key":"…","name":"…","prompt":"…","characters":["…"]}],
+ "images":[{"key":"…","name":"…","prompt":"…","shot":"wide","characters":["…"]}],
  "beds":[{"key":"…","name":"…","prompt":"…","seconds":12}],
  "accents":[{"key":"…","name":"…","prompt":"…","seconds":2}],
  "spans":[{"from":0,"to":2,"image":"…","motion":"in","ambience":"…","accent":"…"}]}

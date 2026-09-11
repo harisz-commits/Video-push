@@ -135,6 +135,39 @@ const FRAMING: Record<string, string> = {
  * 21:9 rather than the strip's true 3.2:1 because 21:9 is the widest the API
  * offers; the rest is trimmed off the sides, where nothing important is.
  */
+/**
+ * Was eine Einstellungsgröße dem Bildauftrag zusätzlich sagt.
+ *
+ * Zusätzlich, nicht anstelle: FRAMING.story bleibt vollständig in Kraft. Jeder
+ * Satz darin wehrt einen Fehler ab, den wir schon gesehen haben — den
+ * Passepartout-Rand, das Diorama auf der Platte, den schwebenden Block —, und
+ * keiner davon wird bei einer Nahaufnahme plötzlich unschädlich.
+ *
+ * Insbesondere bleibt der Sicherheitsrand stehen. Die naheliegende Lesart von
+ * „bei close darf das Motiv groß sein" wäre, das äußerste Zehntel
+ * freizugeben — aber dieser Rand ist kein Kompositionsgeschmack, sondern der
+ * Platz, den die Kamerafahrt braucht. Ohne ihn wandert das Gesicht während des
+ * Schwenks aus dem Bild. Gelöst ist das an der anderen Stelle: SIZE_AMP in
+ * lib/story.ts macht die Fahrt bei Nahaufnahmen kürzer. Hier wird nur gesagt,
+ * WIE nah das Motiv steht.
+ */
+const SIZE: Record<string, string> = {
+  wide:
+    "Framing: a wide establishing shot. The setting itself is the subject — landscape, " +
+    "street, room, or structure seen whole. People, if any, are small within it.",
+  medium:
+    "Framing: a medium shot. One or two people from roughly the waist up, or a single " +
+    "activity at arm's length. Close enough to read a face, wide enough to show what is " +
+    "being done and where.",
+  close:
+    "Framing: a close-up of one face. The head and shoulders fill the frame and the eyes sit " +
+    "near the upper third. The expression is the content of this picture — everything behind " +
+    "it is background and stays simple.",
+  detail:
+    "Framing: an extreme close-up of a single object or a pair of hands, seen from a hand's " +
+    "distance. One thing, filling the frame, sharp and specific. No wide context.",
+};
+
 const ASPECT: Record<string, string> = {
   full: "16:9",
   split: "1:1",
@@ -146,12 +179,15 @@ export async function generateImage({
   prompt,
   apiKey,
   layout,
+  size,
   model,
   signal,
 }: {
   prompt: string;
   apiKey: string;
   layout?: string;
+  /** Einstellungsgröße, nur beim Video-Format. Siehe SIZE und ShotSize. */
+  size?: string;
   model?: ImageModel;
   signal?: AbortSignal;
 }): Promise<{ data: Buffer; mimeType: string; model: string }> {
@@ -182,7 +218,12 @@ export async function generateImage({
   async function draw(
     modelId: string,
   ): Promise<{ data: Buffer; mimeType: string }> {
-    const framing = (layout && FRAMING[layout]) ?? FRAMING.split;
+    const base = (layout && FRAMING[layout]) ?? FRAMING.split;
+    // Die Größe kommt VOR das Gerüst: erst wo die Kamera steht, dann die
+    // Regeln, die für jedes Bild dieses Formats gelten. Ein widersprechender
+    // Satz am Ende wiegt bei Bildmodellen schwerer als einer am Anfang, und
+    // widersprechen darf hier nur das Gerüst.
+    const framing = size && SIZE[size] ? `${SIZE[size]} ${base}` : base;
     const aspectRatio = (layout && ASPECT[layout]) ?? ASPECT.split;
     // The video format states its own look in full and would only be
     // contradicted by a second one. Everything else is a thumbnail.
